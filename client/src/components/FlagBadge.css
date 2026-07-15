@@ -1,0 +1,36 @@
+.flag-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+}
+
+.flag-orange {
+  background: var(--flag-orange);
+  color: #fff;
+}
+.flag-yellow {
+  background: var(--flag-yellow);
+  color: #fff;
+}
+.flag-purple {
+  background: var(--flag-purple);
+  color: #fff;
+}
+.flag-green {
+  background: var(--flag-green);
+  color: #fff;
+}
+.flag-red {
+  background: var(--flag-red);
+  color: #fff;
+}
+.flag-default {
+  background: var(--color-border);
+  color: var(--color-text-muted);
+}

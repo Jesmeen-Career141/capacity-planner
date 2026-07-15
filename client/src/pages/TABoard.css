@@ -1,0 +1,408 @@
+/* ═══════════════════════════════════════════════════
+   TABoard — Page Layout
+═══════════════════════════════════════════════════ */
+
+.taboard-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ─── Header ─── */
+.taboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.taboard-header h1 {
+  font-size: 22px;
+  color: var(--color-text);
+}
+
+.taboard-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.week-select {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s;
+}
+
+.week-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.btn-autofill {
+  padding: 8px 18px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.2s, opacity 0.2s, transform 0.1s;
+}
+
+.btn-autofill:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  transform: translateY(-1px);
+}
+
+.btn-autofill:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════
+   Stats Row
+═══════════════════════════════════════════════════ */
+
+.tb-stats-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.tb-stat-card {
+  flex: 0 0 auto;
+  min-width: 110px;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-top: 3px solid var(--color-border);
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.tb-stat-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.tb-stat-card--primary { border-top-color: var(--color-primary); }
+.tb-stat-card--green   { border-top-color: var(--flag-green); }
+.tb-stat-card--purple  { border-top-color: var(--flag-purple); }
+.tb-stat-card--red     { border-top-color: var(--flag-red); }
+
+.tb-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.tb-stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-text);
+  font-family: var(--font-display);
+  line-height: 1;
+}
+
+/* ═══════════════════════════════════════════════════
+   Body — Sidebar + Grid
+═══════════════════════════════════════════════════ */
+
+.taboard-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+/* ─── Position Pool Sidebar ─── */
+.position-pool {
+  width: 258px;
+  flex-shrink: 0;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 260px);
+}
+
+.pool-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+  flex-shrink: 0;
+}
+
+.pool-cards {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.pool-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+  user-select: none;
+}
+
+.pool-card:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.pool-card:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.pool-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.pool-jo {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-primary);
+  font-family: var(--font-display);
+}
+
+.pool-plevel {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  letter-spacing: 0.03em;
+}
+
+.pool-plevel--P1 { background: #fee2e2; color: #991b1b; }
+.pool-plevel--P2 { background: #ffedd5; color: #9a3412; }
+.pool-plevel--P3 { background: #fef9c3; color: #854d0e; }
+.pool-plevel--P4 { background: #dcfce7; color: #166534; }
+.pool-plevel--P5 { background: #e0e7ff; color: #3730a3; }
+
+.pool-card-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 6px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pool-card-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.pool-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pool-badge--new   { background: #dbeafe; color: #1d4ed8; }
+.pool-badge--round { background: #f3e8ff; color: #7e22ce; }
+
+.pool-empty {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 24px 0;
+}
+
+/* ═══════════════════════════════════════════════════
+   Weekly Grid
+═══════════════════════════════════════════════════ */
+
+.grid-wrapper {
+  flex: 1;
+  min-width: 0;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  max-height: calc(100vh - 260px);
+  display: flex;
+  flex-direction: column;
+}
+
+.grid-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  padding: 60px 24px;
+}
+
+.grid-scroll {
+  overflow: auto;
+  flex: 1;
+}
+
+/* ─── Table ─── */
+.weekly-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.weekly-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-bg);
+  border-bottom: 2px solid var(--color-border);
+  padding: 10px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.th-ta {
+  position: sticky;
+  left: 0;
+  z-index: 3 !important;
+  min-width: 130px;
+}
+
+.th-day {
+  min-width: 190px;
+}
+
+.weekly-grid tbody tr {
+  border-bottom: 1px solid var(--color-border);
+  transition: background 0.1s;
+}
+
+.weekly-grid tbody tr:last-child {
+  border-bottom: none;
+}
+
+.weekly-grid tbody tr:hover {
+  background: var(--color-bg);
+}
+
+.td-ta {
+  position: sticky;
+  left: 0;
+  background: var(--color-surface);
+  z-index: 1;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+  border-right: 1px solid var(--color-border);
+  transition: background 0.1s;
+}
+
+.weekly-grid tbody tr:hover .td-ta {
+  background: var(--color-bg);
+}
+
+.td-cell {
+  padding: 5px 7px;
+  vertical-align: middle;
+}
+
+.grid-no-data {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  padding: 48px;
+}
+
+/* ─── Cell Select ─── */
+.cell-select {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.cell-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(31, 92, 62, 0.12);
+}
+
+.cell-select:hover {
+  border-color: var(--color-primary-hover);
+}
+
+/* ═══════════════════════════════════════════════════
+   Loading / Error States
+═══════════════════════════════════════════════════ */
+
+.taboard-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  font-size: 15px;
+  color: var(--color-text-muted);
+}
+
+.taboard-error {
+  padding: 20px;
+  color: var(--flag-red);
+  font-size: 14px;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}

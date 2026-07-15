@@ -1,0 +1,144 @@
+.pos-detail {
+  max-width: 100%;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.detail-header h1 {
+  margin: 0;
+}
+.subtitle {
+  color: var(--color-text-muted);
+  font-size: 15px;
+  margin-top: 4px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.flags-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+@media (max-width: 900px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.detail-section {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+}
+.detail-section h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.detail-view {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 14px;
+}
+.detail-row span:first-child {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+.detail-row span:last-child {
+  font-weight: 500;
+}
+
+.edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.edit-form label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+.edit-form input,
+.edit-form select,
+.edit-form textarea {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  background: var(--color-bg);
+}
+.edit-form input:disabled {
+  background: var(--color-border);
+  color: var(--color-text-muted);
+}
+.edit-form textarea {
+  resize: vertical;
+  font-family: var(--font-body);
+}
+.form-actions {
+  margin-top: 8px;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.history-table th {
+  text-align: left;
+  padding: 6px 8px;
+  background: var(--color-bg);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+.history-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.history-table tr:hover {
+  background: var(--color-bg);
+}
+
+.assign-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.assign-form label {
+  font-weight: 500;
+  font-size: 14px;
+}
+.assign-form select,
+.assign-form input {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 14px;
+}
