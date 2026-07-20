@@ -62,7 +62,7 @@ function Archive() {
                 >
                   <div className="snapshot-info">
                     <span className="snapshot-week">
-                      {new Date(s.weekStart).toLocaleDateString()} – {new Date(s.weekEnd).toLocaleDateString()}
+                      {new Date(s.weekStart).toLocaleDateString()} â€” {new Date(s.weekEnd).toLocaleDateString()}
                     </span>
                     <span className="snapshot-count">{s.snapshot?.length || 0} positions</span>
                   </div>
@@ -82,7 +82,7 @@ function Archive() {
             <>
               <div className="detail-header">
                 <h2>
-                  Week of {new Date(selectedSnapshot.weekStart).toLocaleDateString()} – {new Date(selectedSnapshot.weekEnd).toLocaleDateString()}
+                  Week of {new Date(selectedSnapshot.weekStart).toLocaleDateString()} â€” {new Date(selectedSnapshot.weekEnd).toLocaleDateString()}
                 </h2>
                 <button className="btn-secondary" onClick={handleCloseDetail}>Close</button>
               </div>
@@ -104,12 +104,12 @@ function Archive() {
                     <tbody>
                       {selectedSnapshot.snapshot.map((item, idx) => (
                         <tr key={idx}>
-                          <td>{item.taName || '—'}</td>
+                          <td>{item.taName || 'â€”'}</td>
                           <td>{item.position}</td>
                           <td>{item.clientName}</td>
                           <td>{item.pLevel}</td>
                           <td>{item.status}</td>
-                          <td>{item.thisWeekFocus || '—'}</td>
+                          <td>{item.thisWeekFocus || 'â€”'}</td>
                         </tr>
                       ))}
                     </tbody>

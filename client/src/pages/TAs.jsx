@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { getTAs, createTA, updateTAStatus, deleteTA } from '../api/tas';
+import { getPositions } from '../api/positions';
 import './TAs.css';
 
 function TAs() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tas, setTAs] = useState([]);
+  const [positions, setPositions] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [formData, setFormData] = useState({ name: '' });
@@ -15,18 +17,23 @@ function TAs() {
   const [deleteError, setDeleteError] = useState(null);
 
   useEffect(() => {
-    fetchTAs();
+    fetchData();
   }, []);
 
-  const fetchTAs = async () => {
+  const fetchData = async () => {
     try {
-      const res = await getTAs();
-      setTAs(res.data);
+      const [taRes, posRes] = await Promise.all([getTAs(), getPositions()]);
+      setTAs(taRes.data);
+      setPositions(posRes.data);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const countAssignedPositions = (taId) => {
+    return positions.filter(p => p.assignee?._id === taId).length;
   };
 
   const handleOpenModal = (ta = null) => {
@@ -54,15 +61,10 @@ function TAs() {
     setDeleteError(null);
     try {
       if (editing) {
-        // For editing, we only update name via status endpoint? Actually we only have status update.
-        // We need a PUT to update name. But backend doesn't have a generic PUT for TA.
-        // We'll add a new endpoint: PUT /tas/:id { name } – but since not built, we'll implement frontend with existing.
-        // However, we only have PUT /tas/:id/status. So we cannot edit name. We'll just allow create and toggle status.
-        // Let's disable edit for now and allow only create + status toggle + delete.
         alert('Editing name is not supported yet. Use status toggle instead.');
       } else {
         await createTA(formData.name);
-        await fetchTAs();
+        await fetchData();
         handleCloseModal();
       }
     } catch (err) {
@@ -74,11 +76,17 @@ function TAs() {
 
   const handleToggleStatus = async (id, currentStatus) => {
     const newStatus = currentStatus === 'Active' ? 'Left' : 'Active';
-    if (!window.confirm(`Mark TA as ${newStatus}?`)) return;
+    const assignedCount = countAssignedPositions(id);
+    let confirmMsg = `Mark TA as ${newStatus}?`;
+    if (newStatus === 'Left' && assignedCount > 0) {
+      confirmMsg = `This TA is assigned to ${assignedCount} position(s). They will be flagged for reassign. Continue?`;
+    }
+    if (!window.confirm(confirmMsg)) return;
+
     setUpdating(id);
     try {
       await updateTAStatus(id, newStatus);
-      await fetchTAs();
+      await fetchData(); // refresh both TAs and positions to update flags
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to update status');
     } finally {
@@ -87,12 +95,17 @@ function TAs() {
   };
 
   const handleDelete = async (id, name) => {
-    if (!window.confirm(`Delete TA "${name}"? This will fail if they are assigned to any position.`)) return;
+    const assignedCount = countAssignedPositions(id);
+    if (assignedCount > 0) {
+      alert(`Cannot delete TA: assigned to ${assignedCount} position(s). Mark as Left instead.`);
+      return;
+    }
+    if (!window.confirm(`Delete TA "${name}"?`)) return;
     setDeleting(id);
     setDeleteError(null);
     try {
       await deleteTA(id);
-      await fetchTAs();
+      await fetchData();
     } catch (err) {
       const msg = err.response?.data?.error || 'Failed to delete TA';
       setDeleteError(msg);
@@ -123,42 +136,48 @@ function TAs() {
               <tr>
                 <th>Name</th>
                 <th>Status</th>
+                <th>Assigned Positions</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {tas.map(ta => (
-                <tr key={ta._id}>
-                  <td>{ta.name}</td>
-                  <td>
-                    <span className={`status-badge ${ta.status === 'Active' ? 'status-active' : 'status-left'}`}>
-                      {ta.status}
-                    </span>
-                  </td>
-                  <td className="actions-cell">
-                    <button
-                      className="action-toggle"
-                      onClick={() => handleToggleStatus(ta._id, ta.status)}
-                      disabled={updating === ta._id}
-                    >
-                      {updating === ta._id ? '...' : `Mark ${ta.status === 'Active' ? 'Left' : 'Active'}`}
-                    </button>
-                    <button
-                      className="action-delete"
-                      onClick={() => handleDelete(ta._id, ta.name)}
-                      disabled={deleting === ta._id}
-                    >
-                      {deleting === ta._id ? '...' : 'Delete'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {tas.map(ta => {
+                const assignedCount = countAssignedPositions(ta._id);
+                return (
+                  <tr key={ta._id}>
+                    <td>{ta.name}</td>
+                    <td>
+                      <span className={`status-badge ${ta.status === 'Active' ? 'status-active' : 'status-left'}`}>
+                        {ta.status}
+                      </span>
+                    </td>
+                    <td>{assignedCount}</td>
+                    <td className="actions-cell">
+                      <button
+                        className="action-toggle"
+                        onClick={() => handleToggleStatus(ta._id, ta.status)}
+                        disabled={updating === ta._id}
+                      >
+                        {updating === ta._id ? '...' : `Mark ${ta.status === 'Active' ? 'Left' : 'Active'}`}
+                      </button>
+                      <button
+                        className="action-delete"
+                        onClick={() => handleDelete(ta._id, ta.name)}
+                        disabled={deleting === ta._id || assignedCount > 0}
+                        title={assignedCount > 0 ? 'Cannot delete: assigned to positions' : ''}
+                      >
+                        {deleting === ta._id ? '...' : 'Delete'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
       </div>
 
-      {/* Modal – only for create */}
+      {/* Modal for creating new TA */}
       {showModal && (
         <div className="modal-overlay" onClick={handleCloseModal}>
           <div className="modal" onClick={e => e.stopPropagation()}>

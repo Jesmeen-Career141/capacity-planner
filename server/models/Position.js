@@ -62,6 +62,32 @@ const positionSchema = new mongoose.Schema({
     type: Number,
     default: null
   },
+  targetCvCount: {
+    type: Number,
+    default: null
+  },
+  interviewedCount: {
+    type: Number,
+    default: null
+  },
+  secondInterviewCount: {
+    type: Number,
+    default: null
+  },
+  // Freeform highlight color the lead can assign per row. The meaning of each
+  // color is stored separately in the ColorLegend collection, editable by her.
+  highlightColor: {
+    type: String,
+    enum: ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink', null],
+    default: null
+  },
+  flagOverrides: {
+    followUp:  { type: String, enum: ['auto', 'on', 'off'], default: 'auto' },
+    addOn:     { type: String, enum: ['auto', 'on', 'off'], default: 'auto' },
+    backup:    { type: String, enum: ['auto', 'on', 'off'], default: 'auto' },
+    goingGood: { type: String, enum: ['auto', 'on', 'off'], default: 'auto' },
+    reAssign:  { type: String, enum: ['auto', 'on', 'off'], default: 'auto' }
+  },
   tags: [{
     type: String,
     trim: true
@@ -80,7 +106,16 @@ const positionSchema = new mongoose.Schema({
   remarks: {
     type: String,
     default: ''
-  }
+  },
+
+  // models/Position.js – add this field inside the schema
+  flagOverrides: {
+  type: Map,
+  of: String,
+  default: {}
+}
+
+  
 }, { timestamps: true });
 
 module.exports = mongoose.model('Position', positionSchema);

@@ -2,7 +2,7 @@ const Position = require('../models/Position');
 const PositionHistory = require('../models/PositionHistory');
 const { computeFlags } = require('../utils/flagLogic');
 
-// GET all positions (with client and assignee populated, plus flags)
+// GET all positions with flags
 async function getAllPositions(req, res) {
   try {
     const positions = await Position.find()
@@ -22,7 +22,7 @@ async function getAllPositions(req, res) {
   }
 }
 
-// GET a single position by ID (with flags)
+// GET a single position
 async function getPositionById(req, res) {
   try {
     const position = await Position.findById(req.params.id)
@@ -57,6 +57,9 @@ async function createPosition(req, res) {
       completionPercent,
       lsCount,
       cvCount,
+      targetCvCount,
+      interviewedCount,
+      secondInterviewCount,
       tags,
       remarks
     } = req.body;
@@ -81,6 +84,9 @@ async function createPosition(req, res) {
       completionPercent,
       lsCount,
       cvCount,
+      targetCvCount,
+      interviewedCount,
+      secondInterviewCount,
       tags,
       remarks
     });
@@ -91,7 +97,7 @@ async function createPosition(req, res) {
   }
 }
 
-// PUT update a position - logs each changed field to PositionHistory
+// PUT update a position (logs history)
 async function updatePosition(req, res) {
   try {
     const { id } = req.params;
@@ -144,7 +150,7 @@ async function updatePosition(req, res) {
   }
 }
 
-// PUT assign a TA to a position (the Assign screen action)
+// PUT assign a TA to a position – clears reAssign override
 async function assignPosition(req, res) {
   try {
     const { id } = req.params;
@@ -165,6 +171,11 @@ async function assignPosition(req, res) {
       reason: reason || 'Initial assignment',
       cvCountAtRound: position.cvCount
     });
+
+    // ---- NEW: clear the reAssign override if it exists ----
+    if (position.flagOverrides && position.flagOverrides.has('reAssign')) {
+      position.flagOverrides.delete('reAssign');
+    }
 
     await position.save();
 
@@ -188,7 +199,52 @@ async function assignPosition(req, res) {
   }
 }
 
-// DELETE a position (also cleans up its history entries)
+// PUT set a manual override (auto/on/off) for a single flag
+async function setFlagOverride(req, res) {
+  try {
+    const { id, flagName } = req.params;
+    const { mode } = req.body;
+
+    const validFlags = ['followUp', 'addOn', 'backup', 'goingGood', 'reAssign'];
+    if (!validFlags.includes(flagName)) {
+      return res.status(400).json({ error: `flagName must be one of: ${validFlags.join(', ')}` });
+    }
+    if (!['auto', 'on', 'off'].includes(mode)) {
+      return res.status(400).json({ error: 'mode must be auto, on, or off' });
+    }
+
+    const existing = await Position.findById(id).lean();
+    if (!existing) {
+      return res.status(404).json({ error: 'Position not found' });
+    }
+
+    const oldMode = existing.flagOverrides?.[flagName] || 'auto';
+
+    const updatedPosition = await Position.findByIdAndUpdate(
+      id,
+      { [`flagOverrides.${flagName}`]: mode },
+      { new: true, runValidators: true }
+    )
+      .populate('client', 'clientId clientName')
+      .populate('assignee', 'name')
+      .lean();
+
+    if (oldMode !== mode) {
+      await PositionHistory.create({
+        position: id,
+        field: `flagOverrides.${flagName}`,
+        oldValue: oldMode,
+        newValue: mode
+      });
+    }
+
+    res.json({ ...updatedPosition, flags: computeFlags(updatedPosition) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// DELETE a position
 async function deletePosition(req, res) {
   try {
     const { id } = req.params;
@@ -212,5 +268,6 @@ module.exports = {
   createPosition,
   updatePosition,
   assignPosition,
+  setFlagOverride,
   deletePosition
 };

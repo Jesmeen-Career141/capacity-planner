@@ -1,8 +1,8 @@
-import api from './client';
-
+﻿import api from './client';
 export const getPositions = () => api.get('/positions');
 export const getPosition = (id) => api.get(`/positions/${id}`);
 export const createPosition = (data) => api.post('/positions', data);
 export const updatePosition = (id, data) => api.put(`/positions/${id}`, data);
 export const assignPosition = (id, taId, reason) => api.put(`/positions/${id}/assign`, { taId, reason });
+export const setFlagOverride = (id, flagName, mode) => api.put(`/positions/${id}/flags/${flagName}`, { mode });
 export const deletePosition = (id) => api.delete(`/positions/${id}`);

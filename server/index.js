@@ -10,6 +10,7 @@ const archiveRoutes = require('./routes/archiveRoutes');
 const positionHistoryRoutes = require('./routes/positionHistoryRoutes');
 const weeklyAllocationRoutes = require('./routes/weeklyAllocationRoutes');
 
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -24,6 +25,7 @@ app.use('/api/positions', positionRoutes);
 app.use('/api/archive', archiveRoutes);
 app.use('/api/position-history', positionHistoryRoutes);
 app.use('/api/weekly-allocations', weeklyAllocationRoutes);
+app.use('/api/color-legend', require('./routes/colorLegend'));
 
 const PORT = process.env.PORT || 5000;
 

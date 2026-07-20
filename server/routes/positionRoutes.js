@@ -6,6 +6,7 @@ const {
   createPosition,
   updatePosition,
   assignPosition,
+  setFlagOverride,
   deletePosition
 } = require('../controllers/positionController');
 
@@ -14,6 +15,7 @@ router.get('/:id', getPositionById);
 router.post('/', createPosition);
 router.put('/:id', updatePosition);
 router.put('/:id/assign', assignPosition);
+router.put('/:id/flags/:flagName', setFlagOverride);
 router.delete('/:id', deletePosition);
 
 module.exports = router;

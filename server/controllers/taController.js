@@ -1,4 +1,5 @@
 const TA = require('../models/TA');
+const Position = require('../models/Position');
 
 // GET all TAs
 async function getAllTAs(req, res) {
@@ -37,7 +38,7 @@ async function createTA(req, res) {
   }
 }
 
-// PUT update a TA's status (Active/Left)
+// PUT update a TA's status (Active/Left) – with override logic
 async function updateTAStatus(req, res) {
   try {
     const { id } = req.params;
@@ -55,6 +56,18 @@ async function updateTAStatus(req, res) {
 
     if (!updatedTA) {
       return res.status(404).json({ error: 'TA not found' });
+    }
+
+    // ---- NEW: if TA is marked as Left, set reAssign override on all their positions ----
+    if (status === 'Left') {
+      const positions = await Position.find({ assignee: id });
+
+      for (const pos of positions) {
+        // Ensure flagOverrides is a Map (if using Mongoose Map)
+        if (!pos.flagOverrides) pos.flagOverrides = new Map();
+        pos.flagOverrides.set('reAssign', 'on');
+        await pos.save();
+      }
     }
 
     res.json(updatedTA);

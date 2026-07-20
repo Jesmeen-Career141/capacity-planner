@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { getPositions } from '../api/positions';
 import { getActiveTAs } from '../api/tas';
 import FlagBadge from '../components/FlagBadge';
-import './Dashboard.css';
+import StatCard from '../components/StatCard';
 
 function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -13,10 +13,7 @@ function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [posRes, taRes] = await Promise.all([
-          getPositions(),
-          getActiveTAs()
-        ]);
+        const [posRes, taRes] = await Promise.all([getPositions(), getActiveTAs()]);
         setPositions(posRes.data);
         setActiveTAs(taRes.data);
       } catch (err) {
@@ -28,8 +25,20 @@ function Dashboard() {
     fetchData();
   }, []);
 
-  if (loading) return <div className="dashboard-loading">Loading dashboard...</div>;
-  if (error) return <div className="dashboard-error">Error: {error}</div>;
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center text-forest-500">
+        Loading dashboard...
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="flex h-full items-center justify-center text-red-500">
+        Error: {error}
+      </div>
+    );
+  }
 
   const totalPositions = positions.length;
   const activeTACount = activeTAs.length;
@@ -38,43 +47,63 @@ function Dashboard() {
     return acc;
   }, {});
 
-  const flaggedPositions = positions.filter(p => {
-    return p.flags && Object.values(p.flags).some(f => f !== null);
-  });
+  const flaggedPositions = positions.filter(
+    (p) => p.flags && Object.values(p.flags).some((f) => f !== null)
+  );
+
+  const cards = [
+    { label: 'Total Positions', value: totalPositions },
+    { label: 'Active TAs', value: activeTACount },
+    ...Object.entries(statusCounts).map(([status, count]) => ({
+      label: status,
+      value: count,
+    })),
+  ];
 
   return (
-    <div className="dashboard">
-      <h1>Dashboard</h1>
-      <div className="stats-grid">
-        <div className="stat-card">
-          <span className="stat-label">Total Positions</span>
-          <span className="stat-value">{totalPositions}</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">Active TAs</span>
-          <span className="stat-value">{activeTACount}</span>
-        </div>
-        {Object.entries(statusCounts).map(([status, count]) => (
-          <div className="stat-card" key={status}>
-            <span className="stat-label">{status}</span>
-            <span className="stat-value">{count}</span>
-          </div>
+    <div className="flex flex-col gap-8">
+      <h1 className="font-display text-2xl font-semibold text-forest-900">
+        Dashboard
+      </h1>
+
+      <div
+        className="grid gap-6"
+        style={{ gridTemplateColumns: `repeat(${cards.length}, minmax(0, 1fr))` }}
+      >
+        {cards.map((c, i) => (
+          <StatCard
+            key={c.label}
+            label={c.label}
+            value={c.value}
+            accent={i % 2 === 0 ? 'leaf' : 'gold'}
+          />
         ))}
       </div>
 
-      <div className="flagged-section">
-        <h2>Positions Needing Attention</h2>
+      <div>
+        <h2 className="mb-3 font-display text-lg font-semibold text-forest-900">
+          Positions Needing Attention
+        </h2>
         {flaggedPositions.length === 0 ? (
-          <p>No flagged positions.</p>
+          <p className="text-sm text-forest-500">No flagged positions.</p>
         ) : (
-          <ul className="flagged-list">
-            {flaggedPositions.map(p => (
-              <li key={p._id} className="flagged-item">
-                <span>{p.jobOrderId} - {p.position}</span>
-                <div className="flag-list">
-                  {Object.values(p.flags).filter(f => f !== null).map((flag, idx) => (
-                    <FlagBadge key={idx} flag={flag} />
-                  ))}
+          <ul className="flex flex-col gap-2">
+            {flaggedPositions.map((p) => (
+              <li
+                key={p._id}
+                className="flex items-center justify-between rounded-xl border
+                           border-forest-200/60 bg-white/70 px-4 py-3 backdrop-blur-md
+                           shadow-sm"
+              >
+                <span className="text-sm font-medium text-forest-800">
+                  {p.jobOrderId} - {p.position}
+                </span>
+                <div className="flex gap-1.5">
+                  {Object.values(p.flags)
+                    .filter((f) => f !== null)
+                    .map((flag, idx) => (
+                      <FlagBadge key={idx} flag={flag} />
+                    ))}
                 </div>
               </li>
             ))}

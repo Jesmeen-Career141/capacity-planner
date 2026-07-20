@@ -55,7 +55,6 @@ function PositionDetails() {
       setPosition(res.data);
       setFormData(res.data);
       setIsEditing(false);
-      // Refresh history
       const histRes = await getPositionHistory(id);
       setHistory(histRes.data);
     } catch (err) {
@@ -75,7 +74,6 @@ function PositionDetails() {
       setFormData(res.data);
       setShowAssignModal(false);
       setAssignData({ taId: '', reason: '' });
-      // Refresh history
       const histRes = await getPositionHistory(id);
       setHistory(histRes.data);
     } catch (err) {
@@ -108,7 +106,7 @@ function PositionDetails() {
       <div className="detail-header">
         <div>
           <h1>{position.jobOrderId}</h1>
-          <p className="subtitle">{position.position} • {position.client?.clientName}</p>
+          <p className="subtitle">{position.position} â€” {position.client?.clientName}</p>
         </div>
         <div className="header-actions">
           <button className="btn-secondary" onClick={() => setIsEditing(!isEditing)}>
@@ -199,15 +197,15 @@ function PositionDetails() {
               <div className="detail-row"><span>Status</span><span>{position.status}</span></div>
               <div className="detail-row"><span>Stage</span><span>{position.pipelineStage}</span></div>
               <div className="detail-row"><span>Transfer/Parallel</span><span>{position.transferParallel}</span></div>
-              <div className="detail-row"><span>Assignee</span><span>{position.assignee?.name || '—'}</span></div>
-              <div className="detail-row"><span>Date Assigned</span><span>{position.dateAssigned ? new Date(position.dateAssigned).toLocaleDateString() : '—'}</span></div>
-              <div className="detail-row"><span>Expected Close</span><span>{position.expectedCloseDate ? new Date(position.expectedCloseDate).toLocaleDateString() : '—'}</span></div>
+              <div className="detail-row"><span>Assignee</span><span>{position.assignee?.name || 'â€”'}</span></div>
+              <div className="detail-row"><span>Date Assigned</span><span>{position.dateAssigned ? new Date(position.dateAssigned).toLocaleDateString() : 'â€”'}</span></div>
+              <div className="detail-row"><span>Expected Close</span><span>{position.expectedCloseDate ? new Date(position.expectedCloseDate).toLocaleDateString() : 'â€”'}</span></div>
               <div className="detail-row"><span>Completion</span><span>{position.completionPercent}%</span></div>
-              <div className="detail-row"><span>LS Count</span><span>{position.lsCount ?? '—'}</span></div>
-              <div className="detail-row"><span>CV Count</span><span>{position.cvCount ?? '—'}</span></div>
-              <div className="detail-row"><span>This Week Focus</span><span>{position.thisWeekFocus || '—'}</span></div>
-              <div className="detail-row"><span>Remarks</span><span>{position.remarks || '—'}</span></div>
-              <div className="detail-row"><span>Tags</span><span>{position.tags?.join(', ') || '—'}</span></div>
+              <div className="detail-row"><span>LS Count</span><span>{position.lsCount ?? 'â€”'}</span></div>
+              <div className="detail-row"><span>CV Count</span><span>{position.cvCount ?? 'â€”'}</span></div>
+              <div className="detail-row"><span>This Week Focus</span><span>{position.thisWeekFocus || 'â€”'}</span></div>
+              <div className="detail-row"><span>Remarks</span><span>{position.remarks || 'â€”'}</span></div>
+              <div className="detail-row"><span>Tags</span><span>{position.tags?.join(', ') || 'â€”'}</span></div>
             </div>
           )}
         </div>
@@ -223,10 +221,10 @@ function PositionDetails() {
                 {position.allocationRounds.map((round, idx) => (
                   <tr key={idx}>
                     <td>{round.roundNumber}</td>
-                    <td>{round.taAssigned?.name || '—'}</td>
+                    <td>{round.taAssigned?.name || 'â€”'}</td>
                     <td>{new Date(round.dateAssigned).toLocaleDateString()}</td>
-                    <td>{round.reason || '—'}</td>
-                    <td>{round.cvCountAtRound ?? '—'}</td>
+                    <td>{round.reason || 'â€”'}</td>
+                    <td>{round.cvCountAtRound ?? 'â€”'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -245,8 +243,8 @@ function PositionDetails() {
                 {history.map((h, idx) => (
                   <tr key={idx}>
                     <td>{h.field}</td>
-                    <td>{h.oldValue || '—'}</td>
-                    <td>{h.newValue || '—'}</td>
+                    <td>{h.oldValue || 'â€”'}</td>
+                    <td>{h.newValue || 'â€”'}</td>
                     <td>{new Date(h.changedAt).toLocaleString()}</td>
                   </tr>
                 ))}
@@ -258,7 +256,6 @@ function PositionDetails() {
         </div>
       </div>
 
-      {/* Assign Modal */}
       {showAssignModal && (
         <div className="modal-overlay" onClick={() => setShowAssignModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -282,7 +279,6 @@ function PositionDetails() {
         </div>
       )}
 
-      {/* Delete Modal */}
       {showDeleteModal && (
         <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>

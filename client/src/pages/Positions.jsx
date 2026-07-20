@@ -1,10 +1,144 @@
-import { useState, useEffect, useMemo } from 'react';
+﻿import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getPositions, deletePosition } from '../api/positions';
+import { getPositions, deletePosition, updatePosition } from '../api/positions';
 import { getClients } from '../api/clients';
 import { getActiveTAs } from '../api/tas';
+import { getColorLegend, updateColorLegend } from '../api/colorLegend';
 import FlagBadge from '../components/FlagBadge';
 import './Positions.css';
+
+const STATUS_OPTIONS = ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost'];
+const PLEVEL_OPTIONS = ['P1', 'P2', 'P3', 'P4', 'P5'];
+const STAGE_OPTIONS = ['Hunting', 'Shortlisted', 'Client Review', 'Interview', 'Offer', 'Placed'];
+const COMPLETION_OPTIONS = [0, 25, 50, 75, 100];
+const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'];
+const COLOR_HEX = {
+  red: '#fca5a5',
+  orange: '#fdba74',
+  yellow: '#fde68a',
+  green: '#86efac',
+  teal: '#5eead4',
+  blue: '#93c5fd',
+  purple: '#d8b4fe',
+  pink: '#f9a8d4',
+};
+
+// P-level colors
+const PLEVEL_COLORS = {
+  P1: { bg: '#b91c1c', text: '#fff' },
+  P2: { bg: '#dc2626', text: '#fff' },
+  P3: { bg: '#f97316', text: '#fff' },
+  P4: { bg: '#fb923c', text: '#1a1a1a' },
+  P5: { bg: '#fdba74', text: '#1a1a1a' },
+};
+
+// Stage colors
+const STAGE_COLORS = {
+  Hunting: { bg: '#dbeafe', text: '#1e40af' },
+  Shortlisted: { bg: '#e0e7ff', text: '#3730a3' },
+  'Client Review': { bg: '#fef3c7', text: '#92400e' },
+  Interview: { bg: '#fce7f3', text: '#9d174d' },
+  Offer: { bg: '#dcfce7', text: '#166534' },
+  Placed: { bg: '#d1fae5', text: '#065f46' },
+};
+
+// Status colors
+const STATUS_COLORS = {
+  'Yet to Activate': { bg: '#e5e7eb', text: '#374151' },
+  'A&P': { bg: '#d1fae5', text: '#065f46' },
+  'Fence': { bg: '#fecaca', text: '#991b1b' },
+  'Hold': { bg: '#fef3c7', text: '#92400e' },
+  'Paused': { bg: '#fde68a', text: '#78350f' },
+  'Placed': { bg: '#bfdbfe', text: '#1e40af' },
+  'Lost': { bg: '#fca5a5', text: '#7f1d1d' },
+};
+
+// Icons
+const EditIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+  </svg>
+);
+const ViewIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+  </svg>
+);
+const DeleteIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </svg>
+);
+
+// Filter icon (funnel)
+const FilterIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="22 3 2 3 10 13 10 21 14 18 14 13 22 3" />
+  </svg>
+);
+
+// Check icon for dropdown
+const CheckIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+function HeaderFilter({ options, value, onChange, allLabel = 'All', label }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const getDisplayLabel = () => {
+    if (!value) return allLabel;
+    const option = options.find(o => o.value === value);
+    return option ? option.label : allLabel;
+  };
+
+  return (
+    <div className="header-filter-wrap" ref={containerRef}>
+      <button
+        className={`header-filter-btn ${value ? 'header-filter-btn--active' : ''}`}
+        onClick={() => setIsOpen(!isOpen)}
+        title={`Filter by ${label}`}
+      >
+        <FilterIcon />
+        <span className="header-filter-badge">{getDisplayLabel()}</span>
+        <span className="header-filter-arrow">▾</span>
+      </button>
+      {isOpen && (
+        <div className="header-filter-dropdown">
+          <button
+            className={`header-filter-option ${!value ? 'selected' : ''}`}
+            onClick={() => { onChange(''); setIsOpen(false); }}
+          >
+            <span className="hfo-check">{!value && <CheckIcon />}</span>
+            <span>{allLabel}</span>
+          </button>
+          {options.map(opt => (
+            <button
+              key={opt.value}
+              className={`header-filter-option ${value === opt.value ? 'selected' : ''}`}
+              onClick={() => { onChange(opt.value); setIsOpen(false); }}
+            >
+              <span className="hfo-check">{value === opt.value && <CheckIcon />}</span>
+              <span>{opt.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Positions() {
   const navigate = useNavigate();
@@ -13,28 +147,41 @@ function Positions() {
   const [positions, setPositions] = useState([]);
   const [clients, setClients] = useState([]);
   const [tas, setTAs] = useState([]);
+  const [legend, setLegend] = useState(COLOR_KEYS.map(key => ({ key, label: '' })));
   const [filters, setFilters] = useState({
     client: '',
     assignee: '',
     status: '',
     pLevel: '',
+    stage: '',
     search: ''
   });
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [updatingId, setUpdatingId] = useState(null);
+
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const [colorPopoverId, setColorPopoverId] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [posRes, clientRes, taRes] = await Promise.all([
+        const [posRes, clientRes, taRes, legendRes] = await Promise.all([
           getPositions(),
           getClients(),
-          getActiveTAs()
+          getActiveTAs(),
+          getColorLegend()
         ]);
         setPositions(posRes.data);
         setClients(clientRes.data);
         setTAs(taRes.data);
+        if (legendRes.data?.entries?.length) {
+          setLegend(legendRes.data.entries);
+        }
       } catch (err) {
         setError(err.message);
       } finally {
@@ -44,22 +191,29 @@ function Positions() {
     fetchData();
   }, []);
 
-  const handleFilterChange = (e) => {
-    setFilters({ ...filters, [e.target.name]: e.target.value });
+  const legendLabel = (key) => legend.find(e => e.key === key)?.label || '';
+
+  const handleFilterChange = (field, value) => {
+    setFilters(prev => ({ ...prev, [field]: value }));
   };
 
   const filteredPositions = useMemo(() => {
     return positions.filter(pos => {
       const matchesClient = !filters.client || pos.client?._id === filters.client;
-      const matchesAssignee = !filters.assignee || pos.assignee?._id === filters.assignee;
+      const matchesAssignee = !filters.assignee
+        ? true
+        : filters.assignee === 'unassigned'
+          ? pos.assignee === null
+          : pos.assignee?._id === filters.assignee;
       const matchesStatus = !filters.status || pos.status === filters.status;
       const matchesPLevel = !filters.pLevel || pos.pLevel === filters.pLevel;
+      const matchesStage = !filters.stage || pos.pipelineStage === filters.stage;
       const searchLower = filters.search.toLowerCase();
       const matchesSearch = !filters.search ||
         pos.jobOrderId.toLowerCase().includes(searchLower) ||
         pos.position.toLowerCase().includes(searchLower) ||
         (pos.client?.clientName || '').toLowerCase().includes(searchLower);
-      return matchesClient && matchesAssignee && matchesStatus && matchesPLevel && matchesSearch;
+      return matchesClient && matchesAssignee && matchesStatus && matchesPLevel && matchesStage && matchesSearch;
     });
   }, [positions, filters]);
 
@@ -88,6 +242,95 @@ function Positions() {
     setDeleteTarget(null);
   };
 
+  const handleDirectUpdate = async (pos, field, value) => {
+    const prevValue = pos[field];
+    setUpdatingId(pos._id);
+    setPositions(prev => prev.map(p => p._id === pos._id ? { ...p, [field]: value } : p));
+
+    try {
+      await updatePosition(pos._id, { [field]: value });
+    } catch (err) {
+      setPositions(prev => prev.map(p => p._id === pos._id ? { ...p, [field]: prevValue } : p));
+      alert(err.response?.data?.error || `Failed to update ${field}`);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const startEdit = (pos) => {
+    setEditingId(pos._id);
+    setEditForm({
+      position: pos.position,
+      lsCount: pos.lsCount ?? '',
+      cvCount: pos.cvCount ?? '',
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({});
+  };
+
+  const handleEditFormChange = (e) => {
+    const { name, value } = e.target;
+    setEditForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const saveEdit = async (pos) => {
+    if (!editForm.position?.trim()) return alert('Position title is required');
+    setSavingEdit(true);
+    try {
+      const payload = {
+        position: editForm.position.trim(),
+        lsCount: editForm.lsCount === '' ? null : Number(editForm.lsCount),
+        cvCount: editForm.cvCount === '' ? null : Number(editForm.cvCount),
+      };
+      const res = await updatePosition(pos._id, payload);
+      setPositions(prev => prev.map(p => p._id === pos._id ? res.data : p));
+      setEditingId(null);
+      setEditForm({});
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save changes');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleColorChange = async (pos, colorKey) => {
+    if (colorKey === pos.highlightColor) { setColorPopoverId(null); return; }
+    const prevColor = pos.highlightColor;
+    setPositions(prev => prev.map(p => p._id === pos._id ? { ...p, highlightColor: colorKey } : p));
+    setColorPopoverId(null);
+    try {
+      await updatePosition(pos._id, { highlightColor: colorKey });
+    } catch (err) {
+      setPositions(prev => prev.map(p => p._id === pos._id ? { ...p, highlightColor: prevColor } : p));
+      alert(err.response?.data?.error || 'Failed to set highlight color');
+    }
+  };
+
+  const handleLegendLabelChange = (key, value) => {
+    setLegend(prev => prev.map(e => e.key === key ? { ...e, label: value } : e));
+  };
+
+  const saveLegend = async () => {
+    try {
+      await updateColorLegend(legend);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save legend');
+    }
+  };
+
+  // Build filter options
+  const clientOptions = clients.map(c => ({ value: c._id, label: c.clientName }));
+  const assigneeOptions = [
+    { value: 'unassigned', label: 'Unassigned' },
+    ...tas.map(ta => ({ value: ta._id, label: ta.name }))
+  ];
+  const statusOptions = STATUS_OPTIONS.map(s => ({ value: s, label: s }));
+  const levelOptions = PLEVEL_OPTIONS.map(p => ({ value: p, label: p }));
+  const stageOptions = STAGE_OPTIONS.map(s => ({ value: s, label: s }));
+
   if (loading) return <div className="positions-loading">Loading positions...</div>;
   if (error) return <div className="positions-error">Error: {error}</div>;
 
@@ -100,109 +343,291 @@ function Positions() {
         </button>
       </div>
 
+      <div className="color-legend-bar">
+        <span className="legend-bar-label">Highlight colors</span>
+        <div className="legend-swatches">
+          {COLOR_KEYS.map(key => (
+            <div className="legend-swatch-item" key={key}>
+              <span className="legend-swatch-dot" style={{ background: COLOR_HEX[key] }} />
+              <input
+                className="legend-label-input"
+                value={legendLabel(key)}
+                placeholder="Unlabeled"
+                onChange={(e) => handleLegendLabelChange(key, e.target.value)}
+                onBlur={saveLegend}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Search bar */}
       <div className="filters-bar">
         <input
           type="text"
           name="search"
           placeholder="Search by JO ID, position, client..."
           value={filters.search}
-          onChange={handleFilterChange}
+          onChange={(e) => handleFilterChange('search', e.target.value)}
           className="filter-search"
         />
-        <select
-          name="client"
-          value={filters.client}
-          onChange={handleFilterChange}
-          className="filter-select"
-        >
-          <option value="">All Clients</option>
-          {clients.map(c => (
-            <option key={c._id} value={c._id}>{c.clientName}</option>
-          ))}
-        </select>
-        <select
-          name="assignee"
-          value={filters.assignee}
-          onChange={handleFilterChange}
-          className="filter-select"
-        >
-          <option value="">All TAs</option>
-          {tas.map(ta => (
-            <option key={ta._id} value={ta._id}>{ta.name}</option>
-          ))}
-        </select>
-        <select
-          name="status"
-          value={filters.status}
-          onChange={handleFilterChange}
-          className="filter-select"
-        >
-          <option value="">All Statuses</option>
-          <option value="Yet to Activate">Yet to Activate</option>
-          <option value="A&P">A&P</option>
-          <option value="Fence">Fence</option>
-          <option value="Hold">Hold</option>
-          <option value="Paused">Paused</option>
-          <option value="Placed">Placed</option>
-          <option value="Lost">Lost</option>
-        </select>
-        <select
-          name="pLevel"
-          value={filters.pLevel}
-          onChange={handleFilterChange}
-          className="filter-select"
-        >
-          <option value="">All Levels</option>
-          <option value="P1">P1</option>
-          <option value="P2">P2</option>
-          <option value="P3">P3</option>
-          <option value="P4">P4</option>
-          <option value="P5">P5</option>
-        </select>
       </div>
 
       <div className="table-wrapper">
         <table className="positions-table">
           <thead>
-            <tr>
-              <th>JO ID</th>
-              <th>Client</th>
-              <th>Position</th>
-              <th>Level</th>
-              <th>Status</th>
-              <th>Stage</th>
-              <th>Assignee</th>
-              <th>Flags</th>
-              <th>%</th>
-              <th>LS</th>
-              <th>CV</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
+  <tr>
+    <th>JO ID</th>
+    <th className="th-with-filter">
+      <span className="th-label">Client</span>
+      <HeaderFilter
+        options={clientOptions}
+        value={filters.client}
+        onChange={(v) => handleFilterChange('client', v)}
+        allLabel="All"
+        label="Client"
+      />
+    </th>
+    <th>Position</th>
+    <th className="th-with-filter">
+      <span className="th-label">Level</span>
+      <HeaderFilter
+        options={levelOptions}
+        value={filters.pLevel}
+        onChange={(v) => handleFilterChange('pLevel', v)}
+        allLabel="All"
+        label="Level"
+      />
+    </th>
+    <th className="th-with-filter">
+      <span className="th-label">Status</span>
+      <HeaderFilter
+        options={statusOptions}
+        value={filters.status}
+        onChange={(v) => handleFilterChange('status', v)}
+        allLabel="All"
+        label="Status"
+      />
+    </th>
+    <th className="th-with-filter">
+      <span className="th-label">Stage</span>
+      <HeaderFilter
+        options={stageOptions}
+        value={filters.stage}
+        onChange={(v) => handleFilterChange('stage', v)}
+        allLabel="All"
+        label="Stage"
+      />
+    </th>
+    <th className="th-with-filter">
+      <span className="th-label">Assignee</span>
+      <HeaderFilter
+        options={assigneeOptions}
+        value={filters.assignee}
+        onChange={(v) => handleFilterChange('assignee', v)}
+        allLabel="All"
+        label="Assignee"
+      />
+    </th>
+    <th>Flags</th>
+    <th>%</th>
+    <th>LS</th>
+    <th>CV</th>
+    <th>Actions</th>
+  </tr>
+</thead>
           <tbody>
             {filteredPositions.length === 0 ? (
               <tr><td colSpan="12" className="no-rows">No positions found</td></tr>
             ) : (
               filteredPositions.map(pos => {
                 const flagValues = pos.flags ? Object.values(pos.flags).filter(f => f !== null) : [];
+                const isEditing = editingId === pos._id;
+                const rowProps = pos.highlightColor
+                  ? { 'data-highlighted': 'true', style: { '--row-color': COLOR_HEX[pos.highlightColor] } }
+                  : {};
+                const levelColor = PLEVEL_COLORS[pos.pLevel] || { bg: '#e5e7eb', text: '#1a1a1a' };
+                const stageColor = STAGE_COLORS[pos.pipelineStage] || { bg: '#f3f4f6', text: '#374151' };
+                const statusColor = STATUS_COLORS[pos.status] || { bg: '#e5e7eb', text: '#374151' };
+                const isUpdating = updatingId === pos._id;
+
                 return (
-                  <tr key={pos._id}>
+                  <tr key={pos._id} {...rowProps}>
                     <td><Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link></td>
                     <td>{pos.client?.clientName || '—'}</td>
-                    <td>{pos.position}</td>
-                    <td>{pos.pLevel}</td>
-                    <td><span className={`status-badge status-${pos.status?.replace(/\s/g, '-')}`}>{pos.status}</span></td>
-                    <td>{pos.pipelineStage}</td>
-                    <td>{pos.assignee?.name || '—'}</td>
+
+                    <td>
+                      {isEditing ? (
+                        <input
+                          className="inline-edit-input"
+                          name="position"
+                          value={editForm.position}
+                          onChange={handleEditFormChange}
+                        />
+                      ) : pos.position}
+                    </td>
+
+                    <td>
+                      <select
+                        className="p-level-select inline-edit-select inline-edit-select--level"
+                        value={pos.pLevel}
+                        onChange={(e) => handleDirectUpdate(pos, 'pLevel', e.target.value)}
+                        disabled={isUpdating}
+                        style={{ backgroundColor: PLEVEL_COLORS[pos.pLevel]?.bg, color: PLEVEL_COLORS[pos.pLevel]?.text }}
+                      >
+                        {PLEVEL_OPTIONS.map(p => (
+                          <option key={p} value={p} style={{ backgroundColor: PLEVEL_COLORS[p].bg, color: PLEVEL_COLORS[p].text }}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td>
+                      <select
+                        className="status-select"
+                        value={pos.status}
+                        onChange={(e) => handleDirectUpdate(pos, 'status', e.target.value)}
+                        disabled={isUpdating}
+                        style={{
+                          backgroundColor: statusColor.bg,
+                          color: statusColor.text,
+                          fontWeight: 500,
+                        }}
+                      >
+                        {STATUS_OPTIONS.map(s => {
+                          const sc = STATUS_COLORS[s] || { bg: '#e5e7eb', text: '#374151' };
+                          return (
+                            <option key={s} value={s} style={{ backgroundColor: sc.bg, color: sc.text }}>
+                              {s}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </td>
+
+                    <td>
+                      <select
+                        className="stage-select inline-edit-select"
+                        value={pos.pipelineStage}
+                        onChange={(e) => handleDirectUpdate(pos, 'pipelineStage', e.target.value)}
+                        disabled={isUpdating}
+                        style={{ backgroundColor: stageColor.bg, color: stageColor.text }}
+                      >
+                        {STAGE_OPTIONS.map(s => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td>
+                      <select
+                        className="assignee-select inline-edit-select"
+                        value={pos.assignee?._id || ''}
+                        onChange={(e) => handleDirectUpdate(pos, 'assignee', e.target.value || null)}
+                        disabled={isUpdating}
+                      >
+                        <option value="">Unassigned</option>
+                        {tas.map(ta => (
+                          <option key={ta._id} value={ta._id}>{ta.name}</option>
+                        ))}
+                      </select>
+                    </td>
+
                     <td className="flags-cell">
                       {flagValues.map((flag, idx) => <FlagBadge key={idx} flag={flag} />)}
                     </td>
-                    <td>{pos.completionPercent}%</td>
-                    <td>{pos.lsCount ?? '—'}</td>
-                    <td>{pos.cvCount ?? '—'}</td>
+
+                    <td>
+                      <div className="completion-dots">
+                        {COMPLETION_OPTIONS.map((val) => (
+                          <button
+                            key={val}
+                            className={`completion-dot ${pos.completionPercent >= val ? 'active' : ''}`}
+                            onClick={() => handleDirectUpdate(pos, 'completionPercent', val)}
+                            disabled={isUpdating}
+                            title={`${val}%`}
+                          />
+                        ))}
+                      </div>
+                    </td>
+
+                    <td>
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          min="0"
+                          className="inline-edit-input inline-edit-input--num"
+                          name="lsCount"
+                          value={editForm.lsCount}
+                          onChange={handleEditFormChange}
+                        />
+                      ) : (pos.lsCount ?? '—')}
+                    </td>
+
+                    <td>
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          min="0"
+                          className="inline-edit-input inline-edit-input--num"
+                          name="cvCount"
+                          value={editForm.cvCount}
+                          onChange={handleEditFormChange}
+                        />
+                      ) : (pos.cvCount ?? '—')}
+                    </td>
+
                     <td className="actions-cell">
-                      <Link to={`/positions/${pos._id}`} className="action-link">View</Link>
-                      <button className="action-delete" onClick={() => handleDeleteClick(pos)}>Delete</button>
+                      <div className="color-picker-wrap">
+                        <button
+                          className="color-swatch-btn"
+                          style={{
+                            background: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : '#e5e7eb',
+                            border: pos.highlightColor ? `2px solid ${COLOR_HEX[pos.highlightColor]}` : '2px dashed #d1d5db'
+                          }}
+                          onClick={() => setColorPopoverId(colorPopoverId === pos._id ? null : pos._id)}
+                          title="Set highlight color"
+                        />
+                        {colorPopoverId === pos._id && (
+                          <>
+                            <div className="popover-backdrop" onClick={() => setColorPopoverId(null)} />
+                            <div className="color-popover">
+                              <button className="color-popover-option" onClick={() => handleColorChange(pos, null)}>
+                                <span className="color-swatch-dot color-swatch-dot--none" />
+                                None
+                              </button>
+                              {COLOR_KEYS.map(key => (
+                                <button key={key} className="color-popover-option" onClick={() => handleColorChange(pos, key)}>
+                                  <span className="color-swatch-dot" style={{ background: COLOR_HEX[key] }} />
+                                  {legendLabel(key) || key}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {isEditing ? (
+                        <>
+                          <button className="action-save" onClick={() => saveEdit(pos)} disabled={savingEdit} title="Save changes">
+                            {savingEdit ? 'Saving...' : 'Save'}
+                          </button>
+                          <button className="action-cancel" onClick={cancelEdit} disabled={savingEdit} title="Cancel editing">Cancel</button>
+                        </>
+                      ) : (
+                        <>
+                          <button className="action-edit" onClick={() => startEdit(pos)} title="Edit row">
+                            <EditIcon />
+                          </button>
+                          <Link to={`/positions/${pos._id}`} className="action-link" title="View details">
+                            <ViewIcon />
+                          </Link>
+                          <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position">
+                            <DeleteIcon />
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 );

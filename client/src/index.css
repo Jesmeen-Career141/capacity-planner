@@ -1,3 +1,34 @@
+/* ============================================================
+   Tailwind CSS (without Preflight) – Theme + Utilities only
+   ============================================================ */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+/* ---------- Custom Tailwind theme (overrides/extensions) ---------- */
+@theme {
+  --color-forest-50: #F6FAF7;
+  --color-forest-100: #EAF3ED;
+  --color-forest-200: #C8DFD2;
+  --color-forest-300: #7FCB9E;
+  --color-forest-400: #4FAE79;
+  --color-forest-500: #2F8A5A;
+  --color-forest-600: #1F5C3E;
+  --color-forest-700: #1A4A36;
+  --color-forest-800: #123326;
+  --color-forest-900: #0B1F17;
+  --color-forest-950: #07130D;
+
+  --font-display: "Poppins", "Segoe UI", sans-serif;
+  --font-body: "Inter", "Segoe UI", sans-serif;
+  --font-hero: "Petit Formal Script", cursive;
+
+  --shadow-glow: 0 0 40px rgba(79, 174, 121, 0.35);
+  --shadow-glow-lg: 0 0 90px rgba(79, 174, 121, 0.5);
+}
+
+/* ============================================================
+   Your existing root variables and global styles (unchanged)
+   ============================================================ */
 :root {
   --color-primary: #1F5C3E;
   --color-primary-hover: #2F8A5A;
@@ -17,8 +48,15 @@
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
   --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
 
-  --font-display: "Poppins", "Segoe UI", sans-serif;
+  --font-display: "Archivo Black", "Segoe UI", sans-serif;
   --font-body: "Inter", "Segoe UI", sans-serif;
+}
+
+/* Additional hues for role/title-based coloring (weekly grid pills) */
+:root {
+  --role-blue: #3B7DD8;
+  --role-teal: #1D9E75;
+  --role-neutral: #6B7A70;
 }
 
 * {
