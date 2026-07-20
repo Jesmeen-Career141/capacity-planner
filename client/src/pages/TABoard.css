@@ -869,6 +869,216 @@
   transition: width 0.2s;
 }
 
+
+/* ---- Modal styles (same as Positions) ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+.modal {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: var(--shadow-md);
+}
+.modal-lg {
+  max-width: 850px;
+  width: 95%;
+  padding: 28px 32px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 16px;
+  margin-bottom: 24px;
+}
+.modal-header h2 {
+  margin: 0;
+  font-size: 22px;
+}
+.modal-close-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.modal-close-btn:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.modal-body {
+  margin-bottom: 24px;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--color-border);
+  padding-top: 18px;
+}
+
+/* ---- Modal summary (read-only) ---- */
+.modal-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 32px;
+  background: var(--color-bg);
+  padding: 16px 20px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+.modal-summary-item {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.modal-summary-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-width: 70px;
+}
+.modal-summary-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* ---- Modal editable fields ---- */
+.modal-editable {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+.modal-field--full {
+  width: 100%;
+}
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.modal-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.modal-input,
+.modal-textarea {
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+.modal-input:focus,
+.modal-textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+.modal-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* ---- Modal history ---- */
+.modal-history {
+  margin-top: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 18px;
+}
+.modal-history h4 {
+  margin: 0 0 14px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.modal-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.modal-history-item {
+  display: grid;
+  grid-template-columns: 80px 100px 110px 1fr;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--color-bg);
+  border-radius: 6px;
+  font-size: 13px;
+  align-items: center;
+}
+.modal-history-round {
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.modal-history-ta {
+  font-weight: 500;
+}
+.modal-history-date {
+  color: var(--color-text-muted);
+}
+.modal-history-reason {
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modal-history-empty {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  padding: 8px 0;
+}
+.modal-history-more {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 6px;
+  font-style: italic;
+}
+
+.btn-secondary {
+  padding: 8px 20px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 14px;
+}
+.btn-secondary:hover {
+  background: var(--color-border);
+}
+
 /* --- Bigger cards / pills, per feedback --- */
 .ta-card { padding: 20px; }
 .ta-card-header { gap: 12px; margin-bottom: 16px; }

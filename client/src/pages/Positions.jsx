@@ -148,30 +148,18 @@ function HeaderFilter({ options, value, onChange, allLabel = 'All', label }) {
 // ---- Detail Modal Component ----
 function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   const [editData, setEditData] = useState({
-    position: '',
-    pLevel: '',
-    status: '',
-    pipelineStage: '',
-    assignee: '',
-    lsCount: '',
-    cvCount: '',
-    completionPercent: 0,
-    highlightColor: '',
+    remarks: '',
+    thisWeekFocus: '',
+    allocationRounds: [],
   });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (position) {
       setEditData({
-        position: position.position || '',
-        pLevel: position.pLevel || '',
-        status: position.status || '',
-        pipelineStage: position.pipelineStage || '',
-        assignee: position.assignee?._id || '',
-        lsCount: position.lsCount ?? '',
-        cvCount: position.cvCount ?? '',
-        completionPercent: position.completionPercent ?? 0,
-        highlightColor: position.highlightColor || '',
+        remarks: position.remarks || '',
+        thisWeekFocus: position.thisWeekFocus || '',
+        allocationRounds: position.allocationRounds || [],
       });
     }
   }, [position]);
@@ -186,15 +174,8 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
     setSaving(true);
     try {
       const payload = {
-        position: editData.position.trim(),
-        pLevel: editData.pLevel,
-        status: editData.status,
-        pipelineStage: editData.pipelineStage,
-        assignee: editData.assignee || null,
-        lsCount: editData.lsCount === '' ? null : Number(editData.lsCount),
-        cvCount: editData.cvCount === '' ? null : Number(editData.cvCount),
-        completionPercent: Number(editData.completionPercent),
-        highlightColor: editData.highlightColor || null,
+        remarks: editData.remarks || '',
+        thisWeekFocus: editData.thisWeekFocus || '',
       };
       await updatePosition(position._id, payload);
       onUpdate(); // refresh the list
@@ -206,9 +187,10 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
     }
   };
 
-  const levelColor = PLEVEL_COLORS[editData.pLevel] || { bg: '#e5e7eb', text: '#1a1a1a' };
-  const statusColor = STATUS_COLORS[editData.status] || { bg: '#e5e7eb', text: '#374151' };
-  const stageColor = STAGE_COLORS[editData.pipelineStage] || { bg: '#f3f4f6', text: '#374151' };
+  // Get the last 5 allocation rounds (or fewer)
+  const historyRounds = [...(editData.allocationRounds || [])]
+    .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
+    .slice(0, 5);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -221,132 +203,91 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
         </div>
 
         <div className="modal-body">
-          <div className="modal-grid">
-            <div className="modal-field">
-              <label>Client</label>
-              <div className="modal-readonly">{position.client?.clientName || '—'}</div>
+          {/* Position summary – read-only */}
+          <div className="modal-summary">
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Position</span>
+              <span className="modal-summary-value">{position.position}</span>
             </div>
-            <div className="modal-field">
-              <label>Position Title</label>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Client</span>
+              <span className="modal-summary-value">{position.client?.clientName || '—'}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Status</span>
+              <span className="modal-summary-value">{position.status}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Assignee</span>
+              <span className="modal-summary-value">{position.assignee?.name || 'Unassigned'}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Level</span>
+              <span className="modal-summary-value">{position.pLevel}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Stage</span>
+              <span className="modal-summary-value">{position.pipelineStage}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Completion</span>
+              <span className="modal-summary-value">{position.completionPercent}%</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">LS / CV</span>
+              <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
+            </div>
+          </div>
+
+          {/* Editable fields – full width, stacked vertically */}
+          <div className="modal-editable">
+            <div className="modal-field modal-field--full">
+              <label>This Week Focus</label>
               <input
                 type="text"
-                value={editData.position}
-                onChange={e => handleChange('position', e.target.value)}
+                value={editData.thisWeekFocus}
+                onChange={e => handleChange('thisWeekFocus', e.target.value)}
                 className="modal-input"
+                placeholder="e.g., Schedule interviews, Review CVs..."
               />
             </div>
-            <div className="modal-field">
-              <label>P-Level</label>
-              <select
-                value={editData.pLevel}
-                onChange={e => handleChange('pLevel', e.target.value)}
-                className="modal-select"
-                style={{ backgroundColor: levelColor.bg, color: levelColor.text }}
-              >
-                {PLEVEL_OPTIONS.map(p => (
-                  <option key={p} value={p} style={{ backgroundColor: PLEVEL_COLORS[p].bg, color: PLEVEL_COLORS[p].text }}>
-                    {p}
-                  </option>
-                ))}
-              </select>
+
+            <div className="modal-field modal-field--full">
+              <label>Remarks</label>
+              <textarea
+                value={editData.remarks}
+                onChange={e => handleChange('remarks', e.target.value)}
+                className="modal-textarea"
+                rows="4"
+                placeholder="Add any notes or remarks about this position..."
+              />
             </div>
-            <div className="modal-field">
-              <label>Status</label>
-              <select
-                value={editData.status}
-                onChange={e => handleChange('status', e.target.value)}
-                className="modal-select"
-                style={{ backgroundColor: statusColor.bg, color: statusColor.text }}
-              >
-                {STATUS_OPTIONS.map(s => {
-                  const sc = STATUS_COLORS[s] || { bg: '#e5e7eb', text: '#374151' };
-                  return (
-                    <option key={s} value={s} style={{ backgroundColor: sc.bg, color: sc.text }}>
-                      {s}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-            <div className="modal-field">
-              <label>Stage</label>
-              <select
-                value={editData.pipelineStage}
-                onChange={e => handleChange('pipelineStage', e.target.value)}
-                className="modal-select"
-                style={{ backgroundColor: stageColor.bg, color: stageColor.text }}
-              >
-                {STAGE_OPTIONS.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-            <div className="modal-field">
-              <label>Assignee</label>
-              <select
-                value={editData.assignee}
-                onChange={e => handleChange('assignee', e.target.value)}
-                className="modal-select"
-              >
-                <option value="">Unassigned</option>
-                {tas.map(ta => (
-                  <option key={ta._id} value={ta._id}>{ta.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="modal-field">
-              <label>Completion %</label>
-              <div className="completion-dots modal-completion">
-                {COMPLETION_OPTIONS.map(val => (
-                  <button
-                    key={val}
-                    className={`completion-dot ${editData.completionPercent >= val ? 'active' : ''}`}
-                    onClick={() => handleChange('completionPercent', val)}
-                    title={`${val}%`}
-                  />
+          </div>
+
+          {/* Allocation History */}
+          <div className="modal-history">
+            <h4>Allocation History</h4>
+            {historyRounds.length === 0 ? (
+              <p className="modal-history-empty">No allocation history yet</p>
+            ) : (
+              <div className="modal-history-list">
+                {historyRounds.map((round, idx) => (
+                  <div key={idx} className="modal-history-item">
+                    <span className="modal-history-round">Round {round.roundNumber}</span>
+                    <span className="modal-history-ta">{round.taAssigned?.name || '—'}</span>
+                    <span className="modal-history-date">
+                      {round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}
+                    </span>
+                    <span className="modal-history-reason">{round.reason || '—'}</span>
+                  </div>
                 ))}
               </div>
-            </div>
-            <div className="modal-field">
-              <label>LS Count</label>
-              <input
-                type="number"
-                min="0"
-                value={editData.lsCount}
-                onChange={e => handleChange('lsCount', e.target.value)}
-                className="modal-input"
-              />
-            </div>
-            <div className="modal-field">
-              <label>CV Count</label>
-              <input
-                type="number"
-                min="0"
-                value={editData.cvCount}
-                onChange={e => handleChange('cvCount', e.target.value)}
-                className="modal-input"
-              />
-            </div>
-            <div className="modal-field">
-              <label>Highlight Color</label>
-              <div className="modal-color-selector">
-                {COLOR_KEYS.map(key => (
-                  <button
-                    key={key}
-                    className={`modal-color-dot ${editData.highlightColor === key ? 'active' : ''}`}
-                    style={{ background: COLOR_HEX[key] }}
-                    onClick={() => handleChange('highlightColor', key)}
-                    title={key}
-                  />
-                ))}
-                <button
-                  className={`modal-color-dot ${!editData.highlightColor ? 'active' : ''}`}
-                  style={{ background: '#e5e7eb', border: '2px dashed #d1d5db' }}
-                  onClick={() => handleChange('highlightColor', '')}
-                  title="None"
-                />
-              </div>
-            </div>
+            )}
+            {historyRounds.length === 5 && (editData.allocationRounds?.length || 0) > 5 && (
+              <p className="modal-history-more">
+                + {(editData.allocationRounds?.length || 0) - 5} more rounds
+              </p>
+            )}
           </div>
         </div>
 

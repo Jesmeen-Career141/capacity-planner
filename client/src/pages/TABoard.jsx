@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { getPositions, assignPosition, setFlagOverride } from '../api/positions';
+import { motion, AnimatePresence } from 'framer-motion';
+import { getPositions, assignPosition, setFlagOverride, updatePosition } from '../api/positions';
 import { getArchiveSnapshots, getArchiveSnapshot } from '../api/archive';
 import { getActiveTAs } from '../api/tas';
 import { getGrid, updateWeeklyAllocationCell } from '../api/weeklyAllocations';
@@ -141,11 +142,7 @@ function daysSince(dateStr) {
   return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
 }
 
-/* ---------- Portal-based popover -----------------------------------------
-   Renders into document.body and positions itself against the trigger
-   button's real screen coordinates. This escapes any ancestor's
-   `overflow: auto/hidden` clipping -- which is what was squashing the
-   dropdown down to a sliver inside the scrolling grid/action-board. ---------- */
+/* ---------- Portal-based popover (existing) ---------- */
 function Popover({ anchorRef, isOpen, onClose, children, width = 290 }) {
   const [style, setStyle] = useState(null);
 
@@ -180,7 +177,186 @@ function Popover({ anchorRef, isOpen, onClose, children, width = 290 }) {
   );
 }
 
-function PositionPool({ positions, navigate }) {
+/* ---------- Position Detail Modal (Apple‑style zoom) ---------- */
+function PositionDetailModal({ position, onClose, onUpdate, tas }) {
+  const [editData, setEditData] = useState({
+    remarks: '',
+    thisWeekFocus: '',
+    allocationRounds: [],
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (position) {
+      setEditData({
+        remarks: position.remarks || '',
+        thisWeekFocus: position.thisWeekFocus || '',
+        allocationRounds: position.allocationRounds || [],
+      });
+    }
+  }, [position]);
+
+  if (!position) return null;
+
+  const handleChange = (field, value) => {
+    setEditData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        remarks: editData.remarks || '',
+        thisWeekFocus: editData.thisWeekFocus || '',
+      };
+      await updatePosition(position._id, payload);
+      await onUpdate(); // refresh positions
+      onClose();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Get the last 5 allocation rounds (or fewer)
+  const historyRounds = [...(editData.allocationRounds || [])]
+    .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
+    .slice(0, 5);
+
+  return (
+    <motion.div
+      className="modal-overlay"
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        className="modal modal-lg"
+        onClick={e => e.stopPropagation()}
+        initial={{ scale: 0.85, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.85, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+      >
+        <div className="modal-header">
+          <h2>{position.jobOrderId}</h2>
+          <button className="modal-close-btn" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="modal-body">
+          {/* Position summary – read-only */}
+          <div className="modal-summary">
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Position</span>
+              <span className="modal-summary-value">{position.position}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Client</span>
+              <span className="modal-summary-value">{position.client?.clientName || '—'}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Status</span>
+              <span className="modal-summary-value">{position.status}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Assignee</span>
+              <span className="modal-summary-value">{position.assignee?.name || 'Unassigned'}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Level</span>
+              <span className="modal-summary-value">{position.pLevel}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Stage</span>
+              <span className="modal-summary-value">{position.pipelineStage}</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">Completion</span>
+              <span className="modal-summary-value">{position.completionPercent}%</span>
+            </div>
+            <div className="modal-summary-item">
+              <span className="modal-summary-label">LS / CV</span>
+              <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
+            </div>
+          </div>
+
+          {/* Editable fields – full width, stacked vertically */}
+          <div className="modal-editable">
+            <div className="modal-field modal-field--full">
+              <label>This Week Focus</label>
+              <input
+                type="text"
+                value={editData.thisWeekFocus}
+                onChange={e => handleChange('thisWeekFocus', e.target.value)}
+                className="modal-input"
+                placeholder="e.g., Schedule interviews, Review CVs..."
+              />
+            </div>
+
+            <div className="modal-field modal-field--full">
+              <label>Remarks</label>
+              <textarea
+                value={editData.remarks}
+                onChange={e => handleChange('remarks', e.target.value)}
+                className="modal-textarea"
+                rows="4"
+                placeholder="Add any notes or remarks about this position..."
+              />
+            </div>
+          </div>
+
+          {/* Allocation History */}
+          <div className="modal-history">
+            <h4>Allocation History</h4>
+            {historyRounds.length === 0 ? (
+              <p className="modal-history-empty">No allocation history yet</p>
+            ) : (
+              <div className="modal-history-list">
+                {historyRounds.map((round, idx) => (
+                  <div key={idx} className="modal-history-item">
+                    <span className="modal-history-round">Round {round.roundNumber}</span>
+                    <span className="modal-history-ta">{round.taAssigned?.name || '—'}</span>
+                    <span className="modal-history-date">
+                      {round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}
+                    </span>
+                    <span className="modal-history-reason">{round.reason || '—'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {historyRounds.length === 5 && (editData.allocationRounds?.length || 0) > 5 && (
+              <p className="modal-history-more">
+                + {(editData.allocationRounds?.length || 0) - 5} more rounds
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// Close icon component (used both in modal and header)
+const CloseIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+
+/* ---------- Position Pool (now with onPositionClick prop) ---------- */
+function PositionPool({ positions, navigate, onPositionClick }) {
   const [searchTerm, setSearchTerm] = useState('');
 
   const filtered = positions.filter(p => {
@@ -212,9 +388,14 @@ function PositionPool({ positions, navigate }) {
           const flagList = pos.flags ? Object.values(pos.flags).filter(f => f !== null) : [];
           const openDays = daysSince(pos.createdAt);
           return (
-            <div key={pos._id} className="pool-card" role="button" tabIndex={0}
-              onClick={() => navigate(`/positions/${pos._id}`)}
-              onKeyDown={e => e.key === 'Enter' && navigate(`/positions/${pos._id}`)}>
+            <div
+              key={pos._id}
+              className="pool-card"
+              role="button"
+              tabIndex={0}
+              onClick={() => onPositionClick(pos)}
+              onKeyDown={e => e.key === 'Enter' && onPositionClick(pos)}
+            >
               <div className="pool-card-top">
                 <span className="pool-completion">
                   <span className="pool-completion-value">{pos.completionPercent || 0}%</span>
@@ -552,6 +733,7 @@ function ActionBoard({ positions, tas, onToggleFlag, onReassign, workloadByTA })
   );
 }
 
+/* ---------- Main TABoard Component ---------- */
 function TABoard() {
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState('grid');
@@ -566,7 +748,10 @@ function TABoard() {
   const [error, setError] = useState(null);
   const [openCellKey, setOpenCellKey] = useState(null);
 
-  // Cache for grid data to avoid re-fetching same weeks
+  // New state for the pool detail modal
+  const [poolModalPosition, setPoolModalPosition] = useState(null);
+
+  // Cache for grid data
   const gridCache = useRef({});
 
   const selectedMonth = MONTH_OPTIONS[selectedMonthIdx];
@@ -575,7 +760,6 @@ function TABoard() {
   const isActiveVisible = activeColumnIndex !== -1;
 
   // --- ALL HOOKS MUST BE CALLED BEFORE CONDITIONAL RETURNS ---
-
   useEffect(() => {
     (async () => {
       try {
@@ -636,7 +820,6 @@ function TABoard() {
 
   const byId = Object.fromEntries(positions.map(p => [p._id, p]));
 
-  // How many currently-open positions each TA is assigned to right now.
   const workloadByTA = tas.reduce((acc, ta) => {
     acc[ta._id] = positions.filter(p =>
       p.assignee?._id === ta._id && !['Placed', 'Lost'].includes(p.status)
@@ -689,17 +872,22 @@ function TABoard() {
     } catch (err) { alert(err.response?.data?.error || 'Failed to reassign'); }
   };
 
-  // --- Memoized `taList` MUST be declared BEFORE the conditional returns ---
+  // Refresh positions (used after modal save)
+  const refreshPositions = async () => {
+    const res = await getPositions();
+    setPositions(res.data);
+  };
+
+  // Memoized taList
   const taList = useMemo(() => {
     const source = displayWeeks.map(w => gridsByWeek[w.weekStart]).find(g => g && g.length > 0) || [];
     return source.map(row => row.ta);
   }, [displayWeeks, gridsByWeek]);
 
-  // --- CONDITIONAL RETURNS (AFTER all hooks) ---
+  // Conditional returns
   if (loading) return <div className="taboard-loading">Loading TA Board...</div>;
   if (error) return <div className="taboard-error">Error: {error}</div>;
 
-  // --- Remaining logic & render ---
   const openPositions = positions.filter(p => !['Placed', 'Lost'].includes(p.status));
   const activeTACount = taList.length;
   const bandwidth = activeTACount === 0 ? '-' : (openPositions.length / activeTACount).toFixed(1);
@@ -743,7 +931,12 @@ function TABoard() {
       </div>
 
       <div className="taboard-body">
-        <PositionPool positions={positions} navigate={navigate} />
+        {/* Pass onPositionClick to open modal */}
+        <PositionPool
+          positions={positions}
+          navigate={navigate}
+          onPositionClick={setPoolModalPosition}
+        />
 
         {activeView === 'grid' ? (
           <main className="board-main">
@@ -755,7 +948,7 @@ function TABoard() {
               <div className="weekly-grid-list">
                 {taList.map(ta => (
                   <TACard
-                    key={String(ta._id)} // force string
+                    key={String(ta._id)}
                     ta={ta}
                     displayWeeks={displayWeeks}
                     activeColumnIndex={activeColumnIndex}
@@ -783,6 +976,18 @@ function TABoard() {
           </main>
         )}
       </div>
+
+      {/* Detail Modal for Position Pool */}
+      <AnimatePresence>
+        {poolModalPosition && (
+          <PositionDetailModal
+            position={poolModalPosition}
+            onClose={() => setPoolModalPosition(null)}
+            onUpdate={refreshPositions}
+            tas={tas}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
