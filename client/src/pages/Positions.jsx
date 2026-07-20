@@ -69,6 +69,11 @@ const DeleteIcon = () => (
     <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
   </svg>
 );
+const CloseIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
 
 // Filter icon (funnel)
 const FilterIcon = () => (
@@ -140,6 +145,223 @@ function HeaderFilter({ options, value, onChange, allLabel = 'All', label }) {
   );
 }
 
+// ---- Detail Modal Component ----
+function PositionDetailModal({ position, onClose, onUpdate, tas }) {
+  const [editData, setEditData] = useState({
+    position: '',
+    pLevel: '',
+    status: '',
+    pipelineStage: '',
+    assignee: '',
+    lsCount: '',
+    cvCount: '',
+    completionPercent: 0,
+    highlightColor: '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (position) {
+      setEditData({
+        position: position.position || '',
+        pLevel: position.pLevel || '',
+        status: position.status || '',
+        pipelineStage: position.pipelineStage || '',
+        assignee: position.assignee?._id || '',
+        lsCount: position.lsCount ?? '',
+        cvCount: position.cvCount ?? '',
+        completionPercent: position.completionPercent ?? 0,
+        highlightColor: position.highlightColor || '',
+      });
+    }
+  }, [position]);
+
+  if (!position) return null;
+
+  const handleChange = (field, value) => {
+    setEditData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        position: editData.position.trim(),
+        pLevel: editData.pLevel,
+        status: editData.status,
+        pipelineStage: editData.pipelineStage,
+        assignee: editData.assignee || null,
+        lsCount: editData.lsCount === '' ? null : Number(editData.lsCount),
+        cvCount: editData.cvCount === '' ? null : Number(editData.cvCount),
+        completionPercent: Number(editData.completionPercent),
+        highlightColor: editData.highlightColor || null,
+      };
+      await updatePosition(position._id, payload);
+      onUpdate(); // refresh the list
+      onClose();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const levelColor = PLEVEL_COLORS[editData.pLevel] || { bg: '#e5e7eb', text: '#1a1a1a' };
+  const statusColor = STATUS_COLORS[editData.status] || { bg: '#e5e7eb', text: '#374151' };
+  const stageColor = STAGE_COLORS[editData.pipelineStage] || { bg: '#f3f4f6', text: '#374151' };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{position.jobOrderId}</h2>
+          <button className="modal-close-btn" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="modal-body">
+          <div className="modal-grid">
+            <div className="modal-field">
+              <label>Client</label>
+              <div className="modal-readonly">{position.client?.clientName || '—'}</div>
+            </div>
+            <div className="modal-field">
+              <label>Position Title</label>
+              <input
+                type="text"
+                value={editData.position}
+                onChange={e => handleChange('position', e.target.value)}
+                className="modal-input"
+              />
+            </div>
+            <div className="modal-field">
+              <label>P-Level</label>
+              <select
+                value={editData.pLevel}
+                onChange={e => handleChange('pLevel', e.target.value)}
+                className="modal-select"
+                style={{ backgroundColor: levelColor.bg, color: levelColor.text }}
+              >
+                {PLEVEL_OPTIONS.map(p => (
+                  <option key={p} value={p} style={{ backgroundColor: PLEVEL_COLORS[p].bg, color: PLEVEL_COLORS[p].text }}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="modal-field">
+              <label>Status</label>
+              <select
+                value={editData.status}
+                onChange={e => handleChange('status', e.target.value)}
+                className="modal-select"
+                style={{ backgroundColor: statusColor.bg, color: statusColor.text }}
+              >
+                {STATUS_OPTIONS.map(s => {
+                  const sc = STATUS_COLORS[s] || { bg: '#e5e7eb', text: '#374151' };
+                  return (
+                    <option key={s} value={s} style={{ backgroundColor: sc.bg, color: sc.text }}>
+                      {s}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            <div className="modal-field">
+              <label>Stage</label>
+              <select
+                value={editData.pipelineStage}
+                onChange={e => handleChange('pipelineStage', e.target.value)}
+                className="modal-select"
+                style={{ backgroundColor: stageColor.bg, color: stageColor.text }}
+              >
+                {STAGE_OPTIONS.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            <div className="modal-field">
+              <label>Assignee</label>
+              <select
+                value={editData.assignee}
+                onChange={e => handleChange('assignee', e.target.value)}
+                className="modal-select"
+              >
+                <option value="">Unassigned</option>
+                {tas.map(ta => (
+                  <option key={ta._id} value={ta._id}>{ta.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="modal-field">
+              <label>Completion %</label>
+              <div className="completion-dots modal-completion">
+                {COMPLETION_OPTIONS.map(val => (
+                  <button
+                    key={val}
+                    className={`completion-dot ${editData.completionPercent >= val ? 'active' : ''}`}
+                    onClick={() => handleChange('completionPercent', val)}
+                    title={`${val}%`}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="modal-field">
+              <label>LS Count</label>
+              <input
+                type="number"
+                min="0"
+                value={editData.lsCount}
+                onChange={e => handleChange('lsCount', e.target.value)}
+                className="modal-input"
+              />
+            </div>
+            <div className="modal-field">
+              <label>CV Count</label>
+              <input
+                type="number"
+                min="0"
+                value={editData.cvCount}
+                onChange={e => handleChange('cvCount', e.target.value)}
+                className="modal-input"
+              />
+            </div>
+            <div className="modal-field">
+              <label>Highlight Color</label>
+              <div className="modal-color-selector">
+                {COLOR_KEYS.map(key => (
+                  <button
+                    key={key}
+                    className={`modal-color-dot ${editData.highlightColor === key ? 'active' : ''}`}
+                    style={{ background: COLOR_HEX[key] }}
+                    onClick={() => handleChange('highlightColor', key)}
+                    title={key}
+                  />
+                ))}
+                <button
+                  className={`modal-color-dot ${!editData.highlightColor ? 'active' : ''}`}
+                  style={{ background: '#e5e7eb', border: '2px dashed #d1d5db' }}
+                  onClick={() => handleChange('highlightColor', '')}
+                  title="None"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Main Positions Component ----
 function Positions() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -166,6 +388,9 @@ function Positions() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [colorPopoverId, setColorPopoverId] = useState(null);
+
+  // Detail modal state
+  const [selectedPosition, setSelectedPosition] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -331,6 +556,11 @@ function Positions() {
   const levelOptions = PLEVEL_OPTIONS.map(p => ({ value: p, label: p }));
   const stageOptions = STAGE_OPTIONS.map(s => ({ value: s, label: s }));
 
+  const refreshList = async () => {
+    const res = await getPositions();
+    setPositions(res.data);
+  };
+
   if (loading) return <div className="positions-loading">Loading positions...</div>;
   if (error) return <div className="positions-error">Error: {error}</div>;
 
@@ -376,66 +606,66 @@ function Positions() {
       <div className="table-wrapper">
         <table className="positions-table">
           <thead>
-  <tr>
-    <th>JO ID</th>
-    <th className="th-with-filter">
-      <span className="th-label">Client</span>
-      <HeaderFilter
-        options={clientOptions}
-        value={filters.client}
-        onChange={(v) => handleFilterChange('client', v)}
-        allLabel="All"
-        label="Client"
-      />
-    </th>
-    <th>Position</th>
-    <th className="th-with-filter">
-      <span className="th-label">Level</span>
-      <HeaderFilter
-        options={levelOptions}
-        value={filters.pLevel}
-        onChange={(v) => handleFilterChange('pLevel', v)}
-        allLabel="All"
-        label="Level"
-      />
-    </th>
-    <th className="th-with-filter">
-      <span className="th-label">Status</span>
-      <HeaderFilter
-        options={statusOptions}
-        value={filters.status}
-        onChange={(v) => handleFilterChange('status', v)}
-        allLabel="All"
-        label="Status"
-      />
-    </th>
-    <th className="th-with-filter">
-      <span className="th-label">Stage</span>
-      <HeaderFilter
-        options={stageOptions}
-        value={filters.stage}
-        onChange={(v) => handleFilterChange('stage', v)}
-        allLabel="All"
-        label="Stage"
-      />
-    </th>
-    <th className="th-with-filter">
-      <span className="th-label">Assignee</span>
-      <HeaderFilter
-        options={assigneeOptions}
-        value={filters.assignee}
-        onChange={(v) => handleFilterChange('assignee', v)}
-        allLabel="All"
-        label="Assignee"
-      />
-    </th>
-    <th>Flags</th>
-    <th>%</th>
-    <th>LS</th>
-    <th>CV</th>
-    <th>Actions</th>
-  </tr>
-</thead>
+            <tr>
+              <th>JO ID</th>
+              <th className="th-with-filter">
+                <span className="th-label">Client</span>
+                <HeaderFilter
+                  options={clientOptions}
+                  value={filters.client}
+                  onChange={(v) => handleFilterChange('client', v)}
+                  allLabel="All"
+                  label="Client"
+                />
+              </th>
+              <th>Position</th>
+              <th className="th-with-filter">
+                <span className="th-label">Level</span>
+                <HeaderFilter
+                  options={levelOptions}
+                  value={filters.pLevel}
+                  onChange={(v) => handleFilterChange('pLevel', v)}
+                  allLabel="All"
+                  label="Level"
+                />
+              </th>
+              <th className="th-with-filter">
+                <span className="th-label">Status</span>
+                <HeaderFilter
+                  options={statusOptions}
+                  value={filters.status}
+                  onChange={(v) => handleFilterChange('status', v)}
+                  allLabel="All"
+                  label="Status"
+                />
+              </th>
+              <th className="th-with-filter">
+                <span className="th-label">Stage</span>
+                <HeaderFilter
+                  options={stageOptions}
+                  value={filters.stage}
+                  onChange={(v) => handleFilterChange('stage', v)}
+                  allLabel="All"
+                  label="Stage"
+                />
+              </th>
+              <th className="th-with-filter">
+                <span className="th-label">Assignee</span>
+                <HeaderFilter
+                  options={assigneeOptions}
+                  value={filters.assignee}
+                  onChange={(v) => handleFilterChange('assignee', v)}
+                  allLabel="All"
+                  label="Assignee"
+                />
+              </th>
+              <th>Flags</th>
+              <th>%</th>
+              <th>LS</th>
+              <th>CV</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
           <tbody>
             {filteredPositions.length === 0 ? (
               <tr><td colSpan="12" className="no-rows">No positions found</td></tr>
@@ -620,9 +850,13 @@ function Positions() {
                           <button className="action-edit" onClick={() => startEdit(pos)} title="Edit row">
                             <EditIcon />
                           </button>
-                          <Link to={`/positions/${pos._id}`} className="action-link" title="View details">
+                          <button
+                            className="action-link"
+                            onClick={() => setSelectedPosition(pos)}
+                            title="View details"
+                          >
                             <ViewIcon />
-                          </Link>
+                          </button>
                           <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position">
                             <DeleteIcon />
                           </button>
@@ -650,6 +884,16 @@ function Positions() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Detail Modal */}
+      {selectedPosition && (
+        <PositionDetailModal
+          position={selectedPosition}
+          onClose={() => setSelectedPosition(null)}
+          onUpdate={refreshList}
+          tas={tas}
+        />
       )}
     </div>
   );
