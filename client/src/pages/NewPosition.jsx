@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createPosition } from '../api/positions';
+import { createPosition, getPositions } from '../api/positions';
 import { getClients } from '../api/clients';
 import { getActiveTAs } from '../api/tas';
 import './NewPosition.css';
@@ -8,6 +8,7 @@ import './NewPosition.css';
 function NewPosition() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [loadingId, setLoadingId] = useState(true);
   const [clients, setClients] = useState([]);
   const [tas, setTAs] = useState([]);
   const [formData, setFormData] = useState({
@@ -20,7 +21,6 @@ function NewPosition() {
     assignee: '',
     transferParallel: 'New',
     expectedCloseDate: '',
-    completionPercent: 0,
     lsCount: '',
     cvCount: '',
     thisWeekFocus: '',
@@ -28,17 +28,40 @@ function NewPosition() {
   });
   const [error, setError] = useState('');
 
+  // Generate next Job ID
+  const generateNextJobId = (positions) => {
+    const ids = positions.map(p => p.jobOrderId).filter(id => id && id.startsWith('JO-'));
+    const numbers = ids.map(id => parseInt(id.replace('JO-', ''), 10)).filter(n => !isNaN(n));
+    const max = numbers.length ? Math.max(...numbers) : 0;
+    const next = max + 1;
+    return `JO-${String(next).padStart(3, '0')}`;
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [clientRes, taRes] = await Promise.all([
+        const [clientRes, taRes, posRes] = await Promise.all([
           getClients(),
-          getActiveTAs()
+          getActiveTAs(),
+          getPositions()
         ]);
         setClients(clientRes.data);
         setTAs(taRes.data);
+
+        // Auto-generate Job ID from existing positions
+        if (posRes.data && posRes.data.length > 0) {
+          const nextId = generateNextJobId(posRes.data);
+          setFormData(prev => ({ ...prev, jobOrderId: nextId }));
+        } else {
+          // No positions yet, start with JO-001
+          setFormData(prev => ({ ...prev, jobOrderId: 'JO-001' }));
+        }
       } catch (err) {
-        alert('Failed to load clients/TAs');
+        alert('Failed to load data for new position');
+        // Fallback: allow manual entry
+        setFormData(prev => ({ ...prev, jobOrderId: 'JO-001' }));
+      } finally {
+        setLoadingId(false);
       }
     };
     fetchData();
@@ -61,13 +84,13 @@ function NewPosition() {
 
     setLoading(true);
     try {
-      // Clean up empty strings for number fields
       const payload = {
         ...formData,
         lsCount: formData.lsCount ? Number(formData.lsCount) : null,
         cvCount: formData.cvCount ? Number(formData.cvCount) : null,
         expectedCloseDate: formData.expectedCloseDate || null,
         assignee: formData.assignee || null
+        // completionPercent is intentionally omitted
       };
       await createPosition(payload);
       navigate('/positions');
@@ -93,7 +116,9 @@ function NewPosition() {
               value={formData.jobOrderId}
               onChange={handleChange}
               placeholder="e.g., JO-001"
+              disabled={loadingId}
             />
+            {loadingId && <span className="field-loader">Generating ID...</span>}
           </div>
           <div className="form-group">
             <label>Client *</label>
@@ -184,15 +209,9 @@ function NewPosition() {
               onChange={handleChange}
             />
           </div>
+          {/* Completion % removed */}
           <div className="form-group">
-            <label>Completion %</label>
-            <select name="completionPercent" value={formData.completionPercent} onChange={handleChange}>
-              <option value="0">0%</option>
-              <option value="25">25%</option>
-              <option value="50">50%</option>
-              <option value="75">75%</option>
-              <option value="100">100%</option>
-            </select>
+            {/* empty placeholder to keep layout */}
           </div>
         </div>
 
@@ -250,7 +269,7 @@ function NewPosition() {
           <button type="button" className="btn-secondary" onClick={() => navigate('/positions')}>
             Cancel
           </button>
-          <button type="submit" className="btn-primary" disabled={loading}>
+          <button type="submit" className="btn-primary" disabled={loading || loadingId}>
             {loading ? 'Creating...' : 'Create Position'}
           </button>
         </div>

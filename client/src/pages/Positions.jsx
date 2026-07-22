@@ -10,17 +10,18 @@ import './Positions.css';
 const STATUS_OPTIONS = ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost'];
 const PLEVEL_OPTIONS = ['P1', 'P2', 'P3', 'P4', 'P5'];
 const STAGE_OPTIONS = ['Hunting', 'Shortlisted', 'Client Review', 'Interview', 'Offer', 'Placed'];
-const COMPLETION_OPTIONS = [0, 25, 50, 75, 100];
 const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'];
+
+// Saturated colors for the dot and legend
 const COLOR_HEX = {
-  red: '#fca5a5',
-  orange: '#fdba74',
-  yellow: '#fde68a',
-  green: '#86efac',
-  teal: '#5eead4',
-  blue: '#93c5fd',
-  purple: '#d8b4fe',
-  pink: '#f9a8d4',
+  red: '#ef4444',
+  orange: '#f59e0b',
+  yellow: '#fde047',
+  green: '#22c55e',
+  teal: '#14b8a6',
+  blue: '#3b82f6',
+  purple: '#8b5cf6',
+  pink: '#ec4899',
 };
 
 // P-level colors
@@ -75,14 +76,12 @@ const CloseIcon = () => (
   </svg>
 );
 
-// Filter icon (funnel)
 const FilterIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="22 3 2 3 10 13 10 21 14 18 14 13 22 3" />
   </svg>
 );
 
-// Check icon for dropdown
 const CheckIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="20 6 9 17 4 12" />
@@ -178,7 +177,7 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
         thisWeekFocus: editData.thisWeekFocus || '',
       };
       await updatePosition(position._id, payload);
-      onUpdate(); // refresh the list
+      onUpdate();
       onClose();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to save changes');
@@ -187,7 +186,6 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
     }
   };
 
-  // Get the last 5 allocation rounds (or fewer)
   const historyRounds = [...(editData.allocationRounds || [])]
     .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
     .slice(0, 5);
@@ -203,7 +201,6 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
         </div>
 
         <div className="modal-body">
-          {/* Position summary – read-only */}
           <div className="modal-summary">
             <div className="modal-summary-item">
               <span className="modal-summary-label">Position</span>
@@ -230,16 +227,11 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
               <span className="modal-summary-value">{position.pipelineStage}</span>
             </div>
             <div className="modal-summary-item">
-              <span className="modal-summary-label">Completion</span>
-              <span className="modal-summary-value">{position.completionPercent}%</span>
-            </div>
-            <div className="modal-summary-item">
               <span className="modal-summary-label">LS / CV</span>
               <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
             </div>
           </div>
 
-          {/* Editable fields – full width, stacked vertically */}
           <div className="modal-editable">
             <div className="modal-field modal-field--full">
               <label>This Week Focus</label>
@@ -251,7 +243,6 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
                 placeholder="e.g., Schedule interviews, Review CVs..."
               />
             </div>
-
             <div className="modal-field modal-field--full">
               <label>Remarks</label>
               <textarea
@@ -264,7 +255,6 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
             </div>
           </div>
 
-          {/* Allocation History */}
           <div className="modal-history">
             <h4>Allocation History</h4>
             {historyRounds.length === 0 ? (
@@ -323,14 +313,10 @@ function Positions() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
-
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [savingEdit, setSavingEdit] = useState(false);
-
   const [colorPopoverId, setColorPopoverId] = useState(null);
-
-  // Detail modal state
   const [selectedPosition, setSelectedPosition] = useState(null);
 
   useEffect(() => {
@@ -364,7 +350,7 @@ function Positions() {
   };
 
   const filteredPositions = useMemo(() => {
-    return positions.filter(pos => {
+    const filtered = positions.filter(pos => {
       const matchesClient = !filters.client || pos.client?._id === filters.client;
       const matchesAssignee = !filters.assignee
         ? true
@@ -380,6 +366,13 @@ function Positions() {
         pos.position.toLowerCase().includes(searchLower) ||
         (pos.client?.clientName || '').toLowerCase().includes(searchLower);
       return matchesClient && matchesAssignee && matchesStatus && matchesPLevel && matchesStage && matchesSearch;
+    });
+
+    return filtered.sort((a, b) => {
+      const clientA = (a.client?.clientName || '').toLowerCase();
+      const clientB = (b.client?.clientName || '').toLowerCase();
+      if (clientA !== clientB) return clientA.localeCompare(clientB);
+      return (a.position || '').localeCompare(b.position || '');
     });
   }, [positions, filters]);
 
@@ -487,7 +480,6 @@ function Positions() {
     }
   };
 
-  // Build filter options
   const clientOptions = clients.map(c => ({ value: c._id, label: c.clientName }));
   const assigneeOptions = [
     { value: 'unassigned', label: 'Unassigned' },
@@ -532,7 +524,6 @@ function Positions() {
         </div>
       </div>
 
-      {/* Search bar */}
       <div className="filters-bar">
         <input
           type="text"
@@ -601,7 +592,6 @@ function Positions() {
                 />
               </th>
               <th>Flags</th>
-              <th>%</th>
               <th>LS</th>
               <th>CV</th>
               <th>Actions</th>
@@ -609,24 +599,27 @@ function Positions() {
           </thead>
           <tbody>
             {filteredPositions.length === 0 ? (
-              <tr><td colSpan="12" className="no-rows">No positions found</td></tr>
+              <tr><td colSpan="11" className="no-rows">No positions found</td></tr>
             ) : (
               filteredPositions.map(pos => {
                 const flagValues = pos.flags ? Object.values(pos.flags).filter(f => f !== null) : [];
                 const isEditing = editingId === pos._id;
-                const rowProps = pos.highlightColor
-                  ? { 'data-highlighted': 'true', style: { '--row-color': COLOR_HEX[pos.highlightColor] } }
-                  : {};
+                const isUpdating = updatingId === pos._id;
+
+                // Only blue (Follow up) and red (Add-on) get a row tint.
+                // All other highlight colors show only the dot in Actions.
+                let rowClassName = '';
+                if (pos.highlightColor === 'blue') rowClassName = 'row-tint-blue';
+                else if (pos.highlightColor === 'red') rowClassName = 'row-tint-red';
+
                 const levelColor = PLEVEL_COLORS[pos.pLevel] || { bg: '#e5e7eb', text: '#1a1a1a' };
                 const stageColor = STAGE_COLORS[pos.pipelineStage] || { bg: '#f3f4f6', text: '#374151' };
                 const statusColor = STATUS_COLORS[pos.status] || { bg: '#e5e7eb', text: '#374151' };
-                const isUpdating = updatingId === pos._id;
 
                 return (
-                  <tr key={pos._id} {...rowProps}>
+                  <tr key={pos._id} className={rowClassName}>
                     <td><Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link></td>
                     <td>{pos.client?.clientName || '—'}</td>
-
                     <td>
                       {isEditing ? (
                         <input
@@ -637,7 +630,6 @@ function Positions() {
                         />
                       ) : pos.position}
                     </td>
-
                     <td>
                       <select
                         className="p-level-select inline-edit-select inline-edit-select--level"
@@ -653,7 +645,6 @@ function Positions() {
                         ))}
                       </select>
                     </td>
-
                     <td>
                       <select
                         className="status-select"
@@ -676,7 +667,6 @@ function Positions() {
                         })}
                       </select>
                     </td>
-
                     <td>
                       <select
                         className="stage-select inline-edit-select"
@@ -690,7 +680,6 @@ function Positions() {
                         ))}
                       </select>
                     </td>
-
                     <td>
                       <select
                         className="assignee-select inline-edit-select"
@@ -704,25 +693,9 @@ function Positions() {
                         ))}
                       </select>
                     </td>
-
                     <td className="flags-cell">
                       {flagValues.map((flag, idx) => <FlagBadge key={idx} flag={flag} />)}
                     </td>
-
-                    <td>
-                      <div className="completion-dots">
-                        {COMPLETION_OPTIONS.map((val) => (
-                          <button
-                            key={val}
-                            className={`completion-dot ${pos.completionPercent >= val ? 'active' : ''}`}
-                            onClick={() => handleDirectUpdate(pos, 'completionPercent', val)}
-                            disabled={isUpdating}
-                            title={`${val}%`}
-                          />
-                        ))}
-                      </div>
-                    </td>
-
                     <td>
                       {isEditing ? (
                         <input
@@ -735,7 +708,6 @@ function Positions() {
                         />
                       ) : (pos.lsCount ?? '—')}
                     </td>
-
                     <td>
                       {isEditing ? (
                         <input
@@ -748,14 +720,13 @@ function Positions() {
                         />
                       ) : (pos.cvCount ?? '—')}
                     </td>
-
                     <td className="actions-cell">
                       <div className="color-picker-wrap">
                         <button
                           className="color-swatch-btn"
                           style={{
                             background: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : '#e5e7eb',
-                            border: pos.highlightColor ? `2px solid ${COLOR_HEX[pos.highlightColor]}` : '2px dashed #d1d5db'
+                            border: pos.highlightColor ? '2px solid rgba(0,0,0,0.15)' : '2px dashed #d1d5db',
                           }}
                           onClick={() => setColorPopoverId(colorPopoverId === pos._id ? null : pos._id)}
                           title="Set highlight color"
@@ -827,7 +798,6 @@ function Positions() {
         </div>
       )}
 
-      {/* Detail Modal */}
       {selectedPosition && (
         <PositionDetailModal
           position={selectedPosition}

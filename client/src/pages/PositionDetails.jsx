@@ -32,7 +32,9 @@ function PositionDetails() {
         ]);
         setPosition(posRes.data);
         setFormData(posRes.data);
-        setTAs(taRes.data);
+        // Sort TAs alphabetically
+        const sortedTAs = taRes.data.slice().sort((a, b) => a.name.localeCompare(b.name));
+        setTAs(sortedTAs);
         setHistory(histRes.data);
       } catch (err) {
         setError(err.message);
@@ -167,14 +169,7 @@ function PositionDetails() {
                 <option value="Transfer">Transfer</option>
                 <option value="Parallel">Parallel</option>
               </select>
-              <label>Completion %</label>
-              <select name="completionPercent" value={formData.completionPercent || 0} onChange={handleFormChange}>
-                <option value="0">0%</option>
-                <option value="25">25%</option>
-                <option value="50">50%</option>
-                <option value="75">75%</option>
-                <option value="100">100%</option>
-              </select>
+              {/* Completion % removed */}
               <label>LS Count</label>
               <input name="lsCount" type="number" value={formData.lsCount || ''} onChange={handleFormChange} />
               <label>CV Count</label>
@@ -200,7 +195,7 @@ function PositionDetails() {
               <div className="detail-row"><span>Assignee</span><span>{position.assignee?.name || '—'}</span></div>
               <div className="detail-row"><span>Date Assigned</span><span>{position.dateAssigned ? new Date(position.dateAssigned).toLocaleDateString() : '—'}</span></div>
               <div className="detail-row"><span>Expected Close</span><span>{position.expectedCloseDate ? new Date(position.expectedCloseDate).toLocaleDateString() : '—'}</span></div>
-              <div className="detail-row"><span>Completion</span><span>{position.completionPercent}%</span></div>
+              {/* Completion % row removed */}
               <div className="detail-row"><span>LS Count</span><span>{position.lsCount ?? '—'}</span></div>
               <div className="detail-row"><span>CV Count</span><span>{position.cvCount ?? '—'}</span></div>
               <div className="detail-row"><span>This Week Focus</span><span>{position.thisWeekFocus || '—'}</span></div>

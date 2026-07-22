@@ -58,7 +58,7 @@ function Sidebar() {
             transition={{ delay: 0.1, duration: 0.2 }}
             className="relative ml-2 whitespace-nowrap font-display text-lg font-bold text-forest-900"
           >
-            career141
+            Career141
           </motion.span>
         </div>
 

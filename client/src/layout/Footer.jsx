@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 function Footer() {
   return (
-    <footer className="flex h-12 shrink-0 items-center justify-between px-8 text-sm text-forest-700">
+    <footer className="flex h-28 shrink-0 items-center justify-between px-8 text-sm text-forest-700 border-t border-forest-200/30 bg-white/20 backdrop-blur-sm">
       <span className="text-xs font-light tracking-wide opacity-70">
         &copy; {new Date().getFullYear()} career141 Capacity Planner
       </span>

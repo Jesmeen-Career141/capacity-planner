@@ -87,8 +87,7 @@ const CURRENT_REAL_WEEK = {
   weekEnd: toISODate(addDays(getMondayOfWeek(TODAY), 6)),
 };
 
-/* ---------- Decorative corner accents (same visual language as Dashboard) ---------- */
-
+/* ---------- Decorative corner accents ---------- */
 function LeafCorner() {
   return (
     <svg viewBox="0 0 100 100" className="tb-stat-corner tb-stat-corner--leaf" fill="currentColor">
@@ -126,7 +125,7 @@ function StatCard({ label, value, accent, corner = 'leaf' }) {
   );
 }
 
-/* ---------- Small checkmark icon used in the modern dropdown ---------- */
+/* ---------- Small checkmark icon ---------- */
 function CheckIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -135,49 +134,78 @@ function CheckIcon() {
   );
 }
 
-// Days elapsed since a given ISO date string. Used for the "Xd open" badge.
+// Days elapsed since a given ISO date string.
 function daysSince(dateStr) {
   if (!dateStr) return null;
   const diff = Date.now() - new Date(dateStr).getTime();
   return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
 }
 
-/* ---------- Portal-based popover (existing) ---------- */
+/* ---------- Portal-based popover ---------- */
 function Popover({ anchorRef, isOpen, onClose, children, width = 290 }) {
   const [style, setStyle] = useState(null);
+  const popoverRef = useRef(null);
 
   useLayoutEffect(() => {
     if (!isOpen || !anchorRef.current) return;
     const rect = anchorRef.current.getBoundingClientRect();
     const margin = 8;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const openUpward = spaceBelow < 320 && rect.top > 320;
-    const left = Math.min(Math.max(rect.left, margin), window.innerWidth - width - margin);
+    let left = rect.left;
+    const maxLeft = window.innerWidth - width - margin;
+    if (left < margin) left = margin;
+    if (left > maxLeft) left = maxLeft;
 
-    setStyle({
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const openDownward = true;
+    let top = null;
+    let bottom = null;
+    let maxHeight = 320;
+
+    if (openDownward) {
+      top = rect.bottom + margin;
+      const available = window.innerHeight - top - margin;
+      maxHeight = Math.min(320, Math.max(180, available));
+    } else {
+      bottom = window.innerHeight - rect.top + margin;
+      const available = rect.top - margin;
+      maxHeight = Math.min(320, Math.max(180, available));
+    }
+
+    const newStyle = {
       position: 'fixed',
       left,
       width,
-      ...(openUpward
-        ? { bottom: window.innerHeight - rect.top + 6 }
-        : { top: rect.bottom + 6 }),
-    });
+      minHeight: 180,
+      maxHeight: maxHeight,
+      overflowY: 'auto',
+      ...(top !== null ? { top } : { bottom }),
+    };
+    setStyle(newStyle);
   }, [isOpen, anchorRef, width]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e) => {
+      if (popoverRef.current?.contains(e.target)) return;
+      if (anchorRef.current?.contains(e.target)) return;
+      onClose();
+    };
+    document.addEventListener('mousedown', handleClickOutside, true);
+    return () => document.removeEventListener('mousedown', handleClickOutside, true);
+  }, [isOpen, onClose, anchorRef]);
 
   if (!isOpen || !style) return null;
 
   return createPortal(
-    <>
-      <div className="cell-backdrop" onClick={onClose} />
-      <div className="cell-popover" style={style} onClick={e => e.stopPropagation()}>
-        {children}
-      </div>
-    </>,
+    <div className="cell-popover" style={style} ref={popoverRef} onClick={e => e.stopPropagation()}>
+      {children}
+    </div>,
     document.body
   );
 }
 
-/* ---------- Position Detail Modal (Apple‑style zoom) ---------- */
+/* ---------- Position Detail Modal ---------- */
 function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   const [editData, setEditData] = useState({
     remarks: '',
@@ -210,7 +238,7 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
         thisWeekFocus: editData.thisWeekFocus || '',
       };
       await updatePosition(position._id, payload);
-      await onUpdate(); // refresh positions
+      await onUpdate();
       onClose();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to save changes');
@@ -219,7 +247,6 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
     }
   };
 
-  // Get the last 5 allocation rounds (or fewer)
   const historyRounds = [...(editData.allocationRounds || [])]
     .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
     .slice(0, 5);
@@ -248,7 +275,6 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
         </div>
 
         <div className="modal-body">
-          {/* Position summary – read-only */}
           <div className="modal-summary">
             <div className="modal-summary-item">
               <span className="modal-summary-label">Position</span>
@@ -274,17 +300,13 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
               <span className="modal-summary-label">Stage</span>
               <span className="modal-summary-value">{position.pipelineStage}</span>
             </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Completion</span>
-              <span className="modal-summary-value">{position.completionPercent}%</span>
-            </div>
+            {/* Completion % removed */}
             <div className="modal-summary-item">
               <span className="modal-summary-label">LS / CV</span>
               <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
             </div>
           </div>
 
-          {/* Editable fields – full width, stacked vertically */}
           <div className="modal-editable">
             <div className="modal-field modal-field--full">
               <label>This Week Focus</label>
@@ -296,7 +318,6 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
                 placeholder="e.g., Schedule interviews, Review CVs..."
               />
             </div>
-
             <div className="modal-field modal-field--full">
               <label>Remarks</label>
               <textarea
@@ -309,7 +330,6 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
             </div>
           </div>
 
-          {/* Allocation History */}
           <div className="modal-history">
             <h4>Allocation History</h4>
             {historyRounds.length === 0 ? (
@@ -347,7 +367,6 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   );
 }
 
-// Close icon component (used both in modal and header)
 const CloseIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="18" y1="6" x2="6" y2="18" />
@@ -355,7 +374,7 @@ const CloseIcon = () => (
   </svg>
 );
 
-/* ---------- Position Pool (now with onPositionClick prop) ---------- */
+/* ---------- Position Pool ---------- */
 function PositionPool({ positions, navigate, onPositionClick }) {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -368,7 +387,13 @@ function PositionPool({ positions, navigate, onPositionClick }) {
     );
   });
 
-  const sorted = [...filtered].sort((a, b) => PLEVEL_ORDER.indexOf(a.pLevel) - PLEVEL_ORDER.indexOf(b.pLevel));
+  // Sort by client name → position title
+  const sorted = [...filtered].sort((a, b) => {
+    const clientA = (a.client?.clientName || '').toLowerCase();
+    const clientB = (b.client?.clientName || '').toLowerCase();
+    if (clientA !== clientB) return clientA.localeCompare(clientB);
+    return (a.position || '').localeCompare(b.position || '');
+  });
 
   return (
     <aside className="position-pool">
@@ -397,15 +422,7 @@ function PositionPool({ positions, navigate, onPositionClick }) {
               onKeyDown={e => e.key === 'Enter' && onPositionClick(pos)}
             >
               <div className="pool-card-top">
-                <span className="pool-completion">
-                  <span className="pool-completion-value">{pos.completionPercent || 0}%</span>
-                  <span className="pool-completion-bar">
-                    <span
-                      className="pool-completion-fill"
-                      style={{ width: `${pos.completionPercent || 0}%` }}
-                    />
-                  </span>
-                </span>
+                {/* completion bar removed */}
                 <span className={`pool-plevel pool-plevel--${pos.pLevel}`}>{pos.pLevel}</span>
               </div>
               <div className="pool-card-client">{pos.client?.clientName || '—'}</div>
@@ -442,7 +459,7 @@ function PositionPool({ positions, navigate, onPositionClick }) {
   );
 }
 
-/* ---------- Modern position-picker popover (used by the weekly grid "+ Assign" cell) ---------- */
+/* ---------- GridCell ---------- */
 function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
   const [searchTerm, setSearchTerm] = useState('');
   const triggerRef = useRef(null);
@@ -456,6 +473,14 @@ function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
     );
   });
 
+  // Sort by client name → position title
+  const sorted = filtered.slice().sort((a, b) => {
+    const clientA = (a.client?.clientName || '').toLowerCase();
+    const clientB = (b.client?.clientName || '').toLowerCase();
+    if (clientA !== clientB) return clientA.localeCompare(clientB);
+    return (a.position || '').localeCompare(b.position || '');
+  });
+
   return (
     <div className="grid-cell-wrap">
       {position ? (
@@ -463,7 +488,9 @@ function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
           {position.client?.clientName || '—'} — {position.position}
         </button>
       ) : (
-        <button ref={triggerRef} className="grid-pill grid-pill-empty" onClick={onToggle}>+ Assign</button>
+        <button ref={triggerRef} className="grid-pill grid-pill-empty" onClick={() => { onToggle(); }}>
+          + Assign
+        </button>
       )}
       <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggle}>
         <div className="popover-search">
@@ -482,7 +509,7 @@ function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
           <span className="cpo-check">{!position && <CheckIcon />}</span>
           <span className="cpo-text cpo-text--muted">— None —</span>
         </button>
-        {filtered.map(p => {
+        {sorted.map(p => {
           const selected = position?._id === p._id;
           return (
             <button
@@ -499,11 +526,15 @@ function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
             </button>
           );
         })}
+        {sorted.length === 0 && (
+          <div className="popover-empty">No positions available</div>
+        )}
       </Popover>
     </div>
   );
 }
 
+/* ---------- TACard ---------- */
 function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openCellKey, onCellToggle, onSelectCell, navigate, workloadCount }) {
   const initials = ta.name?.[0]?.toUpperCase() || '?';
   return (
@@ -532,13 +563,13 @@ function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openC
               {displayWeeks.map((w, idx) => {
                 const position = getCell(ta._id, w.weekStart, day);
                 const isActive = idx === activeColumnIndex;
-                // FIX: use String(ta._id) to ensure consistent key
                 const cellKey = `${String(ta._id)}|${w.weekStart}|${day}`;
 
                 if (isActive) {
                   return (
                     <div key={cellKey} className="ta-grid-cell ta-grid-cell--active">
                       <GridCell
+                        key={cellKey + (openCellKey === cellKey ? '-open' : '-closed')}
                         position={position}
                         positions={positions}
                         isOpen={openCellKey === cellKey}
@@ -573,8 +604,7 @@ function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openC
   );
 }
 
-/* ---------- Action Board sub-pieces (each owns its own trigger ref for the portal popover) ---------- */
-
+/* ---------- Action Board sub-components ---------- */
 function ReassignChip({ p, flagKey, ta, tas, onReassign, onToggleFlag, isOpen, onToggleOpen }) {
   const triggerRef = useRef(null);
   return (
@@ -613,6 +643,13 @@ function AddPositionButton({ ta, flagKey, candidates, matchesCount, onReassign, 
     );
   });
 
+  const sorted = filtered.slice().sort((a, b) => {
+    const clientA = (a.client?.clientName || '').toLowerCase();
+    const clientB = (b.client?.clientName || '').toLowerCase();
+    if (clientA !== clientB) return clientA.localeCompare(clientB);
+    return (a.position || '').localeCompare(b.position || '');
+  });
+
   return (
     <div className="ab-add-wrap">
       <button ref={triggerRef} className="ab-add-btn" onClick={onToggleOpen}>
@@ -629,7 +666,7 @@ function AddPositionButton({ ta, flagKey, candidates, matchesCount, onReassign, 
             onClick={e => e.stopPropagation()}
           />
         </div>
-        {filtered.slice(0, 30).map(p => (
+        {sorted.slice(0, 30).map(p => (
           <button key={p._id} className="cell-popover-option" onClick={() => {
             if (p.assignee?._id !== ta._id) onReassign(p._id, ta._id);
             onToggleFlag(p._id, flagKey, 'on');
@@ -643,7 +680,7 @@ function AddPositionButton({ ta, flagKey, candidates, matchesCount, onReassign, 
             </span>
           </button>
         ))}
-        {filtered.length === 0 && <div className="popover-empty">No positions match</div>}
+        {sorted.length === 0 && <div className="popover-empty">No positions match</div>}
       </Popover>
     </div>
   );
@@ -657,10 +694,6 @@ function ActionBoard({ positions, tas, onToggleFlag, onReassign, workloadByTA })
     setSearchTerms(prev => ({ ...prev, [key]: value }));
   };
 
-  // Only these labels represent an *actionable* state for a given flag key.
-  // reAssign is special: it carries three sub-states (Reassign / Watch / Healthy)
-  // under one key, and only the red "Reassign" state should surface here --
-  // "Watch" and "Healthy" are informational, not action items.
   const isActionable = (flagKey, flag) => {
     if (!flag) return false;
     if (flagKey === 'reAssign') return flag.label === 'Reassign';
@@ -733,7 +766,7 @@ function ActionBoard({ positions, tas, onToggleFlag, onReassign, workloadByTA })
   );
 }
 
-/* ---------- Main TABoard Component ---------- */
+/* ---------- Main TABoard ---------- */
 function TABoard() {
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState('grid');
@@ -747,11 +780,7 @@ function TABoard() {
   const [gridLoading, setGridLoading] = useState(false);
   const [error, setError] = useState(null);
   const [openCellKey, setOpenCellKey] = useState(null);
-
-  // New state for the pool detail modal
   const [poolModalPosition, setPoolModalPosition] = useState(null);
-
-  // Cache for grid data
   const gridCache = useRef({});
 
   const selectedMonth = MONTH_OPTIONS[selectedMonthIdx];
@@ -759,7 +788,6 @@ function TABoard() {
   const activeColumnIndex = displayWeeks.findIndex(w => TODAY_ISO >= w.weekStart && TODAY_ISO <= w.weekEnd);
   const isActiveVisible = activeColumnIndex !== -1;
 
-  // --- ALL HOOKS MUST BE CALLED BEFORE CONDITIONAL RETURNS ---
   useEffect(() => {
     (async () => {
       try {
@@ -771,7 +799,6 @@ function TABoard() {
     })();
   }, []);
 
-  // Fetch weekly grids with caching
   useEffect(() => {
     if (loading) return;
     setGridLoading(true);
@@ -872,25 +899,21 @@ function TABoard() {
     } catch (err) { alert(err.response?.data?.error || 'Failed to reassign'); }
   };
 
-  // Refresh positions (used after modal save)
   const refreshPositions = async () => {
     const res = await getPositions();
     setPositions(res.data);
   };
 
-  // Memoized taList
   const taList = useMemo(() => {
     const source = displayWeeks.map(w => gridsByWeek[w.weekStart]).find(g => g && g.length > 0) || [];
     return source.map(row => row.ta);
   }, [displayWeeks, gridsByWeek]);
 
-  // Conditional returns
   if (loading) return <div className="taboard-loading">Loading TA Board...</div>;
   if (error) return <div className="taboard-error">Error: {error}</div>;
 
   const openPositions = positions.filter(p => !['Placed', 'Lost'].includes(p.status));
   const activeTACount = taList.length;
-  const bandwidth = activeTACount === 0 ? '-' : (openPositions.length / activeTACount).toFixed(1);
   const active = positions.filter(p => p.status === 'A&P').length;
   const yetToActivate = positions.filter(p => p.status === 'Yet to Activate').length;
   const fence = positions.filter(p => p.status === 'Fence').length;
@@ -921,7 +944,7 @@ function TABoard() {
       )}
 
       <div className="tb-stats-row">
-        <StatCard label="TA Bandwidth" value={`${bandwidth}x`} accent="primary" corner="leaf" />
+        {/* TA Bandwidth removed */}
         <StatCard label="Total Roles" value={openPositions.length} corner="gold" />
         <StatCard label="Carried Forward" value={carriedForward} corner="leaf" />
         <StatCard label="Active (A&P)" value={active} accent="green" corner="gold" />
@@ -931,7 +954,6 @@ function TABoard() {
       </div>
 
       <div className="taboard-body">
-        {/* Pass onPositionClick to open modal */}
         <PositionPool
           positions={positions}
           navigate={navigate}
@@ -955,7 +977,9 @@ function TABoard() {
                     getCell={getCell}
                     positions={positions}
                     openCellKey={openCellKey}
-                    onCellToggle={(cellKey) => setOpenCellKey(openCellKey === cellKey ? null : cellKey)}
+                    onCellToggle={(cellKey) => {
+                      setOpenCellKey(openCellKey === cellKey ? null : cellKey);
+                    }}
                     onSelectCell={handleCellSelect}
                     navigate={navigate}
                     workloadCount={workloadByTA[ta._id] ?? 0}
@@ -977,7 +1001,6 @@ function TABoard() {
         )}
       </div>
 
-      {/* Detail Modal for Position Pool */}
       <AnimatePresence>
         {poolModalPosition && (
           <PositionDetailModal

@@ -28,7 +28,8 @@ async function getGridForWeek(req, res) {
       return res.status(400).json({ error: 'Invalid Date format for weekStart or weekEnd' });
     }
 
-    const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1 });
+    // Fixed: secondary sort by _id for stable ordering
+    const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
 
     const grid = await Promise.all(activeTAs.map(async (ta) => {
       return await WeeklyAllocation.findOneAndUpdate(
@@ -130,7 +131,8 @@ async function autofillWeek(req, res) {
       end.setDate(start.getDate() + 6);
     }
 
-    const activeTAs = await TA.find({ status: 'Active' });
+    // Fixed: added sort by name and _id for deterministic order
+    const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
 
     // Seed allocations for each active TA
     await Promise.all(activeTAs.map(async (ta) => {

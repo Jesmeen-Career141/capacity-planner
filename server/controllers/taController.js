@@ -4,7 +4,8 @@ const Position = require('../models/Position');
 // GET all TAs
 async function getAllTAs(req, res) {
   try {
-    const tas = await TA.find().sort({ name: 1 });
+    // Fixed: secondary sort by _id for stable ordering
+    const tas = await TA.find().sort({ name: 1, _id: 1 });
     res.json(tas);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -14,7 +15,8 @@ async function getAllTAs(req, res) {
 // GET only active TAs (used for dropdowns)
 async function getActiveTAs(req, res) {
   try {
-    const tas = await TA.find({ status: 'Active' }).sort({ name: 1 });
+    // Fixed: secondary sort by _id for stable ordering
+    const tas = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
     res.json(tas);
   } catch (err) {
     res.status(500).json({ error: err.message });
