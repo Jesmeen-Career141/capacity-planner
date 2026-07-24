@@ -12,17 +12,24 @@ const defaultDays = {
   sun: { position: null, isAutoFilled: false }
 };
 
-// Helper: get Monday of week
+// ---- UTC‑based helpers ----
 function getMondayOfWeek(date) {
   const d = new Date(date);
-  const day = d.getDay();
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-  d.setHours(0, 0, 0, 0);
+  const day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1 - day));
+  d.setUTCHours(0, 0, 0, 0);
   return d;
 }
-function addDays(date, n) { const d = new Date(date); d.setDate(d.getDate() + n); return d; }
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d;
+}
+function toISODate(date) {
+  return date.toISOString().split('T')[0];
+}
 
-// ---- Existing getGridForWeek (kept for backward compatibility) ----
+// ---- Existing getGridForWeek (now uses UTC helpers) ----
 async function getGridForWeek(req, res) {
   try {
     const { weekStart, weekEnd } = req.query;
@@ -77,7 +84,7 @@ async function getGridForWeek(req, res) {
   }
 }
 
-// ---- NEW: batch get for multiple weeks with row insertion ----
+// ---- NEW: batch get for multiple weeks with row insertion (UTC) ----
 async function getGridBatch(req, res) {
   try {
     const { startDate, endDate } = req.query;
@@ -95,7 +102,7 @@ async function getGridBatch(req, res) {
     const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
     const taIds = activeTAs.map(ta => ta._id);
 
-    // Generate all weeks between start and end (Monday‑Sunday)
+    // Generate all weeks between start and end (Monday‑Sunday) using UTC helpers
     const weeks = [];
     let cursor = getMondayOfWeek(start);
     while (cursor <= end) {
@@ -107,17 +114,14 @@ async function getGridBatch(req, res) {
     // For each week, find missing rows and bulk insert
     const bulkOps = [];
     for (const week of weeks) {
-      // Find existing allocations for this week and active TAs
       const existing = await WeeklyAllocation.find({
         weekStart: week.weekStart,
         ta: { $in: taIds }
       }).select('ta');
       const existingTaIds = existing.map(doc => doc.ta.toString());
 
-      // Determine missing TAs
       const missingTaIds = taIds.filter(id => !existingTaIds.includes(id.toString()));
 
-      // Build insert operations for missing rows
       for (const taId of missingTaIds) {
         bulkOps.push({
           insertOne: {
@@ -140,12 +144,11 @@ async function getGridBatch(req, res) {
       }
     }
 
-    // Execute bulk insert if any
     if (bulkOps.length > 0) {
       await WeeklyAllocation.bulkWrite(bulkOps);
     }
 
-    // Now fetch all allocations for these weeks and TAs (including newly inserted)
+    // Fetch all allocations for these weeks and TAs
     const allocations = await WeeklyAllocation.find({
       weekStart: { $in: weeks.map(w => w.weekStart) },
       ta: { $in: taIds }
@@ -157,7 +160,7 @@ async function getGridBatch(req, res) {
         populate: { path: 'client', select: 'clientName' }
       });
 
-    // Build response: array of { weekStart, grid: [...] }
+    // Build response with UTC ISO weekStart keys
     const result = weeks.map(week => {
       const weekGrid = activeTAs.map(ta => {
         const doc = allocations.find(a =>
@@ -167,7 +170,7 @@ async function getGridBatch(req, res) {
         return doc || null;
       }).filter(Boolean);
       return {
-        weekStart: week.weekStart.toISOString().split('T')[0],
+        weekStart: toISODate(week.weekStart), // now UTC‑consistent
         grid: weekGrid
       };
     });
@@ -178,7 +181,7 @@ async function getGridBatch(req, res) {
   }
 }
 
-// ---- updateCell (unchanged) ----
+// ---- updateCell (unchanged, but note it expects weekStart as UTC ISO) ----
 async function updateCell(req, res) {
   try {
     const { taId, weekStart } = req.params;
@@ -228,7 +231,7 @@ async function updateCell(req, res) {
   }
 }
 
-// ---- autofillWeek (unchanged) ----
+// ---- autofillWeek (uses UTC helpers as well) ----
 async function autofillWeek(req, res) {
   try {
     const { weekStart, weekEnd } = req.body;
@@ -246,8 +249,7 @@ async function autofillWeek(req, res) {
     if (weekEnd) {
       end = new Date(weekEnd);
     } else {
-      end = new Date(start);
-      end.setDate(start.getDate() + 6);
+      end = addDays(start, 6); // UTC add
     }
 
     const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });

@@ -15,11 +15,11 @@ const CARD_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri'];
 const DAY_LABELS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
 
 const FLAG_META = {
-  followUp:  { label: 'Follow up' },
-  addOn:     { label: 'Add-on' },
-  backup:    { label: 'Backup' },
+  followUp: { label: 'Follow up' },
+  addOn: { label: 'Add-on' },
+  backup: { label: 'Backup' },
   goingGood: { label: 'Going good' },
-  reAssign:  { label: 'Re-assign' },
+  reAssign: { label: 'Re-assign' },
 };
 const ACTION_ORDER = Object.keys(FLAG_META);
 
@@ -40,19 +40,29 @@ function roleChipStyle(title) {
   return { background: `color-mix(in srgb, ${c} 16%, white)`, color: c };
 }
 
+// ===== UTC DATE HELPERS =====
 function getMondayOfWeek(date) {
   const d = new Date(date);
-  const day = d.getDay();
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-  d.setHours(0, 0, 0, 0);
+  const day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1 - day));
+  d.setUTCHours(0, 0, 0, 0);
   return d;
 }
-function addDays(date, n) { const d = new Date(date); d.setDate(d.getDate() + n); return d; }
-function toISODate(date) { return date.toISOString().split('T')[0]; }
+
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d;
+}
+
+function toISODate(date) {
+  return date.toISOString().split('T')[0];
+}
 
 function getMonthWeeks(year, monthIndex) {
-  const firstOfMonth = new Date(year, monthIndex, 1);
-  const lastOfMonth = new Date(year, monthIndex + 1, 0);
+  // Use UTC to avoid timezone shift
+  const firstOfMonth = new Date(Date.UTC(year, monthIndex, 1));
+  const lastOfMonth = new Date(Date.UTC(year, monthIndex + 1, 0));
   let cursor = getMondayOfWeek(firstOfMonth);
   const weeks = [];
   while (cursor <= lastOfMonth) {
@@ -71,7 +81,7 @@ function buildMonthOptions() {
     options.push({
       year: d.getFullYear(),
       monthIndex: d.getMonth(),
-      label: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) + (i === 0 ? '  .  Current' : ''),
+      label: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) + (i === 0 ? ' . Current' : ''),
     });
   }
   return options;
@@ -79,6 +89,8 @@ function buildMonthOptions() {
 
 const MONTH_OPTIONS = buildMonthOptions();
 const CURRENT_MONTH_IDX = 6;
+
+// Now compute current week using UTC helpers
 const TODAY = new Date();
 const TODAY_ISO = toISODate(TODAY);
 const CURRENT_REAL_WEEK = {
@@ -86,7 +98,7 @@ const CURRENT_REAL_WEEK = {
   weekEnd: toISODate(addDays(getMondayOfWeek(TODAY), 6)),
 };
 
-// ---- SUB-COMPONENTS (all from original) ----
+// ---- SUB-COMPONENTS ----
 
 function LeafCorner() {
   return (
