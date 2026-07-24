@@ -23,7 +23,7 @@ const positionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost'],
+    enum: ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost', 'Focus', 'Client Decision'],
     default: 'Yet to Activate'
   },
   pipelineStage: {
@@ -54,10 +54,7 @@ const positionSchema = new mongoose.Schema({
     enum: [0, 25, 50, 75, 100],
     default: 0
   },
-  lsCount: {
-    type: Number,
-    default: null
-  },
+  // Removed lsCount
   cvCount: {
     type: Number,
     default: null
@@ -74,8 +71,17 @@ const positionSchema = new mongoose.Schema({
     type: Number,
     default: null
   },
-  // Freeform highlight color the lead can assign per row. The meaning of each
-  // color is stored separately in the ColorLegend collection, editable by her.
+  // New fields
+  packageRange: {
+    type: String,
+    default: ''
+  },
+  // Accepts either a number OR the string 'Client Review'
+  extShortlistCount: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  // Highlight color (manual, for row styling and filtering)
   highlightColor: {
     type: String,
     enum: ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink', null],
@@ -106,16 +112,7 @@ const positionSchema = new mongoose.Schema({
   remarks: {
     type: String,
     default: ''
-  },
-
-  // models/Position.js – add this field inside the schema
-  flagOverrides: {
-  type: Map,
-  of: String,
-  default: {}
-}
-
-  
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Position', positionSchema);

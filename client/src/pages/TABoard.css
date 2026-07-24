@@ -1094,6 +1094,17 @@
 }
 .grid-pill-blank { padding: 13px; font-size: 13.5px; }
 
+/* Highlight current week column */
+.ta-grid-cell--active .grid-pill,
+.ta-grid-cell--active .grid-pill-empty {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, white);
+}
+
+.ta-grid-cell--active {
+  background: color-mix(in srgb, var(--color-primary) 4%, transparent);
+  border-radius: 6px;
+}
 /* ----- POPOVER SIZING FIX (added) ----- */
 .cell-popover {
   min-height: 180px !important;   /* force a visible height */

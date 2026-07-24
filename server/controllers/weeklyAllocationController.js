@@ -28,20 +28,30 @@ async function getGridForWeek(req, res) {
       return res.status(400).json({ error: 'Invalid Date format for weekStart or weekEnd' });
     }
 
-    // Fixed: secondary sort by _id for stable ordering
+    // Get all active TAs sorted
     const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
+    const taIds = activeTAs.map(ta => ta._id);
 
-    const grid = await Promise.all(activeTAs.map(async (ta) => {
-      return await WeeklyAllocation.findOneAndUpdate(
-        { ta: ta._id, weekStart: start },
-        {
-          $setOnInsert: {
-            weekEnd: end,
-            days: defaultDays
-          }
-        },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      )
+    // Find existing allocations for this week
+    const existing = await WeeklyAllocation.find({ weekStart: start, ta: { $in: taIds } });
+    const existingTaIds = existing.map(doc => doc.ta.toString());
+
+    // Determine which TAs are missing a row
+    const missingTaIds = taIds.filter(id => !existingTaIds.includes(id.toString()));
+
+    // Bulk insert missing rows
+    if (missingTaIds.length > 0) {
+      const docs = missingTaIds.map(taId => ({
+        ta: taId,
+        weekStart: start,
+        weekEnd: end,
+        days: defaultDays,
+      }));
+      await WeeklyAllocation.insertMany(docs);
+    }
+
+    // Fetch all with full population
+    const grid = await WeeklyAllocation.find({ weekStart: start, ta: { $in: taIds } })
       .populate('ta', 'name status')
       .populate({
         path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
@@ -51,9 +61,13 @@ async function getGridForWeek(req, res) {
           select: 'clientName'
         }
       });
-    }));
 
-    res.json(grid);
+    // Order the result to match activeTAs order
+    const orderedGrid = activeTAs.map(ta => {
+      return grid.find(doc => doc.ta._id.toString() === ta._id.toString()) || null;
+    }).filter(Boolean);
+
+    res.json(orderedGrid);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -131,18 +145,15 @@ async function autofillWeek(req, res) {
       end.setDate(start.getDate() + 6);
     }
 
-    // Fixed: added sort by name and _id for deterministic order
     const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
 
     // Seed allocations for each active TA
     await Promise.all(activeTAs.map(async (ta) => {
-      // Find the most recently updated active position assigned to this TA
       const activePositions = await Position.find({
         assignee: ta._id,
         status: { $nin: ['Placed', 'Lost'] }
       }).sort({ updatedAt: -1 });
 
-      // Find or create the allocation row safely
       const allocation = await WeeklyAllocation.findOneAndUpdate(
         { ta: ta._id, weekStart: start },
         {
@@ -161,7 +172,6 @@ async function autofillWeek(req, res) {
 
         for (const d of daysList) {
           const dayCell = allocation.days[d];
-          // Fill only if empty or if previously auto-filled (do not overwrite manual overrides)
           if (dayCell.position === null || dayCell.isAutoFilled === true) {
             if (String(dayCell.position) !== String(posId)) {
               dayCell.position = posId;

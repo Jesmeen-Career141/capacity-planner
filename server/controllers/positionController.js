@@ -55,11 +55,12 @@ async function createPosition(req, res) {
       dateAssigned,
       expectedCloseDate,
       completionPercent,
-      lsCount,
       cvCount,
       targetCvCount,
       interviewedCount,
       secondInterviewCount,
+      packageRange,
+      extShortlistCount,
       tags,
       remarks
     } = req.body;
@@ -82,11 +83,12 @@ async function createPosition(req, res) {
       dateAssigned,
       expectedCloseDate,
       completionPercent,
-      lsCount,
       cvCount,
       targetCvCount,
       interviewedCount,
       secondInterviewCount,
+      packageRange,
+      extShortlistCount,
       tags,
       remarks
     });
@@ -172,7 +174,6 @@ async function assignPosition(req, res) {
       cvCountAtRound: position.cvCount
     });
 
-    // ---- NEW: clear the reAssign override if it exists ----
     if (position.flagOverrides && position.flagOverrides.has('reAssign')) {
       position.flagOverrides.delete('reAssign');
     }

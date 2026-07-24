@@ -3,7 +3,7 @@ const FLAG_META = {
   addOn:     { label: 'Add-On',     color: 'yellow' },
   backup:    { label: 'Backup',     color: 'purple' },
   goingGood: { label: 'Going Good', color: 'green' },
-  reAssign:  { label: 'Reassign',   color: 'red' }
+  reAssign:  { label: 'Reassign',   color: 'red' } // default, will be overridden by color logic
 };
 
 function computeFlags(position) {
@@ -27,58 +27,42 @@ function computeFlags(position) {
 
   // ---- Auto rules ----
 
-  // Follow Up: 3+ days since 100% assignment with no movement.
-  let followUpAuto = null;
-  if (position.completionPercent === 100 && position.dateAssigned) {
-    const daysSinceAssigned = Math.floor(
-      (Date.now() - new Date(position.dateAssigned).getTime()) / (1000 * 60 * 60 * 24)
-    );
-    if (daysSinceAssigned >= 3) {
-      followUpAuto = { label: 'Follow Up', color: 'orange' };
-    }
-  }
-
-  // Add-On: LS count below the minimum needed for a healthy pipeline.
-  let addOnAuto = null;
-  if (position.lsCount !== null && position.lsCount !== undefined && position.lsCount < 20) {
-    addOnAuto = { label: 'Add-On', color: 'yellow' };
-  }
-
-  // Backup: position status is Fence.
+  // backup: status === 'Fence'
   const backupAuto = position.status === 'Fence'
     ? { label: 'Backup', color: 'purple' }
     : null;
 
-  // Going Good: strong interview traction -- 5+ interviewed AND 3+ in second round.
+  // reAssign: based only on cvCount (internal shortlist)
+  let reAssignAuto = null;
+  if (position.cvCount !== null && position.cvCount !== undefined) {
+    if (position.cvCount < 2) {
+      reAssignAuto = { label: 'Reassign', color: 'red' };
+    } else if (position.cvCount >= 2 && position.cvCount <= 5) {
+      reAssignAuto = { label: 'Reassign', color: 'yellow' };
+    }
+    // else > 5 => no flag
+  }
+
+  // goingGood: based on external shortlist ratio, OR the ext shortlist
+  // being marked as "Client Review" (a client actively reviewing the
+  // shortlist is treated the same as a strong shortlist ratio).
   let goingGoodAuto = null;
-  if (
-    position.interviewedCount !== null && position.interviewedCount !== undefined &&
-    position.secondInterviewCount !== null && position.secondInterviewCount !== undefined &&
-    position.interviewedCount >= 5 && position.secondInterviewCount >= 3
+  if (position.extShortlistCount === 'Client Review') {
+    goingGoodAuto = { label: 'Going Good', color: 'green' };
+  } else if (
+    position.extShortlistCount !== null && position.extShortlistCount !== undefined &&
+    position.cvCount !== null && position.cvCount !== undefined &&
+    position.cvCount > 0 &&
+    Number(position.extShortlistCount) >= position.cvCount * 0.5
   ) {
     goingGoodAuto = { label: 'Going Good', color: 'green' };
   }
 
-  // Re-assign / Watch / Healthy: judged against this position's own target CV
-  // count (targetCvCount), not a one-size-fits-all number -- a CEO role and
-  // an HR Executive role shouldn't need the same number of CVs to look healthy.
-  // Falls back to a target of 5 if the position doesn't have one set.
-  let reAssignAuto = null;
-  if (position.cvCount !== null && position.cvCount !== undefined) {
-    const target = position.targetCvCount || 5;
-    const redCutoff = Math.floor(0.4 * target);
-    if (position.cvCount <= redCutoff) {
-      reAssignAuto = { label: 'Reassign', color: 'red' };
-    } else if (position.cvCount <= target) {
-      reAssignAuto = { label: 'Watch', color: 'yellow' };
-    } else {
-      reAssignAuto = { label: 'Healthy', color: 'green' };
-    }
-  }
+  // followUp and addOn are manual only – no auto rules
 
   return {
-    followUp:  resolve('followUp', followUpAuto),
-    addOn:     resolve('addOn', addOnAuto),
+    followUp:  resolve('followUp', null),   // manual only
+    addOn:     resolve('addOn', null),      // manual only
     backup:    resolve('backup', backupAuto),
     goingGood: resolve('goingGood', goingGoodAuto),
     reAssign:  resolve('reAssign', reAssignAuto)

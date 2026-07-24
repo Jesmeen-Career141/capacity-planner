@@ -562,37 +562,18 @@ function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openC
               <div className="ta-day-col">{DAY_LABELS[day].toUpperCase()}</div>
               {displayWeeks.map((w, idx) => {
                 const position = getCell(ta._id, w.weekStart, day);
-                const isActive = idx === activeColumnIndex;
+                const isCurrentWeek = idx === activeColumnIndex;
                 const cellKey = `${String(ta._id)}|${w.weekStart}|${day}`;
 
-                if (isActive) {
-                  return (
-                    <div key={cellKey} className="ta-grid-cell ta-grid-cell--active">
-                      <GridCell
-                        key={cellKey + (openCellKey === cellKey ? '-open' : '-closed')}
-                        position={position}
-                        positions={positions}
-                        isOpen={openCellKey === cellKey}
-                        onToggle={() => onCellToggle(cellKey)}
-                        onSelect={(newId) => onSelectCell(ta._id, day, newId)}
-                      />
-                    </div>
-                  );
-                }
                 return (
-                  <div key={cellKey} className="ta-grid-cell ta-grid-cell--readonly">
-                    {position ? (
-                      <button
-                        className="grid-pill grid-pill-readonly"
-                        style={roleChipStyle(position.position)}
-                        onClick={() => navigate(`/positions/${position._id}`)}
-                        title="View position (read-only here -- only the current week is editable)"
-                      >
-                        {position.client?.clientName || '—'} — {position.position}
-                      </button>
-                    ) : (
-                      <div className="grid-pill-blank">-</div>
-                    )}
+                  <div key={cellKey} className={`ta-grid-cell ${isCurrentWeek ? 'ta-grid-cell--active' : ''}`}>
+                    <GridCell
+                      position={position}
+                      positions={positions}
+                      isOpen={openCellKey === cellKey}
+                      onToggle={() => onCellToggle(cellKey)}
+                      onSelect={(newId) => onSelectCell(ta._id, day, newId)}
+                    />
                   </div>
                 );
               })}

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { getPositions } from '../api/positions';
-import { getActiveTAs } from '../api/tas';
 import FlagBadge from '../components/FlagBadge';
 import StatCard from '../components/StatCard';
 
@@ -10,18 +9,43 @@ const POSITIVE_FLAG_LABELS = ['Healthy', 'Going Good'];
 
 const isAttentionFlag = (flag) => flag !== null && !POSITIVE_FLAG_LABELS.includes(flag.label);
 
+// Helper: parse package range string and return average value as a number (in whole currency units)
+function parsePackageRange(rangeStr) {
+  if (!rangeStr || typeof rangeStr !== 'string') return 0;
+  const numbers = rangeStr.match(/\d+/g);
+  if (!numbers || numbers.length === 0) return 0;
+  const nums = numbers.map(Number);
+  const isK = /k/i.test(rangeStr);
+  let average;
+  if (nums.length === 1) {
+    average = nums[0];
+  } else {
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+    average = (min + max) / 2;
+  }
+  return isK ? average * 1000 : average;
+}
+
+// Helper: format number as currency (Sri Lankan Rupee)
+function formatCurrency(value) {
+  return new Intl.NumberFormat('en-LK', {
+    style: 'currency',
+    currency: 'LKR',
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [positions, setPositions] = useState([]);
-  const [activeTAs, setActiveTAs] = useState([]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [posRes, taRes] = await Promise.all([getPositions(), getActiveTAs()]);
+        const posRes = await getPositions();
         setPositions(posRes.data);
-        setActiveTAs(taRes.data);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -47,11 +71,68 @@ function Dashboard() {
   }
 
   const totalPositions = positions.length;
-  const activeTACount = activeTAs.length;
-  const statusCounts = positions.reduce((acc, p) => {
-    acc[p.status] = (acc[p.status] || 0) + 1;
-    return acc;
-  }, {});
+
+  // Status counts & package sums per status
+  const statusData = positions.reduce(
+    (acc, p) => {
+      const status = p.status;
+      if (!acc.counts[status]) {
+        acc.counts[status] = 0;
+        acc.sums[status] = 0;
+      }
+      acc.counts[status] += 1;
+      acc.sums[status] += parsePackageRange(p.packageRange);
+      return acc;
+    },
+    { counts: {}, sums: {} }
+  );
+
+  const { counts, sums } = statusData;
+
+  // Total package sum (all positions, regardless of status)
+  const totalPackageAll = Object.values(sums).reduce((a, b) => a + b, 0);
+
+  // Build cards – order: Total first, then statuses alphabetically
+  const statuses = Object.keys(counts).sort();
+  const orderedStatuses = ['Total', ...statuses.filter(s => s !== 'Total')];
+
+  // NOTE: this must be checked against the internal `status` key ('Total'),
+  // not the display `label` ('Total Positions') — that mismatch was why the
+  // Total card wasn't showing its package sum before.
+  const formatCardValue = (status, count, sum) => {
+    // Show package sum below the count for Total, A&P, Fence, Placed
+    const includePackage = ['Total', 'A&P', 'Fence', 'Placed'].includes(status);
+    if (includePackage) {
+      return (
+        <div>
+          <div>{count}</div>
+          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+            {formatCurrency(sum)}
+          </div>
+        </div>
+      );
+    }
+    // Other statuses: just the count
+    return count;
+  };
+
+  const cards = orderedStatuses.map((status, index) => {
+    let label, count, sum;
+    if (status === 'Total') {
+      label = 'Total Positions';
+      count = totalPositions;
+      sum = totalPackageAll;
+    } else {
+      label = status;
+      count = counts[status] || 0;
+      sum = sums[status] || 0;
+    }
+    return {
+      label,
+      value: formatCardValue(status, count, sum),
+      accent: index % 2 === 0 ? 'leaf' : 'gold',
+    };
+  });
 
   // Only positions with an actual problem flag (not "Healthy" / "Going Good")
   // belong in the attention list.
@@ -69,15 +150,6 @@ function Dashboard() {
     const hasPositive = values.some((f) => POSITIVE_FLAG_LABELS.includes(f.label));
     return hasPositive && !hasProblem;
   });
-
-  const cards = [
-    { label: 'Total Positions', value: totalPositions },
-    { label: 'Active TAs', value: activeTACount },
-    ...Object.entries(statusCounts).map(([status, count]) => ({
-      label: status,
-      value: count,
-    })),
-  ];
 
   return (
     <div className="flex flex-col gap-8">
