@@ -31,13 +31,13 @@ const COLOR_HEX = {
   pink: '#ec4899',
 };
 
-// ---- CUSTOMIZE YOUR LEVEL COLORS HERE ----
+// ---- CUSTOMIZE YOUR LEVEL COLORS HERE (Red shades only) ----
 const PLEVEL_COLORS = {
-  P1: { bg: '#b91c1c', text: '#ffffff' }, // deep red
-  P2: { bg: '#d97706', text: '#ffffff' }, // amber
-  P3: { bg: '#2563eb', text: '#ffffff' }, // blue
-  P4: { bg: '#7c3aed', text: '#ffffff' }, // violet
-  P5: { bg: '#059669', text: '#ffffff' }, // emerald
+  P1: { bg: '#7f1d1d', text: '#ffffff' },
+  P2: { bg: '#991b1b', text: '#ffffff' },
+  P3: { bg: '#b91c1c', text: '#ffffff' },
+  P4: { bg: '#dc2626', text: '#ffffff' },
+  P5: { bg: '#f87171', text: '#1f2937' },
 };
 
 const STATUS_COLORS = {
@@ -52,7 +52,7 @@ const STATUS_COLORS = {
   'Client Decision': { bg: '#fbcfe8', text: '#831843' }
 };
 
-// ---- Icons (corrected) ----
+// ---- Icons ----
 const EditIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
@@ -84,7 +84,7 @@ const CheckIcon = () => (
   </svg>
 );
 
-// ---- HeaderFilter (unchanged) ----
+// ---- HeaderFilter ----
 function HeaderFilter({ options, value, onChange, allLabel = 'All', label }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
@@ -141,7 +141,7 @@ function HeaderFilter({ options, value, onChange, allLabel = 'All', label }) {
   );
 }
 
-// ---- InlineDropdown (single select, unchanged) ----
+// ---- InlineDropdown ----
 function InlineDropdown({ value, options, onChange, disabled, shape = 'pill', minWidth, triggerClassName }) {
   const [isOpen, setIsOpen] = useState(false);
   const [direction, setDirection] = useState('down');
@@ -213,11 +213,11 @@ function InlineDropdown({ value, options, onChange, disabled, shape = 'pill', mi
   );
 }
 
-// ---- MultiInlineDropdown (NEW) ----
+// ---- MultiInlineDropdown ----
 function MultiInlineDropdown({ 
-  values,          // array of selected IDs
-  options,         // [{ value, label }]
-  onChange,        // (newValues) => void
+  values,
+  options,
+  onChange,
   disabled = false,
   placeholder = 'Assign TA(s)'
 }) {
@@ -293,7 +293,7 @@ function MultiInlineDropdown({
   );
 }
 
-// ---- PositionDetailModal (updated for assignees) ----
+// ---- PositionDetailModal ----
 function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   const [editData, setEditData] = useState({
     remarks: '',
@@ -456,7 +456,7 @@ function Positions() {
   const [legend, setLegend] = useState(COLOR_KEYS.map(key => ({ key, label: '' })));
   const [filters, setFilters] = useState({
     client: '',
-    assignee: '',           // single value for filtering (OR logic)
+    assignee: '',
     status: '',
     pLevel: '',
     highlightColor: '',
@@ -502,7 +502,6 @@ function Positions() {
 
   const legendLabel = (key) => legend.find(e => e.key === key)?.label || '';
 
-  // ---- Handlers ----
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
   };
@@ -591,7 +590,6 @@ function Positions() {
     setDeleteTarget(null);
   };
 
-  // ---- Update handler (supports 'assignees' array) ----
   const handleDirectUpdate = async (pos, field, value) => {
     const prevValue = pos[field];
     let optimisticValue = value;
@@ -612,16 +610,8 @@ function Positions() {
       setPositions(prev =>
         prev.map(p => {
           if (p._id !== pos._id) return p;
-          // The update endpoint may return `assignees` as raw IDs instead
-          // of populated TA objects (unlike the initial getPositions()
-          // fetch). If we blindly trust res.data here, the dropdown loses
-          // its populated {_id, name} shape and appears to reset to
-          // "unassigned" even though the save succeeded. Keep the
-          // already-populated optimistic value for that one field.
           const merged = { ...p, ...res.data };
-          if (field === 'assignees') {
-            merged.assignees = optimisticValue;
-          }
+          if (field === 'assignees') merged.assignees = optimisticValue;
           return merged;
         })
       );
@@ -796,88 +786,44 @@ function Positions() {
       <div className="table-wrapper">
         <table className="positions-table">
           <colgroup>
-            <col style={{ width: '7%' }} />   {/* JO ID */}
-            <col style={{ width: '11%' }} />  {/* Client */}
-            <col style={{ width: '21%' }} />  {/* Position (+ Package Range underneath) */}
-            <col style={{ width: '6%' }} />   {/* Level */}
-            <col style={{ width: '10%' }} />  {/* Status */}
-            <col style={{ width: '14%' }} />  {/* Assignees */}
-            <col style={{ width: '12%' }} />  {/* Flags */}
-            <col style={{ width: '6%' }} />   {/* Int Shortlist */}
-            <col style={{ width: '9%' }} />   {/* Ext Shortlist (widened) */}
-            <col style={{ width: '10%' }} />  {/* Actions */}
+            <col style={{ width: '7%' }} /><col style={{ width: '11%' }} /><col style={{ width: '16%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} /><col style={{ width: '10%' }} /><col style={{ width: '12%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} /><col style={{ width: '8%' }} /><col style={{ width: '10%' }} />
           </colgroup>
           <thead>
             <tr>
               <th>JO ID</th>
               <th className="th-with-filter">
                 <span className="th-label">Client</span>
-                <HeaderFilter
-                  options={clientOptions}
-                  value={filters.client}
-                  onChange={(v) => handleFilterChange('client', v)}
-                  allLabel="All"
-                  label="Client"
-                />
+                <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" />
               </th>
               <th>Position</th>
+              <th>Package Range</th>
               <th className="th-with-filter">
                 <span className="th-label">Level</span>
-                <HeaderFilter
-                  options={levelOptions}
-                  value={filters.pLevel}
-                  onChange={(v) => handleFilterChange('pLevel', v)}
-                  allLabel="All"
-                  label="Level"
-                />
+                <HeaderFilter options={levelOptions} value={filters.pLevel} onChange={(v) => handleFilterChange('pLevel', v)} allLabel="All" label="Level" />
               </th>
               <th className="th-with-filter">
                 <span className="th-label">Status</span>
-                <HeaderFilter
-                  options={statusOptions}
-                  value={filters.status}
-                  onChange={(v) => handleFilterChange('status', v)}
-                  allLabel="All"
-                  label="Status"
-                />
+                <HeaderFilter options={statusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" />
               </th>
               <th className="th-with-filter">
                 <span className="th-label">Assignees</span>
-                <HeaderFilter
-                  options={assigneeOptions}
-                  value={filters.assignee}
-                  onChange={(v) => handleFilterChange('assignee', v)}
-                  allLabel="All"
-                  label="Assignee"
-                />
+                <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" />
               </th>
               <th className="th-with-filter">
                 <span className="th-label">Flags</span>
-                <HeaderFilter
-                  options={flagOptions}
-                  value={filters.flag}
-                  onChange={(v) => handleFilterChange('flag', v)}
-                  allLabel="All"
-                  label="Flag"
-                />
+                <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" />
               </th>
               <th>Int Shortlist</th>
               <th>Ext Shortlist</th>
               <th className="th-with-filter">
                 <span className="th-label">Actions</span>
-                <HeaderFilter
-                  options={colorOptions}
-                  value={filters.highlightColor}
-                  onChange={(v) => handleFilterChange('highlightColor', v)}
-                  allLabel="All"
-                  label="Color"
-                />
+                <HeaderFilter options={colorOptions} value={filters.highlightColor} onChange={(v) => handleFilterChange('highlightColor', v)} allLabel="All" label="Color" />
               </th>
             </tr>
           </thead>
           <tbody>
             {filteredPositions.length === 0 ? (
-              <tr><td colSpan="10" className="no-rows">No positions found</td></tr>
+              <tr><td colSpan="11" className="no-rows">No positions found</td></tr>
             ) : (
               filteredPositions.map(pos => {
                 const flagEntries = pos.flags
@@ -896,53 +842,30 @@ function Positions() {
                   <tr key={pos._id} className={rowClassName}>
                     <td><Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link></td>
                     <td><span className="text-ellipsis">{pos.client?.clientName || '—'}</span></td>
-                    {/* Position + Package Range stacked */}
+                    
                     <td>
                       {isEditing ? (
-                        <div className="position-edit-stack">
-                          <input
-                            className="inline-edit-input"
-                            name="position"
-                            value={editForm.position}
-                            onChange={handleEditFormChange}
-                            placeholder="Position title"
-                          />
-                          <input
-                            className="inline-edit-input inline-edit-input--range"
-                            name="packageRange"
-                            value={editForm.packageRange}
-                            onChange={handleEditFormChange}
-                            placeholder="e.g., £40-50k"
-                          />
-                        </div>
+                        <input className="inline-edit-input" name="position" value={editForm.position} onChange={handleEditFormChange} placeholder="Position title" />
                       ) : (
-                        <div className="position-cell">
-                          <span className="text-ellipsis position-title">{pos.position}</span>
-                          {pos.packageRange && (
-                            <span className="package-range-value">{pos.packageRange}</span>
-                          )}
-                        </div>
+                        <span className="text-ellipsis">{pos.position}</span>
                       )}
                     </td>
+
+                    <td>
+                      {isEditing ? (
+                        <input className="inline-edit-input inline-edit-input--range" name="packageRange" value={editForm.packageRange} onChange={handleEditFormChange} placeholder="e.g. £40-50k" />
+                      ) : (
+                        <span className="package-range-value">{pos.packageRange || '—'}</span>
+                      )}
+                    </td>
+
                     <td className="td-dropdown">
-                      <InlineDropdown
-                        value={pos.pLevel}
-                        options={rowLevelOptions}
-                        onChange={(v) => handleDirectUpdate(pos, 'pLevel', v)}
-                        disabled={isUpdating}
-                        shape="circle"
-                      />
+                      <InlineDropdown value={pos.pLevel} options={rowLevelOptions} onChange={(v) => handleDirectUpdate(pos, 'pLevel', v)} disabled={isUpdating} shape="circle" />
                     </td>
                     <td className="td-dropdown">
-                      <InlineDropdown
-                        value={pos.status}
-                        options={rowStatusOptions}
-                        onChange={(v) => handleDirectUpdate(pos, 'status', v)}
-                        disabled={isUpdating}
-                        shape="pill"
-                      />
+                      <InlineDropdown value={pos.status} options={rowStatusOptions} onChange={(v) => handleDirectUpdate(pos, 'status', v)} disabled={isUpdating} shape="pill" />
                     </td>
-                    {/* Multi-assignee cell */}
+
                     <td className="td-dropdown">
                       <MultiInlineDropdown
                         values={currentAssigneeIds}
@@ -952,7 +875,7 @@ function Positions() {
                         placeholder="Assign TA(s)"
                       />
                     </td>
-                    {/* Flags cell */}
+
                     <td className="td-dropdown">
                       <div className="flags-cell">
                         {flagEntries.map(([flagKey, flag]) => {
@@ -966,12 +889,6 @@ function Positions() {
                               <button
                                 type="button"
                                 className="flag-badge-btn"
-                                ref={(el) => {
-                                  if (el && isOpen) {
-                                    const dir = computeFlagPopoverDirection(el);
-                                    setFlagPopoverDirection(prev => ({ ...prev, [popoverKey]: dir }));
-                                  }
-                                }}
                                 onClick={(e) => {
                                   if (flagPopoverId === popoverKey) {
                                     setFlagPopoverId(null);
@@ -1005,6 +922,7 @@ function Positions() {
                             </div>
                           );
                         })}
+
                         <div className="flag-badge-wrap">
                           <button
                             type="button"
@@ -1053,16 +971,10 @@ function Positions() {
                         </div>
                       </div>
                     </td>
+
                     <td>
                       {isEditing ? (
-                        <input
-                          type="number"
-                          min="0"
-                          className="inline-edit-input inline-edit-input--num"
-                          name="cvCount"
-                          value={editForm.cvCount}
-                          onChange={handleEditFormChange}
-                        />
+                        <input type="number" min="0" className="inline-edit-input inline-edit-input--num" name="cvCount" value={editForm.cvCount} onChange={handleEditFormChange} />
                       ) : (pos.cvCount ?? '—')}
                     </td>
                     <td>
@@ -1098,7 +1010,7 @@ function Positions() {
                         <span className="ext-shortlist-badge ext-shortlist-badge--review">Client Review</span>
                       ) : (pos.extShortlistCount ?? '—')}
                     </td>
-                    {/* Actions cell */}
+
                     <td className="td-dropdown">
                       <div className="actions-cell">
                         <div className="color-picker-wrap">
@@ -1132,26 +1044,14 @@ function Positions() {
 
                         {isEditing ? (
                           <>
-                            <button className="action-save" onClick={() => saveEdit(pos)} disabled={savingEdit} title="Save changes">
-                              {savingEdit ? 'Saving...' : 'Save'}
-                            </button>
-                            <button className="action-cancel" onClick={cancelEdit} disabled={savingEdit} title="Cancel editing">Cancel</button>
+                            <button className="action-save" onClick={() => saveEdit(pos)} disabled={savingEdit}>Save</button>
+                            <button className="action-cancel" onClick={cancelEdit} disabled={savingEdit}>Cancel</button>
                           </>
                         ) : (
                           <>
-                            <button className="action-edit" onClick={() => startEdit(pos)} title="Edit row">
-                              <EditIcon />
-                            </button>
-                            <button
-                              className="action-link"
-                              onClick={() => setSelectedPosition(pos)}
-                              title="View details"
-                            >
-                              <ViewIcon />
-                            </button>
-                            <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position">
-                              <DeleteIcon />
-                            </button>
+                            <button className="action-edit" onClick={() => startEdit(pos)} title="Edit row"><EditIcon /></button>
+                            <button className="action-link" onClick={() => setSelectedPosition(pos)} title="View details"><ViewIcon /></button>
+                            <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position"><DeleteIcon /></button>
                           </>
                         )}
                       </div>

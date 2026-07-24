@@ -1,18 +1,15 @@
 .positions {
   max-width: 100%;
 }
-
 .positions-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
 }
-
 .positions-header h1 {
   margin: 0;
 }
-
 .btn-primary {
   background: var(--color-primary);
   color: #fff;
@@ -27,7 +24,6 @@
 .btn-primary:hover {
   background: var(--color-primary-hover);
 }
-
 /* ---- Color legend bar ---- */
 .color-legend-bar {
   display: flex;
@@ -88,7 +84,6 @@
   outline: none;
   border-bottom-color: var(--color-primary);
 }
-
 /* ---- Filters bar ---- */
 .filters-bar {
   display: flex;
@@ -104,7 +99,6 @@
   box-shadow: 0 4px 18px rgba(15, 61, 36, 0.06);
   align-items: center;
 }
-
 .filter-search {
   flex: 1;
   min-width: 200px;
@@ -118,19 +112,18 @@
   outline: none;
   border-color: var(--color-primary);
 }
-
-/* ---- Table wrapper ---- */
+/* ---- Table wrapper – enable vertical scroll and improve contrast ---- */
 .table-wrapper {
   overflow-x: auto;
-  overflow-y: visible;
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+  overflow-y: auto;
+  max-height: 75vh;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border-radius: var(--radius);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 4px 18px rgba(15, 61, 36, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 18px rgba(15, 61, 36, 0.1);
 }
-
 /* ---- Table with header filter icons next to labels ---- */
 .positions-table {
   width: 100%;
@@ -138,7 +131,6 @@
   border-collapse: collapse;
   font-size: 14px;
 }
-
 .positions-table td,
 .positions-table th {
   overflow: visible;
@@ -146,7 +138,6 @@
   padding: 10px 10px;
   border-bottom: 1px solid rgba(6, 95, 70, 0.16);
 }
-
 .text-ellipsis {
   display: block;
   overflow: hidden;
@@ -154,11 +145,9 @@
   white-space: nowrap;
   max-width: 100%;
 }
-
 .td-dropdown {
   overflow: visible;
 }
-
 .positions-table th {
   text-align: left;
   background: transparent;
@@ -168,10 +157,18 @@
   vertical-align: middle;
 }
 
+/* Sticky header */
+.positions-table thead th {
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.95);
+  z-index: 10;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
 .th-with-filter {
   white-space: nowrap;
 }
-
 .th-with-filter .th-label {
   font-weight: 600;
   color: var(--color-text-muted);
@@ -180,16 +177,13 @@
   letter-spacing: 0.04em;
   margin-right: 2px;
 }
-
 .positions-table tbody tr {
   transition: background-color 0.15s;
 }
-
 .positions-table tbody tr:hover td {
   background-color: rgba(255, 255, 255, 0.35);
   border-bottom-color: rgba(6, 95, 70, 0.16);
 }
-
 .jo-link {
   color: var(--color-primary);
   text-decoration: none;
@@ -198,7 +192,6 @@
 .jo-link:hover {
   text-decoration: underline;
 }
-
 /* ---- Row tinting – only for blue (Follow up) and red (Add-on) ---- */
 .row-tint-blue td {
   background-color: rgba(59, 130, 246, 0.08);
@@ -206,34 +199,36 @@
 .row-tint-blue:hover td {
   background-color: rgba(59, 130, 246, 0.18);
 }
-
 .row-tint-red td {
   background-color: rgba(239, 68, 68, 0.08);
 }
 .row-tint-red:hover td {
   background-color: rgba(239, 68, 68, 0.18);
 }
-
-/* ---- Position cell (title + package range stacked) ---- */
-.position-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
+/* ---- Inline row editing ---- */
+.inline-edit-input,
+.inline-edit-select {
+  width: 100%;
+  min-width: 90px;
+  padding: 5px 8px;
+  border: 1px solid var(--color-primary);
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--color-text);
 }
-.position-title {
-  display: block;
+.inline-edit-input:focus,
+.inline-edit-select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(31, 92, 62, 0.12);
 }
-.position-edit-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
+.inline-edit-input--num {
+  min-width: 60px;
 }
 .inline-edit-input--range {
   font-size: 12px;
 }
-
 /* ---- Package Range ---- */
 .package-range-value {
   font-family: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, 'Courier New', monospace;
@@ -244,7 +239,6 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-
 /* =======================================================================
    InlineDropdown
    ======================================================================= */
@@ -252,7 +246,6 @@
   position: relative;
   display: inline-flex;
 }
-
 .inline-dropdown-pill {
   appearance: none;
   border: none;
@@ -285,7 +278,6 @@
 .inline-dropdown-pill--assignee {
   border: 1px solid rgba(6, 95, 70, 0.18) !important;
 }
-
 .inline-dropdown-circle {
   appearance: none;
   border: none;
@@ -313,7 +305,6 @@
   cursor: wait;
   transform: none;
 }
-
 .inline-dropdown-list {
   position: absolute;
   z-index: 1000;
@@ -339,7 +330,6 @@
   left: 0;
   margin-top: 8px;
 }
-
 .inline-dropdown-option {
   appearance: none;
   border: none;
@@ -360,29 +350,6 @@
   outline: 2px solid rgba(0, 0, 0, 0.15);
   outline-offset: -2px;
 }
-
-/* ---- Inline row editing ---- */
-.inline-edit-input,
-.inline-edit-select {
-  width: 100%;
-  min-width: 90px;
-  padding: 5px 8px;
-  border: 1px solid var(--color-primary);
-  border-radius: 6px;
-  background: #fff;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--color-text);
-}
-.inline-edit-input:focus,
-.inline-edit-select:focus {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(31, 92, 62, 0.12);
-}
-.inline-edit-input--num {
-  min-width: 60px;
-}
-
 /* ---- Ext Shortlist hybrid editor ---- */
 .ext-shortlist-edit {
   display: flex;
@@ -418,7 +385,6 @@
   outline: none;
   border-color: var(--color-primary);
 }
-
 .ext-shortlist-badge {
   display: inline-flex;
   align-items: center;
@@ -434,7 +400,6 @@
   background: #d1fae5;
   color: #065f46;
 }
-
 /* ---- Action icons ---- */
 .actions-cell {
   display: flex;
@@ -490,7 +455,6 @@
 .action-cancel:hover {
   background: var(--color-bg);
 }
-
 /* ---- Row highlight color picker ---- */
 .color-picker-wrap {
   position: relative;
@@ -568,7 +532,6 @@
   background: #fff;
   border: 2px dashed var(--color-border);
 }
-
 /* ---- Flags cell (inner div) ---- */
 .flags-cell {
   display: flex;
@@ -577,7 +540,6 @@
   align-items: center;
   min-height: 26px;
 }
-
 /* ---- Flag override popovers ---- */
 .flag-badge-wrap {
   position: relative;
@@ -604,7 +566,6 @@
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
-
 /* "+" button to open the full flag manager for a row */
 .flag-add-btn {
   appearance: none;
@@ -630,7 +591,6 @@
   color: var(--color-primary);
   border-style: solid;
 }
-
 /* Flag popover base – no fixed bottom/top, will be set by direction classes */
 .flag-popover {
   position: absolute;
@@ -658,7 +618,6 @@
   left: 0;
   margin-top: 8px;
 }
-
 .flag-popover-title {
   font-size: 10.5px;
   font-weight: 700;
@@ -691,7 +650,6 @@
   color: var(--color-primary);
   background: var(--color-bg);
 }
-
 /* Full "manage all flags" popover (opened via the + button) */
 .flag-popover--manage {
   min-width: 230px;
@@ -736,13 +694,11 @@
   border-color: var(--color-primary);
   color: #fff;
 }
-
 .no-rows {
   text-align: center;
   color: var(--color-text-muted);
   padding: 40px 0 !important;
 }
-
 /* ---- Modal ---- */
 .modal-overlay {
   position: fixed;
@@ -769,7 +725,6 @@
   width: 95%;
   padding: 28px 32px;
 }
-
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -798,13 +753,11 @@
   background: var(--color-bg);
   color: var(--color-text);
 }
-
 .modal-body {
   margin-bottom: 24px;
   max-height: 65vh;
   overflow-y: auto;
 }
-
 .modal-footer {
   display: flex;
   gap: 12px;
@@ -812,7 +765,6 @@
   border-top: 1px solid var(--color-border);
   padding-top: 18px;
 }
-
 .modal-summary {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -840,7 +792,6 @@
   font-weight: 500;
   color: var(--color-text);
 }
-
 .modal-editable {
   display: flex;
   flex-direction: column;
@@ -882,7 +833,6 @@
   resize: vertical;
   min-height: 80px;
 }
-
 .modal-history {
   margin-top: 8px;
   border-top: 1px solid var(--color-border);
@@ -938,7 +888,6 @@
   margin-top: 6px;
   font-style: italic;
 }
-
 .modal h3 {
   margin-top: 0;
 }
@@ -977,7 +926,6 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
-
 /* ---- Header filter (icon-based) ---- */
 .header-filter-wrap {
   position: relative;
@@ -1059,7 +1007,6 @@
   flex-shrink: 0;
   color: var(--color-primary);
 }
-
 /* =======================================================================
    NEW: MultiInlineDropdown styles
    ======================================================================= */
@@ -1069,7 +1016,6 @@
   width: 100%;
   min-width: 120px;
 }
-
 .multi-dropdown-trigger {
   appearance: none;
   border: 1px solid rgba(6, 95, 70, 0.18);
@@ -1102,7 +1048,6 @@
   font-size: 8px;
   opacity: 0.5;
 }
-
 .multi-dropdown-list {
   position: absolute;
   z-index: 1000;
@@ -1128,7 +1073,6 @@
   left: 0;
   margin-top: 8px;
 }
-
 .multi-dropdown-option {
   display: flex;
   align-items: center;
