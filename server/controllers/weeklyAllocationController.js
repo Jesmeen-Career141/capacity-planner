@@ -12,7 +12,17 @@ const defaultDays = {
   sun: { position: null, isAutoFilled: false }
 };
 
-// GET grid for a given weekStart/weekEnd (creates empty rows on the fly if needed)
+// Helper: get Monday of week
+function getMondayOfWeek(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function addDays(date, n) { const d = new Date(date); d.setDate(d.getDate() + n); return d; }
+
+// ---- Existing getGridForWeek (kept for backward compatibility) ----
 async function getGridForWeek(req, res) {
   try {
     const { weekStart, weekEnd } = req.query;
@@ -28,18 +38,14 @@ async function getGridForWeek(req, res) {
       return res.status(400).json({ error: 'Invalid Date format for weekStart or weekEnd' });
     }
 
-    // Get all active TAs sorted
     const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
     const taIds = activeTAs.map(ta => ta._id);
 
-    // Find existing allocations for this week
     const existing = await WeeklyAllocation.find({ weekStart: start, ta: { $in: taIds } });
     const existingTaIds = existing.map(doc => doc.ta.toString());
 
-    // Determine which TAs are missing a row
     const missingTaIds = taIds.filter(id => !existingTaIds.includes(id.toString()));
 
-    // Bulk insert missing rows
     if (missingTaIds.length > 0) {
       const docs = missingTaIds.map(taId => ({
         ta: taId,
@@ -50,7 +56,6 @@ async function getGridForWeek(req, res) {
       await WeeklyAllocation.insertMany(docs);
     }
 
-    // Fetch all with full population
     const grid = await WeeklyAllocation.find({ weekStart: start, ta: { $in: taIds } })
       .populate('ta', 'name status')
       .populate({
@@ -62,7 +67,6 @@ async function getGridForWeek(req, res) {
         }
       });
 
-    // Order the result to match activeTAs order
     const orderedGrid = activeTAs.map(ta => {
       return grid.find(doc => doc.ta._id.toString() === ta._id.toString()) || null;
     }).filter(Boolean);
@@ -73,7 +77,108 @@ async function getGridForWeek(req, res) {
   }
 }
 
-// PUT update a specific day's allocation cell (manual override)
+// ---- NEW: batch get for multiple weeks with row insertion ----
+async function getGridBatch(req, res) {
+  try {
+    const { startDate, endDate } = req.query;
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'startDate and endDate required' });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+
+    // Get all active TAs once
+    const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
+    const taIds = activeTAs.map(ta => ta._id);
+
+    // Generate all weeks between start and end (Monday‑Sunday)
+    const weeks = [];
+    let cursor = getMondayOfWeek(start);
+    while (cursor <= end) {
+      const weekEnd = addDays(cursor, 6);
+      weeks.push({ weekStart: new Date(cursor), weekEnd });
+      cursor = addDays(cursor, 7);
+    }
+
+    // For each week, find missing rows and bulk insert
+    const bulkOps = [];
+    for (const week of weeks) {
+      // Find existing allocations for this week and active TAs
+      const existing = await WeeklyAllocation.find({
+        weekStart: week.weekStart,
+        ta: { $in: taIds }
+      }).select('ta');
+      const existingTaIds = existing.map(doc => doc.ta.toString());
+
+      // Determine missing TAs
+      const missingTaIds = taIds.filter(id => !existingTaIds.includes(id.toString()));
+
+      // Build insert operations for missing rows
+      for (const taId of missingTaIds) {
+        bulkOps.push({
+          insertOne: {
+            document: {
+              ta: taId,
+              weekStart: week.weekStart,
+              weekEnd: week.weekEnd,
+              days: {
+                mon: { position: null, isAutoFilled: false },
+                tue: { position: null, isAutoFilled: false },
+                wed: { position: null, isAutoFilled: false },
+                thu: { position: null, isAutoFilled: false },
+                fri: { position: null, isAutoFilled: false },
+                sat: { position: null, isAutoFilled: false },
+                sun: { position: null, isAutoFilled: false }
+              }
+            }
+          }
+        });
+      }
+    }
+
+    // Execute bulk insert if any
+    if (bulkOps.length > 0) {
+      await WeeklyAllocation.bulkWrite(bulkOps);
+    }
+
+    // Now fetch all allocations for these weeks and TAs (including newly inserted)
+    const allocations = await WeeklyAllocation.find({
+      weekStart: { $in: weeks.map(w => w.weekStart) },
+      ta: { $in: taIds }
+    })
+      .populate('ta', 'name status')
+      .populate({
+        path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
+        select: 'jobOrderId position pLevel lsCount cvCount client',
+        populate: { path: 'client', select: 'clientName' }
+      });
+
+    // Build response: array of { weekStart, grid: [...] }
+    const result = weeks.map(week => {
+      const weekGrid = activeTAs.map(ta => {
+        const doc = allocations.find(a =>
+          a.ta._id.toString() === ta._id.toString() &&
+          a.weekStart.getTime() === week.weekStart.getTime()
+        );
+        return doc || null;
+      }).filter(Boolean);
+      return {
+        weekStart: week.weekStart.toISOString().split('T')[0],
+        grid: weekGrid
+      };
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ---- updateCell (unchanged) ----
 async function updateCell(req, res) {
   try {
     const { taId, weekStart } = req.params;
@@ -103,15 +208,15 @@ async function updateCell(req, res) {
       { $set: updateObj },
       { new: true, runValidators: true }
     )
-    .populate('ta', 'name status')
-    .populate({
-      path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
-      select: 'jobOrderId position pLevel lsCount cvCount client',
-      populate: {
-        path: 'client',
-        select: 'clientName'
-      }
-    });
+      .populate('ta', 'name status')
+      .populate({
+        path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
+        select: 'jobOrderId position pLevel lsCount cvCount client',
+        populate: {
+          path: 'client',
+          select: 'clientName'
+        }
+      });
 
     if (!updated) {
       return res.status(404).json({ error: 'Weekly allocation not found for this TA and week.' });
@@ -123,7 +228,7 @@ async function updateCell(req, res) {
   }
 }
 
-// POST autofill empty or previously auto-filled days for all active TAs
+// ---- autofillWeek (unchanged) ----
 async function autofillWeek(req, res) {
   try {
     const { weekStart, weekEnd } = req.body;
@@ -147,7 +252,6 @@ async function autofillWeek(req, res) {
 
     const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
 
-    // Seed allocations for each active TA
     await Promise.all(activeTAs.map(async (ta) => {
       const activePositions = await Position.find({
         assignee: ta._id,
@@ -187,7 +291,6 @@ async function autofillWeek(req, res) {
       }
     }));
 
-    // Fetch and return the fully populated grid
     const grid = await Promise.all(activeTAs.map(async (ta) => {
       return await WeeklyAllocation.findOne({ ta: ta._id, weekStart: start })
         .populate('ta', 'name status')
@@ -209,6 +312,7 @@ async function autofillWeek(req, res) {
 
 module.exports = {
   getGridForWeek,
+  getGridBatch,
   updateCell,
   autofillWeek
 };

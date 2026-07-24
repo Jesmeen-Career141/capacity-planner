@@ -1,13 +1,62 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getTAs, createTA, updateTAStatus, deleteTA } from '../api/tas';
 import { getPositions } from '../api/positions';
 import './TAs.css';
 
 function TAs() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [tas, setTAs] = useState([]);
-  const [positions, setPositions] = useState([]);
+  const queryClient = useQueryClient();
+
+  // ---- Queries ----
+  const {
+    data: tas = [],
+    isLoading: tasLoading,
+    error: tasError,
+  } = useQuery({
+    queryKey: ['tas'],
+    queryFn: () => getTAs().then(res => res.data),
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const {
+    data: positions = [],
+    isLoading: positionsLoading,
+    error: positionsError,
+  } = useQuery({
+    queryKey: ['positions'],
+    queryFn: () => getPositions().then(res => res.data),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const loading = tasLoading || positionsLoading;
+  const error = tasError || positionsError;
+
+  // ---- Mutations ----
+  const createMutation = useMutation({
+    mutationFn: (name) => createTA(name),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['tas']);
+      queryClient.invalidateQueries(['positions']); // if assignment counts changed
+    },
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ id, status }) => updateTAStatus(id, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['tas']);
+      queryClient.invalidateQueries(['positions']);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => deleteTA(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['tas']);
+      queryClient.invalidateQueries(['positions']);
+    },
+  });
+
+  // ---- Local state for modal ----
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [formData, setFormData] = useState({ name: '' });
@@ -15,22 +64,6 @@ function TAs() {
   const [updating, setUpdating] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const [taRes, posRes] = await Promise.all([getTAs(), getPositions()]);
-      setTAs(taRes.data);
-      setPositions(posRes.data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const countAssignedPositions = (taId) => {
     return positions.filter(p => p.assignee?._id === taId).length;
@@ -63,8 +96,7 @@ function TAs() {
       if (editing) {
         alert('Editing name is not supported yet. Use status toggle instead.');
       } else {
-        await createTA(formData.name);
-        await fetchData();
+        await createMutation.mutateAsync(formData.name);
         handleCloseModal();
       }
     } catch (err) {
@@ -85,8 +117,7 @@ function TAs() {
 
     setUpdating(id);
     try {
-      await updateTAStatus(id, newStatus);
-      await fetchData(); // refresh both TAs and positions to update flags
+      await updateStatusMutation.mutateAsync({ id, status: newStatus });
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to update status');
     } finally {
@@ -104,8 +135,7 @@ function TAs() {
     setDeleting(id);
     setDeleteError(null);
     try {
-      await deleteTA(id);
-      await fetchData();
+      await deleteMutation.mutateAsync(id);
     } catch (err) {
       const msg = err.response?.data?.error || 'Failed to delete TA';
       setDeleteError(msg);
@@ -116,7 +146,7 @@ function TAs() {
   };
 
   if (loading) return <div>Loading TAs...</div>;
-  if (error) return <div>Error: {error}</div>;
+  if (error) return <div>Error: {error.message}</div>;
 
   return (
     <div className="tas">
@@ -177,7 +207,6 @@ function TAs() {
         )}
       </div>
 
-      {/* Modal for creating new TA */}
       {showModal && (
         <div className="modal-overlay" onClick={handleCloseModal}>
           <div className="modal" onClick={e => e.stopPropagation()}>

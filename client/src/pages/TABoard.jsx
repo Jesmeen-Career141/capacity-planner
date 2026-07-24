@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useLayoutEffect, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getPositions, assignPosition, setFlagOverride, updatePosition } from '../api/positions';
 import { getArchiveSnapshots, getArchiveSnapshot } from '../api/archive';
 import { getActiveTAs } from '../api/tas';
-import { getGrid, updateWeeklyAllocationCell } from '../api/weeklyAllocations';
+import { getWeeklyAllocationsBatch, updateWeeklyAllocationCell } from '../api/weeklyAllocations';
 import './TABoard.css';
 
+// ---- CONSTANTS ----
 const PLEVEL_ORDER = ['P1', 'P2', 'P3', 'P4', 'P5'];
 const CARD_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri'];
 const DAY_LABELS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
@@ -21,14 +23,13 @@ const FLAG_META = {
 };
 const ACTION_ORDER = Object.keys(FLAG_META);
 
-// Used only by the Action Board, which is inherently flag-driven.
+// ---- HELPERS ----
 function flagChipStyle(flag) {
   if (!flag) return { background: 'var(--color-bg)', color: 'var(--color-text-muted)' };
   const c = `var(--flag-${flag.color})`;
   return { background: `color-mix(in srgb, ${c} 14%, white)`, color: c };
 }
 
-// Used by the weekly grid -- consistent color per job title, hashed deterministically.
 const ROLE_PALETTE = ['--flag-red', '--flag-yellow', '--flag-green', '--flag-orange', '--flag-purple', '--role-blue', '--role-teal', '--role-neutral'];
 function roleChipStyle(title) {
   if (!title) return { background: 'var(--color-bg)', color: 'var(--color-text-muted)' };
@@ -49,8 +50,6 @@ function getMondayOfWeek(date) {
 function addDays(date, n) { const d = new Date(date); d.setDate(d.getDate() + n); return d; }
 function toISODate(date) { return date.toISOString().split('T')[0]; }
 
-// All Mon-Sun weeks that touch the given month. Week 1 = the week containing the 1st,
-// even if that week starts in the previous month.
 function getMonthWeeks(year, monthIndex) {
   const firstOfMonth = new Date(year, monthIndex, 1);
   const lastOfMonth = new Date(year, monthIndex + 1, 0);
@@ -77,9 +76,9 @@ function buildMonthOptions() {
   }
   return options;
 }
-const MONTH_OPTIONS = buildMonthOptions();
-const CURRENT_MONTH_IDX = 6; // i = 0 above
 
+const MONTH_OPTIONS = buildMonthOptions();
+const CURRENT_MONTH_IDX = 6;
 const TODAY = new Date();
 const TODAY_ISO = toISODate(TODAY);
 const CURRENT_REAL_WEEK = {
@@ -87,7 +86,8 @@ const CURRENT_REAL_WEEK = {
   weekEnd: toISODate(addDays(getMondayOfWeek(TODAY), 6)),
 };
 
-/* ---------- Decorative corner accents ---------- */
+// ---- SUB-COMPONENTS (all from original) ----
+
 function LeafCorner() {
   return (
     <svg viewBox="0 0 100 100" className="tb-stat-corner tb-stat-corner--leaf" fill="currentColor">
@@ -125,7 +125,6 @@ function StatCard({ label, value, accent, corner = 'leaf' }) {
   );
 }
 
-/* ---------- Small checkmark icon ---------- */
 function CheckIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -134,14 +133,13 @@ function CheckIcon() {
   );
 }
 
-// Days elapsed since a given ISO date string.
 function daysSince(dateStr) {
   if (!dateStr) return null;
   const diff = Date.now() - new Date(dateStr).getTime();
   return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
 }
 
-/* ---------- Portal-based popover ---------- */
+// ---- Popover (portal) ----
 function Popover({ anchorRef, isOpen, onClose, children, width = 290 }) {
   const [style, setStyle] = useState(null);
   const popoverRef = useRef(null);
@@ -205,7 +203,7 @@ function Popover({ anchorRef, isOpen, onClose, children, width = 290 }) {
   );
 }
 
-/* ---------- Position Detail Modal ---------- */
+// ---- Position Detail Modal ----
 function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   const [editData, setEditData] = useState({
     remarks: '',
@@ -250,6 +248,13 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   const historyRounds = [...(editData.allocationRounds || [])]
     .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
     .slice(0, 5);
+
+  const CloseIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
 
   return (
     <motion.div
@@ -300,7 +305,6 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
               <span className="modal-summary-label">Stage</span>
               <span className="modal-summary-value">{position.pipelineStage}</span>
             </div>
-            {/* Completion % removed */}
             <div className="modal-summary-item">
               <span className="modal-summary-label">LS / CV</span>
               <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
@@ -367,14 +371,7 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   );
 }
 
-const CloseIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="6" x2="6" y2="18" />
-    <line x1="6" y1="6" x2="18" y2="18" />
-  </svg>
-);
-
-/* ---------- Position Pool ---------- */
+// ---- PositionPool ----
 function PositionPool({ positions, navigate, onPositionClick }) {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -387,7 +384,6 @@ function PositionPool({ positions, navigate, onPositionClick }) {
     );
   });
 
-  // Sort by client name → position title
   const sorted = [...filtered].sort((a, b) => {
     const clientA = (a.client?.clientName || '').toLowerCase();
     const clientB = (b.client?.clientName || '').toLowerCase();
@@ -422,7 +418,6 @@ function PositionPool({ positions, navigate, onPositionClick }) {
               onKeyDown={e => e.key === 'Enter' && onPositionClick(pos)}
             >
               <div className="pool-card-top">
-                {/* completion bar removed */}
                 <span className={`pool-plevel pool-plevel--${pos.pLevel}`}>{pos.pLevel}</span>
               </div>
               <div className="pool-card-client">{pos.client?.clientName || '—'}</div>
@@ -459,7 +454,7 @@ function PositionPool({ positions, navigate, onPositionClick }) {
   );
 }
 
-/* ---------- GridCell ---------- */
+// ---- GridCell ----
 function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
   const [searchTerm, setSearchTerm] = useState('');
   const triggerRef = useRef(null);
@@ -473,7 +468,6 @@ function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
     );
   });
 
-  // Sort by client name → position title
   const sorted = filtered.slice().sort((a, b) => {
     const clientA = (a.client?.clientName || '').toLowerCase();
     const clientB = (b.client?.clientName || '').toLowerCase();
@@ -534,7 +528,7 @@ function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
   );
 }
 
-/* ---------- TACard ---------- */
+// ---- TACard ----
 function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openCellKey, onCellToggle, onSelectCell, navigate, workloadCount }) {
   const initials = ta.name?.[0]?.toUpperCase() || '?';
   return (
@@ -585,7 +579,7 @@ function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openC
   );
 }
 
-/* ---------- Action Board sub-components ---------- */
+// ---- Action Board subcomponents ----
 function ReassignChip({ p, flagKey, ta, tas, onReassign, onToggleFlag, isOpen, onToggleOpen }) {
   const triggerRef = useRef(null);
   return (
@@ -747,93 +741,131 @@ function ActionBoard({ positions, tas, onToggleFlag, onReassign, workloadByTA })
   );
 }
 
-/* ---------- Main TABoard ---------- */
+// ---- MAIN TABoard COMPONENT ----
 function TABoard() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
   const [activeView, setActiveView] = useState('grid');
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(CURRENT_MONTH_IDX);
-  const [positions, setPositions] = useState([]);
-  const [tas, setTAs] = useState([]);
-  const [gridsByWeek, setGridsByWeek] = useState({});
-  const [snapshots, setSnapshots] = useState([]);
-  const [carriedForward, setCarriedForward] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [gridLoading, setGridLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [openCellKey, setOpenCellKey] = useState(null);
   const [poolModalPosition, setPoolModalPosition] = useState(null);
-  const gridCache = useRef({});
+  const [carriedForward, setCarriedForward] = useState(0);
 
   const selectedMonth = MONTH_OPTIONS[selectedMonthIdx];
   const displayWeeks = getMonthWeeks(selectedMonth.year, selectedMonth.monthIndex);
   const activeColumnIndex = displayWeeks.findIndex(w => TODAY_ISO >= w.weekStart && TODAY_ISO <= w.weekEnd);
   const isActiveVisible = activeColumnIndex !== -1;
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [posRes, snapRes, taRes] = await Promise.all([getPositions(), getArchiveSnapshots(), getActiveTAs()]);
-        setPositions(posRes.data);
-        setSnapshots(snapRes.data);
-        setTAs(taRes.data);
-      } catch (err) { setError(err.message); } finally { setLoading(false); }
-    })();
-  }, []);
+  // ---- Queries ----
+  const {
+    data: positions = [],
+    isLoading: positionsLoading,
+    error: positionsError,
+  } = useQuery({
+    queryKey: ['positions'],
+    queryFn: () => getPositions().then(res => res.data),
+    staleTime: 5 * 60 * 1000,
+  });
 
-  useEffect(() => {
-    if (loading) return;
-    setGridLoading(true);
+  const {
+    data: snapshots = [],
+    isLoading: snapshotsLoading,
+    error: snapshotsError,
+  } = useQuery({
+    queryKey: ['archiveSnapshots'],
+    queryFn: () => getArchiveSnapshots().then(res => res.data),
+    staleTime: 10 * 60 * 1000,
+  });
 
-    const fetchWeeks = async () => {
-      const promises = displayWeeks.map(async (w) => {
-        if (gridCache.current[w.weekStart]) {
-          return { weekStart: w.weekStart, data: gridCache.current[w.weekStart] };
-        }
-        const res = await getGrid(w.weekStart, w.weekEnd);
-        gridCache.current[w.weekStart] = res.data;
-        return { weekStart: w.weekStart, data: res.data };
-      });
+  const {
+    data: tas = [],
+    isLoading: tasLoading,
+    error: tasError,
+  } = useQuery({
+    queryKey: ['activeTAs'],
+    queryFn: () => getActiveTAs().then(res => res.data),
+    staleTime: 2 * 60 * 1000,
+  });
 
-      const results = await Promise.all(promises);
-      const newGrids = {};
-      results.forEach(({ weekStart, data }) => {
-        newGrids[weekStart] = data;
-      });
-      setGridsByWeek(prev => ({ ...prev, ...newGrids }));
-      setGridLoading(false);
-    };
+  const batchStart = displayWeeks.length > 0 ? displayWeeks[0].weekStart : null;
+  const batchEnd = displayWeeks.length > 0 ? displayWeeks[displayWeeks.length - 1].weekEnd : null;
 
-    fetchWeeks().catch(err => {
-      alert(err.response?.data?.error || 'Failed to load weekly grids');
-      setGridLoading(false);
+  const {
+    data: batchGrids = [],
+    isLoading: gridLoading,
+    error: gridError,
+  } = useQuery({
+    queryKey: ['weeklyAllocations', selectedMonthIdx, batchStart, batchEnd],
+    queryFn: () => getWeeklyAllocationsBatch(batchStart, batchEnd).then(res => res.data),
+    enabled: !!positions.length && !!tas.length && displayWeeks.length > 0,
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const gridsByWeek = useMemo(() => {
+    const map = {};
+    batchGrids.forEach(({ weekStart, grid }) => {
+      map[weekStart] = grid;
     });
-  }, [selectedMonthIdx, loading]);
+    return map;
+  }, [batchGrids]);
 
-  useEffect(() => {
-    if (loading || snapshots.length === 0 || positions.length === 0) { setCarriedForward(0); return; }
-    (async () => {
+  // Carried Forward
+  useQuery({
+    queryKey: ['carriedForward', selectedMonthIdx, snapshots, positions],
+    queryFn: async () => {
+      if (!snapshots.length || !positions.length) return 0;
       const selectedStart = new Date(displayWeeks[0].weekStart);
-      const prev = snapshots.filter(s => new Date(s.weekStart) < selectedStart)
+      const prev = snapshots
+        .filter(s => new Date(s.weekStart) < selectedStart)
         .sort((a, b) => new Date(b.weekStart) - new Date(a.weekStart))[0];
-      if (!prev) { setCarriedForward(0); return; }
-      try {
-        const res = await getArchiveSnapshot(prev._id);
-        const openIds = new Set(positions.filter(p => !['Placed', 'Lost'].includes(p.status)).map(p => String(p._id)));
-        setCarriedForward(res.data.snapshot.filter(item =>
-          !['Placed', 'Lost'].includes(item.status) && item.positionId && openIds.has(String(item.positionId))
-        ).length);
-      } catch { setCarriedForward(0); }
-    })();
-  }, [selectedMonthIdx, snapshots, positions, loading]);
+      if (!prev) return 0;
+      const res = await getArchiveSnapshot(prev._id);
+      const openIds = new Set(positions.filter(p => !['Placed', 'Lost'].includes(p.status)).map(p => String(p._id)));
+      const count = res.data.snapshot.filter(item =>
+        !['Placed', 'Lost'].includes(item.status) && item.positionId && openIds.has(String(item.positionId))
+      ).length;
+      return count;
+    },
+    enabled: !!snapshots.length && !!positions.length && displayWeeks.length > 0,
+    onSuccess: (data) => setCarriedForward(data),
+  });
 
-  const byId = Object.fromEntries(positions.map(p => [p._id, p]));
+  // ---- Mutations ----
+  const updateCellMutation = useMutation({
+    mutationFn: ({ taId, weekStart, day, positionId }) =>
+      updateWeeklyAllocationCell(taId, weekStart, { day, positionId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['weeklyAllocations', selectedMonthIdx]);
+    },
+  });
 
-  const workloadByTA = tas.reduce((acc, ta) => {
-    acc[ta._id] = positions.filter(p =>
-      p.assignee?._id === ta._id && !['Placed', 'Lost'].includes(p.status)
-    ).length;
+  const toggleFlagMutation = useMutation({
+    mutationFn: ({ positionId, flagKey, mode }) => setFlagOverride(positionId, flagKey, mode),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['positions']);
+    },
+  });
+
+  const reassignMutation = useMutation({
+    mutationFn: ({ positionId, newTaId }) => assignPosition(positionId, newTaId, 'Reassigned from Action Board'),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['positions']);
+    },
+  });
+
+  // ---- Derived data ----
+  const byId = useMemo(() => Object.fromEntries(positions.map(p => [p._id, p])), [positions]);
+
+  const workloadByTA = useMemo(() => {
+    const acc = {};
+    tas.forEach(ta => {
+      acc[ta._id] = positions.filter(p =>
+        p.assignee?._id === ta._id && !['Placed', 'Lost'].includes(p.status)
+      ).length;
+    });
     return acc;
-  }, {});
+  }, [tas, positions]);
 
   const getCell = useCallback((taId, weekStart, day) => {
     const weekGrid = gridsByWeek[weekStart];
@@ -842,47 +874,49 @@ function TABoard() {
     return row?.days?.[day]?.position || null;
   }, [gridsByWeek]);
 
+  // ---- Handlers ----
   const handleCellSelect = async (taId, day, newPositionId) => {
     const activeWeekStart = CURRENT_REAL_WEEK.weekStart;
-    const prevGrids = gridsByWeek;
     const newPosObj = newPositionId ? byId[newPositionId] : null;
 
-    setGridsByWeek(prev => {
-      const weekGrid = prev[activeWeekStart];
-      if (!weekGrid) return prev;
-      const updated = weekGrid.map(row => String(row.ta._id) !== String(taId) ? row :
-        { ...row, days: { ...row.days, [day]: { ...row.days[day], position: newPosObj } } });
-      return { ...prev, [activeWeekStart]: updated };
+    // Optimistic update
+    queryClient.setQueryData(['weeklyAllocations', selectedMonthIdx], (old) => {
+      if (!old) return old;
+      return old.map(week => {
+        if (week.weekStart !== activeWeekStart) return week;
+        const updatedGrid = week.grid.map(row => {
+          if (String(row.ta._id) !== String(taId)) return row;
+          return {
+            ...row,
+            days: {
+              ...row.days,
+              [day]: { ...row.days[day], position: newPosObj }
+            }
+          };
+        });
+        return { ...week, grid: updatedGrid };
+      });
     });
-    setOpenCellKey(null);
 
+    setOpenCellKey(null);
     try {
-      await updateWeeklyAllocationCell(taId, activeWeekStart, { day, positionId: newPositionId || null });
+      await updateCellMutation.mutateAsync({ taId, weekStart: activeWeekStart, day, positionId: newPositionId || null });
     } catch (err) {
-      setGridsByWeek(prevGrids);
+      queryClient.invalidateQueries(['weeklyAllocations', selectedMonthIdx]);
       alert(err.response?.data?.error || 'Failed to update cell');
     }
   };
 
-  const handleToggleFlag = async (positionId, flagKey, mode) => {
-    try {
-      await setFlagOverride(positionId, flagKey, mode);
-      const res = await getPositions();
-      setPositions(res.data);
-    } catch (err) { alert(err.response?.data?.error || 'Failed to update flag'); }
+  const handleToggleFlag = (positionId, flagKey, mode) => {
+    toggleFlagMutation.mutate({ positionId, flagKey, mode });
   };
 
-  const handleReassign = async (positionId, newTaId) => {
-    try {
-      await assignPosition(positionId, newTaId, 'Reassigned from Action Board');
-      const res = await getPositions();
-      setPositions(res.data);
-    } catch (err) { alert(err.response?.data?.error || 'Failed to reassign'); }
+  const handleReassign = (positionId, newTaId) => {
+    reassignMutation.mutate({ positionId, newTaId });
   };
 
-  const refreshPositions = async () => {
-    const res = await getPositions();
-    setPositions(res.data);
+  const refreshPositions = () => {
+    queryClient.invalidateQueries(['positions']);
   };
 
   const taList = useMemo(() => {
@@ -890,16 +924,21 @@ function TABoard() {
     return source.map(row => row.ta);
   }, [displayWeeks, gridsByWeek]);
 
-  if (loading) return <div className="taboard-loading">Loading TA Board...</div>;
-  if (error) return <div className="taboard-error">Error: {error}</div>;
+  // ---- Loading / error ----
+  const loading = positionsLoading || snapshotsLoading || tasLoading;
+  const error = positionsError || snapshotsError || tasError || gridError;
 
+  if (loading) return <div className="taboard-loading">Loading TA Board...</div>;
+  if (error) return <div className="taboard-error">Error: {error.message}</div>;
+
+  // ---- Stats ----
   const openPositions = positions.filter(p => !['Placed', 'Lost'].includes(p.status));
-  const activeTACount = taList.length;
   const active = positions.filter(p => p.status === 'A&P').length;
   const yetToActivate = positions.filter(p => p.status === 'Yet to Activate').length;
   const fence = positions.filter(p => p.status === 'Fence').length;
   const reassign = positions.filter(p => p.flags?.reAssign?.label === 'Reassign').length;
 
+  // ---- Render ----
   return (
     <div className="taboard-page">
       <div className="taboard-header">
@@ -925,7 +964,6 @@ function TABoard() {
       )}
 
       <div className="tb-stats-row">
-        {/* TA Bandwidth removed */}
         <StatCard label="Total Roles" value={openPositions.length} corner="gold" />
         <StatCard label="Carried Forward" value={carriedForward} corner="leaf" />
         <StatCard label="Active (A&P)" value={active} accent="green" corner="gold" />
@@ -958,9 +996,7 @@ function TABoard() {
                     getCell={getCell}
                     positions={positions}
                     openCellKey={openCellKey}
-                    onCellToggle={(cellKey) => {
-                      setOpenCellKey(openCellKey === cellKey ? null : cellKey);
-                    }}
+                    onCellToggle={(cellKey) => setOpenCellKey(openCellKey === cellKey ? null : cellKey)}
                     onSelectCell={handleCellSelect}
                     navigate={navigate}
                     workloadCount={workloadByTA[ta._id] ?? 0}
