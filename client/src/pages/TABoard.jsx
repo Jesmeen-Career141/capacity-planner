@@ -797,7 +797,7 @@ function TABoard() {
     error: gridError,
   } = useQuery({
     queryKey: ['weeklyAllocations', selectedMonthIdx, batchStart, batchEnd],
-    queryFn: () => getWeeklyAllocationsBatch(batchStart, batchEnd).then(res => res.data),
+    queryFn: () => getWeeklyAllocationsBatch(batchStart, batchEnd, Date.now()).then(res => res.data),
     enabled: !!positions.length && !!tas.length && displayWeeks.length > 0,
     staleTime: 2 * 60 * 1000,
   });
