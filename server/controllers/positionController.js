@@ -2,12 +2,13 @@ const Position = require('../models/Position');
 const PositionHistory = require('../models/PositionHistory');
 const { computeFlags } = require('../utils/flagLogic');
 
-// GET all positions with flags
+// GET all positions
 async function getAllPositions(req, res) {
   try {
     const positions = await Position.find()
       .populate('client', 'clientId clientName')
-      .populate('assignee', 'name')
+      .populate('assignee', 'name status color')
+      .populate('parallelAssignees', 'name status color')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -22,12 +23,13 @@ async function getAllPositions(req, res) {
   }
 }
 
-// GET a single position
+// GET single
 async function getPositionById(req, res) {
   try {
     const position = await Position.findById(req.params.id)
       .populate('client', 'clientId clientName')
-      .populate('assignee', 'name')
+      .populate('assignee', 'name status color')
+      .populate('parallelAssignees', 'name status color')
       .lean();
 
     if (!position) {
@@ -40,7 +42,7 @@ async function getPositionById(req, res) {
   }
 }
 
-// POST create a new position
+// POST create
 async function createPosition(req, res) {
   try {
     const {
@@ -99,7 +101,7 @@ async function createPosition(req, res) {
   }
 }
 
-// PUT update a position (logs history)
+// PUT update
 async function updatePosition(req, res) {
   try {
     const { id } = req.params;
@@ -139,7 +141,8 @@ async function updatePosition(req, res) {
       { new: true, runValidators: true }
     )
       .populate('client', 'clientId clientName')
-      .populate('assignee', 'name')
+      .populate('assignee', 'name status color')
+      .populate('parallelAssignees', 'name status color')
       .lean();
 
     if (historyEntries.length > 0) {
@@ -152,7 +155,7 @@ async function updatePosition(req, res) {
   }
 }
 
-// PUT assign a TA to a position – clears reAssign override
+// PUT assign – primary only (parallel handled via updatePosition)
 async function assignPosition(req, res) {
   try {
     const { id } = req.params;
@@ -167,15 +170,20 @@ async function assignPosition(req, res) {
 
     position.assignee = taId;
     position.dateAssigned = new Date();
-    position.allocationRounds.push({
-      taAssigned: taId,
-      roundNumber: position.allocationRounds.length + 1,
-      reason: reason || 'Initial assignment',
-      cvCountAtRound: position.cvCount
-    });
 
-    if (position.flagOverrides && position.flagOverrides.has('reAssign')) {
-      position.flagOverrides.delete('reAssign');
+    // Only push to allocationRounds if assigning someone (not unassigning)
+    if (taId) {
+      position.allocationRounds.push({
+        taAssigned: taId,
+        roundNumber: position.allocationRounds.length + 1,
+        reason: reason || 'Primary assignment',
+        cvCountAtRound: position.cvCount
+      });
+    }
+
+    // Reset reAssign override to 'auto' (clears manual override)
+    if (position.flagOverrides?.reAssign) {
+      position.flagOverrides.reAssign = 'auto';
     }
 
     await position.save();
@@ -191,7 +199,8 @@ async function assignPosition(req, res) {
 
     const populated = await Position.findById(id)
       .populate('client', 'clientId clientName')
-      .populate('assignee', 'name')
+      .populate('assignee', 'name status color')
+      .populate('parallelAssignees', 'name status color')
       .lean();
 
     res.json({ ...populated, flags: computeFlags(populated) });
@@ -200,7 +209,7 @@ async function assignPosition(req, res) {
   }
 }
 
-// PUT set a manual override (auto/on/off) for a single flag
+// PUT flag override
 async function setFlagOverride(req, res) {
   try {
     const { id, flagName } = req.params;
@@ -227,7 +236,8 @@ async function setFlagOverride(req, res) {
       { new: true, runValidators: true }
     )
       .populate('client', 'clientId clientName')
-      .populate('assignee', 'name')
+      .populate('assignee', 'name status color')
+      .populate('parallelAssignees', 'name status color')
       .lean();
 
     if (oldMode !== mode) {
@@ -245,7 +255,7 @@ async function setFlagOverride(req, res) {
   }
 }
 
-// DELETE a position
+// DELETE
 async function deletePosition(req, res) {
   try {
     const { id } = req.params;

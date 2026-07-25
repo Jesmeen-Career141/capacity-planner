@@ -11,11 +11,14 @@ const taSchema = new mongoose.Schema({
     type: String,
     enum: ['Active', 'Left'],
     default: 'Active'
+  },
+  color: {
+    type: String,
+    enum: ['blue', 'yellow', 'purple', 'darkGreen', 'lightGreen', 'lightBlue', 'turquoise', 'pink', 'slate', 'maroon', null],
+    default: null
   }
 }, { timestamps: true });
 
-// ---------- INDEXES ----------
-// Index on status for fast filtering of active TAs (used in getActiveTAs())
 taSchema.index({ status: 1 });
 
 module.exports = mongoose.model('TA', taSchema);

@@ -78,6 +78,33 @@ async function updateTAStatus(req, res) {
   }
 }
 
+// PUT update a TA's color
+async function updateTAColor(req, res) {
+  try {
+    const { id } = req.params;
+    const { color } = req.body;
+
+    const validColors = ['blue', 'yellow', 'purple', 'darkGreen', 'lightGreen', 'lightBlue', 'turquoise', 'pink', 'slate', 'maroon', null];
+    if (!validColors.includes(color)) {
+      return res.status(400).json({ error: 'Invalid color' });
+    }
+
+    const updatedTA = await TA.findByIdAndUpdate(
+      id,
+      { color },
+      { new: true }
+    );
+
+    if (!updatedTA) {
+      return res.status(404).json({ error: 'TA not found' });
+    }
+
+    res.json(updatedTA);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 // DELETE a TA (only allowed if not assigned to any position)
 async function deleteTA(req, res) {
   try {
@@ -107,5 +134,6 @@ module.exports = {
   getActiveTAs,
   createTA,
   updateTAStatus,
+  updateTAColor,
   deleteTA
 };

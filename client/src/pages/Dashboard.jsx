@@ -9,29 +9,58 @@ const POSITIVE_FLAG_LABELS = ['Healthy', 'Going Good'];
 
 const isAttentionFlag = (flag) => flag !== null && !POSITIVE_FLAG_LABELS.includes(flag.label);
 
-// Helper: parse package range string and return average value as a number (in whole currency units)
+// Helper: parse package range string into { currency, amount }
+// amount is the average of the range, in whole currency units (or null if unparseable)
 function parsePackageRange(rangeStr) {
-  if (!rangeStr || typeof rangeStr !== 'string') return 0;
-  const numbers = rangeStr.match(/\d+/g);
-  if (!numbers || numbers.length === 0) return 0;
-  const nums = numbers.map(Number);
-  const isK = /k/i.test(rangeStr);
-  let average;
-  if (nums.length === 1) {
-    average = nums[0];
-  } else {
-    const min = Math.min(...nums);
-    const max = Math.max(...nums);
-    average = (min + max) / 2;
+  if (!rangeStr || typeof rangeStr !== 'string') {
+    return { currency: null, amount: null };
   }
-  return isK ? average * 1000 : average;
+
+  const str = rangeStr.trim();
+
+  // Detect currency
+  let currency = null;
+  if (/usd/i.test(str)) currency = 'USD';
+  else if (/lkr/i.test(str)) currency = 'LKR';
+
+  // "Open To Discuss" or similar non-numeric text -> unspecified
+  const hasDigits = /\d/.test(str);
+  if (!hasDigits) {
+    return { currency, amount: null };
+  }
+
+  // Match decimal-aware numbers, e.g. 1.2, 350, 900
+  const numberMatches = str.match(/\d+(\.\d+)?/g);
+  if (!numberMatches || numberMatches.length === 0) {
+    return { currency, amount: null };
+  }
+  const nums = numberMatches.map(Number);
+
+  // Detect magnitude suffix per the whole string (K = thousand, Mn/M = million)
+  const isMillion = /mn\b|(?<!\w)m\b|million/i.test(str);
+  const isThousand = !isMillion && /k\b/i.test(str);
+  const multiplier = isMillion ? 1_000_000 : isThousand ? 1_000 : 1;
+
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  const average = nums.length === 1 ? nums[0] : (min + max) / 2;
+
+  // If no currency was detected but numbers exist, treat as unspecified currency
+  if (!currency) {
+    return { currency: 'UNSPECIFIED', amount: average * multiplier };
+  }
+
+  return { currency, amount: average * multiplier };
 }
 
-// Helper: format number as currency (Sri Lankan Rupee)
-function formatCurrency(value) {
+// Currency-aware formatter
+function formatCurrency(value, currency) {
+  if (currency === 'UNSPECIFIED') {
+    return `${new Intl.NumberFormat('en-US').format(value)} (currency unclear)`;
+  }
   return new Intl.NumberFormat('en-LK', {
     style: 'currency',
-    currency: 'LKR',
+    currency: currency || 'LKR',
     maximumFractionDigits: 0,
   }).format(value);
 }
@@ -72,64 +101,83 @@ function Dashboard() {
 
   const totalPositions = positions.length;
 
-  // Status counts & package sums per status
+  // Status counts & package sums per status, per currency
   const statusData = positions.reduce(
     (acc, p) => {
       const status = p.status;
       if (!acc.counts[status]) {
         acc.counts[status] = 0;
-        acc.sums[status] = 0;
+        acc.sums[status] = {}; // { LKR: n, USD: n, UNSPECIFIED: n }
+        acc.unspecified[status] = 0;
       }
       acc.counts[status] += 1;
-      acc.sums[status] += parsePackageRange(p.packageRange);
+
+      const { currency, amount } = parsePackageRange(p.packageRange);
+      if (amount === null) {
+        acc.unspecified[status] += 1;
+      } else {
+        const key = currency || 'UNSPECIFIED';
+        acc.sums[status][key] = (acc.sums[status][key] || 0) + amount;
+      }
       return acc;
     },
-    { counts: {}, sums: {} }
+    { counts: {}, sums: {}, unspecified: {} }
   );
 
-  const { counts, sums } = statusData;
+  const { counts, sums, unspecified } = statusData;
 
-  // Total package sum (all positions, regardless of status)
-  const totalPackageAll = Object.values(sums).reduce((a, b) => a + b, 0);
+  // Total package sums across all statuses, per currency
+  const totalPackageAll = {};
+  Object.values(sums).forEach((currMap) => {
+    Object.entries(currMap).forEach(([curr, val]) => {
+      totalPackageAll[curr] = (totalPackageAll[curr] || 0) + val;
+    });
+  });
+  const totalUnspecified = Object.values(unspecified).reduce((a, b) => a + b, 0);
 
   // Build cards – order: Total first, then statuses alphabetically
   const statuses = Object.keys(counts).sort();
   const orderedStatuses = ['Total', ...statuses.filter(s => s !== 'Total')];
 
-  // NOTE: this must be checked against the internal `status` key ('Total'),
-  // not the display `label` ('Total Positions') — that mismatch was why the
-  // Total card wasn't showing its package sum before.
-  const formatCardValue = (status, count, sum) => {
-    // Show package sum below the count for Total, A&P, Fence, Placed
+  const formatCardValue = (status, count, currMap, unspecifiedCount) => {
     const includePackage = ['Total', 'A&P', 'Fence', 'Placed'].includes(status);
-    if (includePackage) {
-      return (
-        <div>
-          <div>{count}</div>
-          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-            {formatCurrency(sum)}
+    if (!includePackage) return count;
+
+    const currencyEntries = Object.entries(currMap || {}); // [[LKR, n], [USD, n], ...]
+
+    return (
+      <div>
+        <div>{count}</div>
+        {currencyEntries.map(([curr, val]) => (
+          <div key={curr} style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+            {formatCurrency(val, curr)}
           </div>
-        </div>
-      );
-    }
-    // Other statuses: just the count
-    return count;
+        ))}
+        {unspecifiedCount > 0 && (
+          <div style={{ fontSize: '0.7rem', color: '#9ca3af' }}>
+            +{unspecifiedCount} not specified
+          </div>
+        )}
+      </div>
+    );
   };
 
   const cards = orderedStatuses.map((status, index) => {
-    let label, count, sum;
+    let label, count, currMap, unspecifiedCount;
     if (status === 'Total') {
       label = 'Total Positions';
       count = totalPositions;
-      sum = totalPackageAll;
+      currMap = totalPackageAll;
+      unspecifiedCount = totalUnspecified;
     } else {
       label = status;
       count = counts[status] || 0;
-      sum = sums[status] || 0;
+      currMap = sums[status] || {};
+      unspecifiedCount = unspecified[status] || 0;
     }
     return {
       label,
-      value: formatCardValue(status, count, sum),
+      value: formatCardValue(status, count, currMap, unspecifiedCount),
       accent: index % 2 === 0 ? 'leaf' : 'gold',
     };
   });

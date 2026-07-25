@@ -288,11 +288,11 @@
   letter-spacing: 0.03em;
 }
 
-.pool-plevel--P1 { background: #fee2e2; color: #991b1b; }
-.pool-plevel--P2 { background: #ffedd5; color: #9a3412; }
-.pool-plevel--P3 { background: #fef9c3; color: #854d0e; }
-.pool-plevel--P4 { background: #dcfce7; color: #166534; }
-.pool-plevel--P5 { background: #e0e7ff; color: #3730a3; }
+.pool-plevel--P1 { background: #7f1d1d; color: #ffffff; }
+.pool-plevel--P2 { background: #b91c1c; color: #ffffff; }
+.pool-plevel--P3 { background: #f97316; color: #ffffff; }
+.pool-plevel--P4 { background: #fdba74; color: #7c2d12; }
+.pool-plevel--P5 { background: #fde047; color: #78350f; }
 
 /* Client name -- shown so the Lead doesn't need to click in to know who this is for */
 .pool-card-client {
@@ -1119,4 +1119,36 @@
 .cell-popover .cell-popover-option {
   flex-shrink: 0 !important;
   min-height: 36px !important;
+}
+
+/* ==========================================================
+   Assignment Tooltip (hover, shown on grid pills)
+========================================================== */
+.assignment-tooltip {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  transform: translateY(-100%);
+  background: #1f2937;
+  color: #f9fafb;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+  min-width: 120px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.assignment-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+.assignment-tooltip-name {
+  font-weight: 500;
+}
+.assignment-tooltip-date {
+  color: #9ca3af;
 }

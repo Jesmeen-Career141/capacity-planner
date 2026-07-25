@@ -130,6 +130,8 @@
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
+   color: var(--color-text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 .positions-table td,
 .positions-table th {
@@ -144,6 +146,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
+  font-weight: 600;
+  color: var(--color-text);
 }
 .td-dropdown {
   overflow: visible;
@@ -231,12 +235,8 @@
 }
 /* ---- Package Range ---- */
 .package-range-value {
-  font-family: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, 'Courier New', monospace;
-  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
   white-space: nowrap;
 }
 /* =======================================================================
@@ -1089,4 +1089,227 @@
 .multi-dropdown-option input[type="checkbox"] {
   margin: 0;
   accent-color: var(--color-primary);
+}
+
+/* =======================================================================
+   Assignee cell (primary + parallel)
+   ======================================================================= */
+.assignee-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+/* ---- SingleInlineDropdown (primary assignee) ---- */
+.single-dropdown-wrap {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  min-width: 120px;
+}
+.single-dropdown-trigger {
+  appearance: none;
+  border: 1px solid rgba(6, 95, 70, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  padding: 5px 26px 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+  transition: border-color 0.2s;
+  color: var(--color-text);
+}
+.single-dropdown-trigger:hover {
+  border-color: var(--color-primary);
+}
+.single-dropdown-trigger:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.single-dropdown-arrow {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 8px;
+  opacity: 0.5;
+}
+.single-dropdown-list {
+  position: absolute;
+  z-index: 1000;
+  min-width: 160px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.single-dropdown-list--up {
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 8px;
+}
+.single-dropdown-list--down {
+  top: 100%;
+  left: 0;
+  margin-top: 8px;
+}
+.single-dropdown-option {
+  appearance: none;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.single-dropdown-option:hover {
+  background: var(--color-bg);
+}
+.single-dropdown-option.selected {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--color-primary) 10%, white);
+}
+.sdo-check {
+  width: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+}
+
+/* ---- ParallelAssigneesPicker ---- */
+.parallel-picker-wrap {
+  position: relative;
+  display: inline-block;
+}
+.parallel-picker-trigger {
+  appearance: none;
+  border: 1px dashed var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  padding: 4px 22px 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  position: relative;
+  white-space: nowrap;
+  transition: border-color 0.2s, color 0.2s;
+}
+.parallel-picker-trigger:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.parallel-picker-trigger:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.parallel-picker-arrow {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 7px;
+  opacity: 0.5;
+}
+.parallel-picker-list {
+  position: absolute;
+  z-index: 1000;
+  min-width: 160px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.parallel-picker-list--up {
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 8px;
+}
+.parallel-picker-list--down {
+  top: 100%;
+  left: 0;
+  margin-top: 8px;
+}
+.parallel-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.parallel-picker-option:hover {
+  background: var(--color-bg);
+}
+.parallel-picker-option input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+
+/* ---- Parallel chips (shown under the pickers) ---- */
+.parallel-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.parallel-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 10%, white);
+  color: var(--color-primary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.parallel-chip-remove {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.parallel-chip-remove:hover {
+  opacity: 1;
+}
+.parallel-chip-remove:disabled {
+  cursor: wait;
+  opacity: 0.4;
 }

@@ -36,6 +36,11 @@ const positionSchema = new mongoose.Schema({
     ref: 'TA',
     default: null
   },
+  // NEW: parallel assignees (array of TA ObjectIds)
+  parallelAssignees: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TA'
+  }],
   transferParallel: {
     type: String,
     enum: ['New', 'Transfer', 'Parallel'],
@@ -54,7 +59,6 @@ const positionSchema = new mongoose.Schema({
     enum: [0, 25, 50, 75, 100],
     default: 0
   },
-  // Removed lsCount
   cvCount: {
     type: Number,
     default: null
@@ -71,17 +75,14 @@ const positionSchema = new mongoose.Schema({
     type: Number,
     default: null
   },
-  // New fields
   packageRange: {
     type: String,
     default: ''
   },
-  // Accepts either a number OR the string 'Client Review'
   extShortlistCount: {
     type: mongoose.Schema.Types.Mixed,
     default: null
   },
-  // Highlight color (manual, for row styling and filtering)
   highlightColor: {
     type: String,
     enum: ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink', null],

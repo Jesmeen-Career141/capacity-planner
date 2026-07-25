@@ -93,3 +93,103 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ---- Color picker shared styles (TAs & Positions) ---- */
+
+.color-picker-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.color-swatch-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+  background: #e5e7eb; /* fallback */
+  outline: none;
+}
+
+.color-swatch-btn:hover {
+  transform: scale(1.1);
+}
+
+/* popover backdrop (click‑to‑close) */
+.popover-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 999;
+}
+
+/* popover menu */
+.color-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  padding: 8px 4px;
+  z-index: 1000;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.color-popover-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #1f2937;
+  white-space: nowrap;
+  transition: background 0.1s;
+  width: 100%;
+  text-align: left;
+}
+
+.color-popover-option:hover {
+  background: #f3f4f6;
+}
+
+.color-swatch-dot {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.1);
+  flex-shrink: 0;
+}
+
+.color-swatch-dot--none {
+  border: 2px dashed #9ca3af;
+  background: #f9fafb;
+}
+
+/* Optional: if you want the "None" label to be greyed out */
+.color-swatch-dot--none + span {
+  color: #6b7280;
+}
+
+.color-popover--down {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+
+.color-popover--up {
+  bottom: calc(100% + 6px);
+  top: auto;
+}

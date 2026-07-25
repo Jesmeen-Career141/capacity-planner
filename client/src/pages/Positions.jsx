@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getPositions, deletePosition, updatePosition } from '../api/positions';
+import { useQueryClient } from '@tanstack/react-query';
+import { getPositions, deletePosition, updatePosition, assignPosition } from '../api/positions';
 import { getClients } from '../api/clients';
 import { getActiveTAs } from '../api/tas';
 import { getColorLegend, updateColorLegend } from '../api/colorLegend';
@@ -31,13 +32,12 @@ const COLOR_HEX = {
   pink: '#ec4899',
 };
 
-// ---- CUSTOMIZE YOUR LEVEL COLORS HERE (Red shades only) ----
 const PLEVEL_COLORS = {
   P1: { bg: '#7f1d1d', text: '#ffffff' },
-  P2: { bg: '#991b1b', text: '#ffffff' },
-  P3: { bg: '#b91c1c', text: '#ffffff' },
-  P4: { bg: '#dc2626', text: '#ffffff' },
-  P5: { bg: '#f87171', text: '#1f2937' },
+  P2: { bg: '#dd2121f0', text: '#ffffff' },
+  P3: { bg: '#f97316', text: '#ffffff' },
+  P4: { bg: '#fdba74', text: '#7c2d12' },
+  P5: { bg: '#fde047', text: '#78350f' },
 };
 
 const STATUS_COLORS = {
@@ -52,32 +52,51 @@ const STATUS_COLORS = {
   'Client Decision': { bg: '#fbcfe8', text: '#831843' }
 };
 
+// ---- Shared color palette (duplicated from TAs.jsx) ----
+const TA_COLORS = {
+  blue:       { bg: '#3b82f6', text: '#ffffff' },
+  yellow:     { bg: '#fde047', text: '#78350f' },
+  purple:     { bg: '#8b5cf6', text: '#ffffff' },
+  darkGreen:  { bg: '#166534', text: '#ffffff' },
+  lightGreen: { bg: '#4ade80', text: '#14532d' },
+  lightBlue:  { bg: '#7dd3fc', text: '#0c4a6e' },
+  turquoise:  { bg: '#14b8a6', text: '#ffffff' },
+  pink:       { bg: '#ec4899', text: '#ffffff' },
+  slate:      { bg: '#64748b', text: '#ffffff' },
+  maroon:     { bg: '#991b1b', text: '#ffffff' },
+};
+
 // ---- Icons ----
 const EditIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
   </svg>
 );
+
 const ViewIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
   </svg>
 );
+
 const DeleteIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
   </svg>
 );
+
 const CloseIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 );
+
 const FilterIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="22 3 2 3 10 13 10 21 14 18 14 13 22 3" />
   </svg>
 );
+
 const CheckIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="20 6 9 17 4 12" />
@@ -213,14 +232,80 @@ function InlineDropdown({ value, options, onChange, disabled, shape = 'pill', mi
   );
 }
 
-// ---- MultiInlineDropdown ----
-function MultiInlineDropdown({ 
-  values,
-  options,
-  onChange,
-  disabled = false,
-  placeholder = 'Assign TA(s)'
-}) {
+// ---- SingleInlineDropdown (updated to accept triggerStyle) ----
+function SingleInlineDropdown({ value, options, onChange, disabled = false, placeholder = 'Assign TA', triggerStyle }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [direction, setDirection] = useState('down');
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const toggle = () => {
+    if (disabled) return;
+    if (!isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const popoverHeight = 200;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      if (spaceBelow >= popoverHeight) setDirection('down');
+      else if (spaceAbove >= popoverHeight) setDirection('up');
+      else setDirection(spaceBelow >= spaceAbove ? 'down' : 'up');
+    }
+    setIsOpen(!isOpen);
+  };
+
+  const selectedLabel = options.find(o => o.value === value)?.label || '';
+
+  return (
+    <div className="single-dropdown-wrap" ref={containerRef}>
+      <button
+        className="single-dropdown-trigger"
+        style={triggerStyle}   // <-- apply custom style
+        onClick={toggle}
+        disabled={disabled}
+        type="button"
+      >
+        {selectedLabel || placeholder}
+        <span className="single-dropdown-arrow">▾</span>
+      </button>
+      {isOpen && (
+        <>
+          <div className="popover-backdrop" onClick={() => setIsOpen(false)} />
+          <div className={`single-dropdown-list single-dropdown-list--${direction}`}>
+            <button
+              className={`single-dropdown-option ${!value ? 'selected' : ''}`}
+              onClick={() => { onChange(null); setIsOpen(false); }}
+            >
+              <span className="sdo-check">{!value && <CheckIcon />}</span>
+              <span>— Unassigned —</span>
+            </button>
+            {options.map(opt => (
+              <button
+                key={opt.value}
+                className={`single-dropdown-option ${value === opt.value ? 'selected' : ''}`}
+                onClick={() => { onChange(opt.value); setIsOpen(false); }}
+              >
+                <span className="sdo-check">{value === opt.value && <CheckIcon />}</span>
+                <span>{opt.label}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---- ParallelAssigneesPicker ----
+function ParallelAssigneesPicker({ values, options, onChange, disabled = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [direction, setDirection] = useState('down');
   const containerRef = useRef(null);
@@ -262,22 +347,22 @@ function MultiInlineDropdown({
     .filter(Boolean);
 
   return (
-    <div className="multi-dropdown-wrap" ref={containerRef}>
+    <div className="parallel-picker-wrap" ref={containerRef}>
       <button
-        className="multi-dropdown-trigger"
+        className="parallel-picker-trigger"
         onClick={toggle}
         disabled={disabled}
         type="button"
       >
-        {selectedLabels.length > 0 ? selectedLabels.join(', ') : placeholder}
-        <span className="multi-dropdown-arrow">▾</span>
+        {selectedLabels.length > 0 ? `+ ${selectedLabels.length} parallel` : '+ Add parallel'}
+        <span className="parallel-picker-arrow">▾</span>
       </button>
       {isOpen && (
         <>
           <div className="popover-backdrop" onClick={() => setIsOpen(false)} />
-          <div className={`multi-dropdown-list multi-dropdown-list--${direction}`}>
+          <div className={`parallel-picker-list parallel-picker-list--${direction}`}>
             {options.map(opt => (
-              <label key={opt.value} className="multi-dropdown-option">
+              <label key={opt.value} className="parallel-picker-option">
                 <input
                   type="checkbox"
                   checked={values.includes(opt.value)}
@@ -326,7 +411,7 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
         thisWeekFocus: editData.thisWeekFocus || '',
       };
       await updatePosition(position._id, payload);
-      onUpdate();
+      await onUpdate();
       onClose();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to save changes');
@@ -339,16 +424,16 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
     .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
     .slice(0, 5);
 
-  const assigneeNames = position.assignees?.map(a => a.name).join(', ') || 'Unassigned';
+  const primaryName = position.assignee?.name || 'Unassigned';
+  const parallelNames = (position.parallelAssignees || []).map(ta => ta.name).join(', ');
+  const assigneeDisplay = parallelNames ? `${primaryName} (parallel: ${parallelNames})` : primaryName;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{position.jobOrderId}</h2>
-          <button className="modal-close-btn" onClick={onClose}>
-            <CloseIcon />
-          </button>
+          <button className="modal-close-btn" onClick={onClose}><CloseIcon /></button>
         </div>
         <div className="modal-body">
           <div className="modal-summary">
@@ -366,47 +451,29 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
             </div>
             <div className="modal-summary-item">
               <span className="modal-summary-label">Assignee(s)</span>
-              <span className="modal-summary-value">{assigneeNames}</span>
+              <span className="modal-summary-value">{assigneeDisplay}</span>
             </div>
             <div className="modal-summary-item">
               <span className="modal-summary-label">Level</span>
               <span className="modal-summary-value">{position.pLevel}</span>
             </div>
             <div className="modal-summary-item">
-              <span className="modal-summary-label">Package Range</span>
-              <span className="modal-summary-value package-range-value">{position.packageRange || '—'}</span>
+              <span className="modal-summary-label">Stage</span>
+              <span className="modal-summary-value">{position.pipelineStage}</span>
             </div>
             <div className="modal-summary-item">
-              <span className="modal-summary-label">Int Shortlist</span>
-              <span className="modal-summary-value">{position.cvCount ?? '—'}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Ext Shortlist</span>
-              <span className="modal-summary-value">
-                {position.extShortlistCount === 'Client Review' ? 'Client Review' : (position.extShortlistCount ?? '—')}
-              </span>
+              <span className="modal-summary-label">LS / CV</span>
+              <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
             </div>
           </div>
           <div className="modal-editable">
             <div className="modal-field modal-field--full">
               <label>This Week Focus</label>
-              <input
-                type="text"
-                value={editData.thisWeekFocus}
-                onChange={e => handleChange('thisWeekFocus', e.target.value)}
-                className="modal-input"
-                placeholder="e.g., Schedule interviews, Review CVs..."
-              />
+              <input type="text" value={editData.thisWeekFocus} onChange={e => handleChange('thisWeekFocus', e.target.value)} className="modal-input" placeholder="e.g., Schedule interviews, Review CVs..." />
             </div>
             <div className="modal-field modal-field--full">
               <label>Remarks</label>
-              <textarea
-                value={editData.remarks}
-                onChange={e => handleChange('remarks', e.target.value)}
-                className="modal-textarea"
-                rows="4"
-                placeholder="Add any notes or remarks about this position..."
-              />
+              <textarea value={editData.remarks} onChange={e => handleChange('remarks', e.target.value)} className="modal-textarea" rows="4" placeholder="Add any notes or remarks about this position..." />
             </div>
           </div>
           <div className="modal-history">
@@ -419,26 +486,20 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
                   <div key={idx} className="modal-history-item">
                     <span className="modal-history-round">Round {round.roundNumber}</span>
                     <span className="modal-history-ta">{round.taAssigned?.name || '—'}</span>
-                    <span className="modal-history-date">
-                      {round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}
-                    </span>
+                    <span className="modal-history-date">{round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}</span>
                     <span className="modal-history-reason">{round.reason || '—'}</span>
                   </div>
                 ))}
               </div>
             )}
             {historyRounds.length === 5 && (editData.allocationRounds?.length || 0) > 5 && (
-              <p className="modal-history-more">
-                + {(editData.allocationRounds?.length || 0) - 5} more rounds
-              </p>
+              <p className="modal-history-more">+ {(editData.allocationRounds?.length || 0) - 5} more rounds</p>
             )}
           </div>
         </div>
         <div className="modal-footer">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
+          <button className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
         </div>
       </div>
     </div>
@@ -448,6 +509,7 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
 // ---- Main Positions Component ----
 function Positions() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [positions, setPositions] = useState([]);
@@ -500,6 +562,18 @@ function Positions() {
     fetchData();
   }, []);
 
+  // Positions.jsx keeps its own local `positions` state instead of using
+  // TanStack Query, so other pages that DO use TanStack Query (e.g. TAs.jsx,
+  // which queries ['positions'] to compute "Assigned Positions" counts and to
+  // decide whether a TA can be deleted) never find out that an assignment
+  // changed here. Without this, that cache can sit stale for up to its
+  // staleTime (5 minutes on TAs.jsx), showing outdated assignment counts and
+  // incorrectly blocking/allowing TA deletion.
+  const invalidatePositionsCache = () => {
+    queryClient.invalidateQueries(['positions']);
+    queryClient.invalidateQueries(['tas']);
+  };
+
   const legendLabel = (key) => legend.find(e => e.key === key)?.label || '';
 
   const handleFilterChange = (field, value) => {
@@ -521,14 +595,18 @@ function Positions() {
   const filteredPositions = useMemo(() => {
     let filtered = positions.filter(pos => {
       const matchesClient = !filters.client || pos.client?._id === filters.client;
+
       let matchesAssignee = true;
       if (filters.assignee) {
         if (filters.assignee === 'unassigned') {
-          matchesAssignee = !pos.assignees || pos.assignees.length === 0;
+          matchesAssignee = !pos.assignee && (!pos.parallelAssignees || pos.parallelAssignees.length === 0);
         } else {
-          matchesAssignee = pos.assignees?.some(a => a._id === filters.assignee) || false;
+          matchesAssignee =
+            pos.assignee?._id === filters.assignee ||
+            (pos.parallelAssignees || []).some(pa => pa._id === filters.assignee);
         }
       }
+
       const matchesStatus = !filters.status || pos.status === filters.status;
       const matchesPLevel = !filters.pLevel || pos.pLevel === filters.pLevel;
       const matchesHighlight = !filters.highlightColor || pos.highlightColor === filters.highlightColor;
@@ -565,56 +643,104 @@ function Positions() {
   }, [positions, filters]);
 
   // ---- CRUD handlers ----
-  const handleDeleteClick = (pos) => {
-    setDeleteTarget(pos);
-    setShowDeleteModal(true);
-  };
 
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      await deletePosition(deleteTarget._id);
-      setPositions(positions.filter(p => p._id !== deleteTarget._id));
-      setShowDeleteModal(false);
-      setDeleteTarget(null);
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete position');
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const cancelDelete = () => {
-    setShowDeleteModal(false);
-    setDeleteTarget(null);
-  };
-
-  const handleDirectUpdate = async (pos, field, value) => {
-    const prevValue = pos[field];
-    let optimisticValue = value;
-
-    if (field === 'assignees') {
-      optimisticValue = value.map(id => tas.find(ta => ta._id === id)).filter(Boolean);
-    }
+  const handlePrimaryAssign = async (pos, newTaId) => {
+    const oldAssignee = pos.assignee?._id || null;
+    if (oldAssignee === newTaId) return;
 
     setUpdatingId(pos._id);
     setPositions(prev =>
       prev.map(p =>
-        p._id === pos._id ? { ...p, [field]: optimisticValue } : p
+        p._id === pos._id
+          ? { ...p, assignee: newTaId ? tas.find(t => t._id === newTaId) : null }
+          : p
       )
     );
 
+    try {
+      const res = await assignPosition(pos._id, newTaId, newTaId ? 'Primary assignment changed' : 'Unassigned', 'primary');
+      setPositions(prev =>
+        prev.map(p => {
+          if (p._id !== pos._id) return p;
+          const merged = { ...p, ...res.data };
+          merged.assignee = newTaId ? tas.find(t => t._id === newTaId) : null;
+          return merged;
+        })
+      );
+      invalidatePositionsCache();
+    } catch (err) {
+      setPositions(prev =>
+        prev.map(p =>
+          p._id === pos._id
+            ? { ...p, assignee: oldAssignee ? tas.find(t => t._id === oldAssignee) : null }
+            : p
+        )
+      );
+      alert(err.response?.data?.error || 'Failed to assign TA');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleParallelAssign = async (pos, newParallelIds) => {
+    const oldParallel = pos.parallelAssignees?.map(a => a._id) || [];
+    const sortedOld = [...oldParallel].sort();
+    const sortedNew = [...newParallelIds].sort();
+    if (sortedOld.join(',') === sortedNew.join(',')) return;
+
+    setUpdatingId(pos._id);
+    setPositions(prev =>
+      prev.map(p =>
+        p._id === pos._id
+          ? { ...p, parallelAssignees: newParallelIds.map(id => tas.find(t => t._id === id)).filter(Boolean) }
+          : p
+      )
+    );
+
+    try {
+      const res = await updatePosition(pos._id, { parallelAssignees: newParallelIds });
+      setPositions(prev =>
+        prev.map(p => {
+          if (p._id !== pos._id) return p;
+          return { ...p, ...res.data };
+        })
+      );
+      invalidatePositionsCache();
+    } catch (err) {
+      setPositions(prev =>
+        prev.map(p =>
+          p._id === pos._id
+            ? { ...p, parallelAssignees: oldParallel.map(id => tas.find(t => t._id === id)).filter(Boolean) }
+            : p
+        )
+      );
+      alert(err.response?.data?.error || 'Failed to update parallel assignees');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleDirectUpdate = async (pos, field, value) => {
+    if (field === 'assignee') {
+      await handlePrimaryAssign(pos, value);
+      return;
+    }
+    const prevValue = pos[field];
+    setUpdatingId(pos._id);
+    setPositions(prev =>
+      prev.map(p =>
+        p._id === pos._id ? { ...p, [field]: value } : p
+      )
+    );
     try {
       const res = await updatePosition(pos._id, { [field]: value });
       setPositions(prev =>
         prev.map(p => {
           if (p._id !== pos._id) return p;
-          const merged = { ...p, ...res.data };
-          if (field === 'assignees') merged.assignees = optimisticValue;
-          return merged;
+          return { ...p, ...res.data };
         })
       );
+      invalidatePositionsCache();
     } catch (err) {
       setPositions(prev =>
         prev.map(p =>
@@ -627,6 +753,7 @@ function Positions() {
     }
   };
 
+  // ---- Color, Flag, Delete, Edit ----
   const handleColorChange = async (pos, colorKey) => {
     if (colorKey === pos.highlightColor) { setColorPopoverId(null); return; }
     const prevColor = pos.highlightColor;
@@ -674,8 +801,19 @@ function Positions() {
             ? 'Client Review'
             : Number(editForm.extShortlistCount),
       };
-      const res = await updatePosition(pos._id, payload);
-      setPositions(prev => prev.map(p => p._id === pos._id ? res.data : p));
+      await updatePosition(pos._id, payload);
+      setPositions(prev =>
+        prev.map(p => {
+          if (p._id !== pos._id) return p;
+          return {
+            ...p,
+            position: payload.position,
+            packageRange: payload.packageRange,
+            cvCount: payload.cvCount,
+            extShortlistCount: payload.extShortlistCount,
+          };
+        })
+      );
       setEditingId(null);
       setEditForm({});
     } catch (err) {
@@ -701,6 +839,32 @@ function Positions() {
     }
   };
 
+  const handleDeleteClick = (pos) => {
+    setDeleteTarget(pos);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deletePosition(deleteTarget._id);
+      setPositions(positions.filter(p => p._id !== deleteTarget._id));
+      setShowDeleteModal(false);
+      setDeleteTarget(null);
+      invalidatePositionsCache();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete position');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteModal(false);
+    setDeleteTarget(null);
+  };
+
   const handleLegendLabelChange = (key, value) => {
     setLegend(prev => prev.map(e => e.key === key ? { ...e, label: value } : e));
   };
@@ -716,6 +880,7 @@ function Positions() {
   const refreshList = async () => {
     const res = await getPositions();
     setPositions(res.data);
+    invalidatePositionsCache();
   };
 
   // ---- Options ----
@@ -740,7 +905,7 @@ function Positions() {
     const lc = PLEVEL_COLORS[p];
     return { value: p, label: p, bg: lc.bg, text: lc.text };
   });
-  const multiAssigneeOptions = tas.map(ta => ({ value: ta._id, label: ta.name }));
+  const parallelOptions = tas.map(ta => ({ value: ta._id, label: ta.name }));
 
   if (loading) return <div className="positions-loading">Loading positions...</div>;
   if (error) return <div className="positions-error">Error: {error}</div>;
@@ -749,9 +914,7 @@ function Positions() {
     <div className="positions">
       <div className="positions-header">
         <h1>Positions</h1>
-        <button className="btn-primary" onClick={() => navigate('/positions/new')}>
-          + New Position
-        </button>
+        <button className="btn-primary" onClick={() => navigate('/positions/new')}>+ New Position</button>
       </div>
 
       <div className="color-legend-bar">
@@ -760,27 +923,14 @@ function Positions() {
           {COLOR_KEYS.map(key => (
             <div className="legend-swatch-item" key={key}>
               <span className="legend-swatch-dot" style={{ background: COLOR_HEX[key] }} />
-              <input
-                className="legend-label-input"
-                value={legendLabel(key)}
-                placeholder="Unlabeled"
-                onChange={(e) => handleLegendLabelChange(key, e.target.value)}
-                onBlur={saveLegend}
-              />
+              <input className="legend-label-input" value={legendLabel(key)} placeholder="Unlabeled" onChange={(e) => handleLegendLabelChange(key, e.target.value)} onBlur={saveLegend} />
             </div>
           ))}
         </div>
       </div>
 
       <div className="filters-bar">
-        <input
-          type="text"
-          name="search"
-          placeholder="Search by JO ID, position, client..."
-          value={filters.search}
-          onChange={(e) => handleFilterChange('search', e.target.value)}
-          className="filter-search"
-        />
+        <input type="text" name="search" placeholder="Search by JO ID, position, client..." value={filters.search} onChange={(e) => handleFilterChange('search', e.target.value)} className="filter-search" />
       </div>
 
       <div className="table-wrapper">
@@ -791,34 +941,16 @@ function Positions() {
           <thead>
             <tr>
               <th>JO ID</th>
-              <th className="th-with-filter">
-                <span className="th-label">Client</span>
-                <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" />
-              </th>
+              <th className="th-with-filter">Client <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" /></th>
               <th>Position</th>
               <th>Package Range</th>
-              <th className="th-with-filter">
-                <span className="th-label">Level</span>
-                <HeaderFilter options={levelOptions} value={filters.pLevel} onChange={(v) => handleFilterChange('pLevel', v)} allLabel="All" label="Level" />
-              </th>
-              <th className="th-with-filter">
-                <span className="th-label">Status</span>
-                <HeaderFilter options={statusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" />
-              </th>
-              <th className="th-with-filter">
-                <span className="th-label">Assignees</span>
-                <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" />
-              </th>
-              <th className="th-with-filter">
-                <span className="th-label">Flags</span>
-                <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" />
-              </th>
+              <th className="th-with-filter">Level <HeaderFilter options={levelOptions} value={filters.pLevel} onChange={(v) => handleFilterChange('pLevel', v)} allLabel="All" label="Level" /></th>
+              <th className="th-with-filter">Status <HeaderFilter options={statusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" /></th>
+              <th className="th-with-filter">Assignees <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" /></th>
+              <th className="th-with-filter">Flags <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" /></th>
               <th>Int Shortlist</th>
               <th>Ext Shortlist</th>
-              <th className="th-with-filter">
-                <span className="th-label">Actions</span>
-                <HeaderFilter options={colorOptions} value={filters.highlightColor} onChange={(v) => handleFilterChange('highlightColor', v)} allLabel="All" label="Color" />
-              </th>
+              <th className="th-with-filter">Actions <HeaderFilter options={colorOptions} value={filters.highlightColor} onChange={(v) => handleFilterChange('highlightColor', v)} allLabel="All" label="Color" /></th>
             </tr>
           </thead>
           <tbody>
@@ -826,9 +958,7 @@ function Positions() {
               <tr><td colSpan="11" className="no-rows">No positions found</td></tr>
             ) : (
               filteredPositions.map(pos => {
-                const flagEntries = pos.flags
-                  ? Object.entries(pos.flags).filter(([, f]) => f !== null)
-                  : [];
+                const flagEntries = pos.flags ? Object.entries(pos.flags).filter(([, f]) => f !== null) : [];
                 const isEditing = editingId === pos._id;
                 const isUpdating = updatingId === pos._id;
 
@@ -836,13 +966,19 @@ function Positions() {
                 if (pos.highlightColor === 'blue') rowClassName = 'row-tint-blue';
                 else if (pos.highlightColor === 'red') rowClassName = 'row-tint-red';
 
-                const currentAssigneeIds = pos.assignees?.map(a => a._id) || [];
+                const currentAssigneeId = pos.assignee?._id || null;
+                const currentParallelIds = pos.parallelAssignees?.map(a => a._id) || [];
+
+                // Compute trigger style from primary assignee's color (if any)
+                const primaryTA = pos.assignee;
+                const triggerStyle = primaryTA?.color
+                  ? { backgroundColor: TA_COLORS[primaryTA.color].bg, color: TA_COLORS[primaryTA.color].text, borderColor: 'transparent' }
+                  : undefined;
 
                 return (
                   <tr key={pos._id} className={rowClassName}>
                     <td><Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link></td>
                     <td><span className="text-ellipsis">{pos.client?.clientName || '—'}</span></td>
-                    
                     <td>
                       {isEditing ? (
                         <input className="inline-edit-input" name="position" value={editForm.position} onChange={handleEditFormChange} placeholder="Position title" />
@@ -850,7 +986,6 @@ function Positions() {
                         <span className="text-ellipsis">{pos.position}</span>
                       )}
                     </td>
-
                     <td>
                       {isEditing ? (
                         <input className="inline-edit-input inline-edit-input--range" name="packageRange" value={editForm.packageRange} onChange={handleEditFormChange} placeholder="e.g. £40-50k" />
@@ -858,24 +993,49 @@ function Positions() {
                         <span className="package-range-value">{pos.packageRange || '—'}</span>
                       )}
                     </td>
-
                     <td className="td-dropdown">
                       <InlineDropdown value={pos.pLevel} options={rowLevelOptions} onChange={(v) => handleDirectUpdate(pos, 'pLevel', v)} disabled={isUpdating} shape="circle" />
                     </td>
                     <td className="td-dropdown">
                       <InlineDropdown value={pos.status} options={rowStatusOptions} onChange={(v) => handleDirectUpdate(pos, 'status', v)} disabled={isUpdating} shape="pill" />
                     </td>
-
                     <td className="td-dropdown">
-                      <MultiInlineDropdown
-                        values={currentAssigneeIds}
-                        options={multiAssigneeOptions}
-                        onChange={(newIds) => handleDirectUpdate(pos, 'assignees', newIds)}
-                        disabled={isUpdating}
-                        placeholder="Assign TA(s)"
-                      />
+                      <div className="assignee-cell">
+                        <SingleInlineDropdown
+                          value={currentAssigneeId}
+                          options={assigneeOptions.map(opt => ({ ...opt, value: opt.value === 'unassigned' ? null : opt.value }))}
+                          onChange={(newId) => handleDirectUpdate(pos, 'assignee', newId)}
+                          disabled={isUpdating}
+                          placeholder="Assign TA"
+                          triggerStyle={triggerStyle}   // <-- pass style
+                        />
+                        <ParallelAssigneesPicker
+                          values={currentParallelIds}
+                          options={parallelOptions}
+                          onChange={(newIds) => handleParallelAssign(pos, newIds)}
+                          disabled={isUpdating}
+                        />
+                        {currentParallelIds.length > 0 && (
+                          <div className="parallel-chips">
+                            {currentParallelIds.map(id => {
+                              const ta = tas.find(t => t._id === id);
+                              const chipStyle = ta?.color
+                                ? { backgroundColor: TA_COLORS[ta.color].bg, color: TA_COLORS[ta.color].text }
+                                : undefined;
+                              return ta ? (
+                                <span key={id} className="parallel-chip" style={chipStyle}>
+                                  {ta.name}
+                                  <button className="parallel-chip-remove" onClick={() => {
+                                    const newIds = currentParallelIds.filter(i => i !== id);
+                                    handleParallelAssign(pos, newIds);
+                                  }} disabled={isUpdating}>×</button>
+                                </span>
+                              ) : null;
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </td>
-
                     <td className="td-dropdown">
                       <div className="flags-cell">
                         {flagEntries.map(([flagKey, flag]) => {
@@ -883,23 +1043,16 @@ function Positions() {
                           const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
                           const isOpen = flagPopoverId === popoverKey;
                           const direction = flagPopoverDirection[popoverKey] || 'up';
-
                           return (
                             <div className="flag-badge-wrap" key={flagKey}>
-                              <button
-                                type="button"
-                                className="flag-badge-btn"
-                                onClick={(e) => {
-                                  if (flagPopoverId === popoverKey) {
-                                    setFlagPopoverId(null);
-                                  } else {
-                                    const dir = computeFlagPopoverDirection(e.currentTarget);
-                                    setFlagPopoverDirection(prev => ({ ...prev, [popoverKey]: dir }));
-                                    setFlagPopoverId(popoverKey);
-                                  }
-                                }}
-                                title={`${flag.label} — click to change`}
-                              >
+                              <button type="button" className="flag-badge-btn" onClick={(e) => {
+                                if (flagPopoverId === popoverKey) setFlagPopoverId(null);
+                                else {
+                                  const dir = computeFlagPopoverDirection(e.currentTarget);
+                                  setFlagPopoverDirection(prev => ({ ...prev, [popoverKey]: dir }));
+                                  setFlagPopoverId(popoverKey);
+                                }
+                              }} title={`${flag.label} — click to change`}>
                                 <FlagBadge flag={flag} />
                               </button>
                               {isOpen && (
@@ -908,11 +1061,7 @@ function Positions() {
                                   <div className={`flag-popover flag-popover--${direction}`}>
                                     <div className="flag-popover-title">{flag.label}</div>
                                     {['auto', 'on', 'off'].map(mode => (
-                                      <button
-                                        key={mode}
-                                        className={`flag-popover-option ${currentMode === mode ? 'selected' : ''}`}
-                                        onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}
-                                      >
+                                      <button key={mode} className={`flag-popover-option ${currentMode === mode ? 'selected' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
                                         {mode === 'auto' ? 'Auto (default)' : mode === 'on' ? 'Force On' : 'Turn Off'}
                                       </button>
                                     ))}
@@ -922,25 +1071,16 @@ function Positions() {
                             </div>
                           );
                         })}
-
                         <div className="flag-badge-wrap">
-                          <button
-                            type="button"
-                            className="flag-add-btn"
-                            onClick={(e) => {
-                              const manageKey = `${pos._id}:manage`;
-                              if (flagPopoverId === manageKey) {
-                                setFlagPopoverId(null);
-                              } else {
-                                const dir = computeFlagPopoverDirection(e.currentTarget);
-                                setFlagPopoverDirection(prev => ({ ...prev, [manageKey]: dir }));
-                                setFlagPopoverId(manageKey);
-                              }
-                            }}
-                            title="Manage all flags"
-                          >
-                            +
-                          </button>
+                          <button type="button" className="flag-add-btn" onClick={(e) => {
+                            const manageKey = `${pos._id}:manage`;
+                            if (flagPopoverId === manageKey) setFlagPopoverId(null);
+                            else {
+                              const dir = computeFlagPopoverDirection(e.currentTarget);
+                              setFlagPopoverDirection(prev => ({ ...prev, [manageKey]: dir }));
+                              setFlagPopoverId(manageKey);
+                            }
+                          }} title="Manage all flags">+</button>
                           {flagPopoverId === `${pos._id}:manage` && (
                             <>
                               <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
@@ -953,11 +1093,7 @@ function Positions() {
                                       <span className="flag-manage-label">{label}</span>
                                       <div className="flag-manage-btns">
                                         {['auto', 'on', 'off'].map(mode => (
-                                          <button
-                                            key={mode}
-                                            className={`flag-mode-btn ${currentMode === mode ? 'active' : ''}`}
-                                            onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}
-                                          >
+                                          <button key={mode} className={`flag-mode-btn ${currentMode === mode ? 'active' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
                                             {mode === 'auto' ? 'Auto' : mode === 'on' ? 'On' : 'Off'}
                                           </button>
                                         ))}
@@ -971,7 +1107,6 @@ function Positions() {
                         </div>
                       </div>
                     </td>
-
                     <td>
                       {isEditing ? (
                         <input type="number" min="0" className="inline-edit-input inline-edit-input--num" name="cvCount" value={editForm.cvCount} onChange={handleEditFormChange} />
@@ -980,28 +1115,11 @@ function Positions() {
                     <td>
                       {isEditing ? (
                         <div className="ext-shortlist-edit">
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            className="inline-edit-input inline-edit-input--num"
-                            name="extShortlistCount"
-                            value={editForm.extShortlistCount === 'Client Review' ? '' : editForm.extShortlistCount}
-                            onChange={handleEditFormChange}
-                            placeholder="Number"
-                            disabled={editForm.extShortlistCount === 'Client Review'}
-                          />
-                          <select
-                            className="ext-shortlist-select"
-                            value={editForm.extShortlistCount === 'Client Review' ? 'clientReview' : ''}
-                            onChange={(e) => {
-                              if (e.target.value === 'clientReview') {
-                                setEditForm(prev => ({ ...prev, extShortlistCount: 'Client Review' }));
-                              } else {
-                                setEditForm(prev => ({ ...prev, extShortlistCount: '' }));
-                              }
-                            }}
-                            title="Or mark as Client Review instead of a number"
-                          >
+                          <input type="text" inputMode="numeric" className="inline-edit-input inline-edit-input--num" name="extShortlistCount" value={editForm.extShortlistCount === 'Client Review' ? '' : editForm.extShortlistCount} onChange={handleEditFormChange} placeholder="Number" disabled={editForm.extShortlistCount === 'Client Review'} />
+                          <select className="ext-shortlist-select" value={editForm.extShortlistCount === 'Client Review' ? 'clientReview' : ''} onChange={(e) => {
+                            if (e.target.value === 'clientReview') setEditForm(prev => ({ ...prev, extShortlistCount: 'Client Review' }));
+                            else setEditForm(prev => ({ ...prev, extShortlistCount: '' }));
+                          }} title="Or mark as Client Review instead of a number">
                             <option value="">#</option>
                             <option value="clientReview">Client Review</option>
                           </select>
@@ -1010,38 +1128,22 @@ function Positions() {
                         <span className="ext-shortlist-badge ext-shortlist-badge--review">Client Review</span>
                       ) : (pos.extShortlistCount ?? '—')}
                     </td>
-
                     <td className="td-dropdown">
                       <div className="actions-cell">
                         <div className="color-picker-wrap">
-                          <button
-                            className="color-swatch-btn"
-                            style={{
-                              background: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : '#e5e7eb',
-                              border: pos.highlightColor ? '2px solid rgba(0,0,0,0.15)' : '2px dashed #d1d5db',
-                            }}
-                            onClick={() => setColorPopoverId(colorPopoverId === pos._id ? null : pos._id)}
-                            title="Set highlight color"
-                          />
+                          <button className="color-swatch-btn" style={{ background: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : '#e5e7eb', border: pos.highlightColor ? '2px solid rgba(0,0,0,0.15)' : '2px dashed #d1d5db' }} onClick={() => setColorPopoverId(colorPopoverId === pos._id ? null : pos._id)} title="Set highlight color" />
                           {colorPopoverId === pos._id && (
                             <>
                               <div className="popover-backdrop" onClick={() => setColorPopoverId(null)} />
                               <div className="color-popover">
-                                <button className="color-popover-option" onClick={() => handleColorChange(pos, null)}>
-                                  <span className="color-swatch-dot color-swatch-dot--none" />
-                                  None
-                                </button>
+                                <button className="color-popover-option" onClick={() => handleColorChange(pos, null)}><span className="color-swatch-dot color-swatch-dot--none" />None</button>
                                 {COLOR_KEYS.map(key => (
-                                  <button key={key} className="color-popover-option" onClick={() => handleColorChange(pos, key)}>
-                                    <span className="color-swatch-dot" style={{ background: COLOR_HEX[key] }} />
-                                    {legendLabel(key) || key}
-                                  </button>
+                                  <button key={key} className="color-popover-option" onClick={() => handleColorChange(pos, key)}><span className="color-swatch-dot" style={{ background: COLOR_HEX[key] }} />{legendLabel(key) || key}</button>
                                 ))}
                               </div>
                             </>
                           )}
                         </div>
-
                         {isEditing ? (
                           <>
                             <button className="action-save" onClick={() => saveEdit(pos)} disabled={savingEdit}>Save</button>
@@ -1071,21 +1173,14 @@ function Positions() {
             <p>Are you sure you want to delete position <strong>{deleteTarget.jobOrderId}</strong>?</p>
             <div className="modal-actions">
               <button className="btn-secondary" onClick={cancelDelete} disabled={deleting}>Cancel</button>
-              <button className="btn-danger" onClick={confirmDelete} disabled={deleting}>
-                {deleting ? 'Deleting...' : 'Delete'}
-              </button>
+              <button className="btn-danger" onClick={confirmDelete} disabled={deleting}>{deleting ? 'Deleting...' : 'Delete'}</button>
             </div>
           </div>
         </div>
       )}
 
       {selectedPosition && (
-        <PositionDetailModal
-          position={selectedPosition}
-          onClose={() => setSelectedPosition(null)}
-          onUpdate={refreshList}
-          tas={tas}
-        />
+        <PositionDetailModal position={selectedPosition} onClose={() => setSelectedPosition(null)} onUpdate={refreshList} tas={tas} />
       )}
     </div>
   );

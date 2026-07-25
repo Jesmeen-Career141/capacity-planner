@@ -60,7 +60,6 @@ function toISODate(date) {
 }
 
 function getMonthWeeks(year, monthIndex) {
-  // Use UTC to avoid timezone shift
   const firstOfMonth = new Date(Date.UTC(year, monthIndex, 1));
   const lastOfMonth = new Date(Date.UTC(year, monthIndex + 1, 0));
   let cursor = getMondayOfWeek(firstOfMonth);
@@ -90,7 +89,6 @@ function buildMonthOptions() {
 const MONTH_OPTIONS = buildMonthOptions();
 const CURRENT_MONTH_IDX = 6;
 
-// Now compute current week using UTC helpers
 const TODAY = new Date();
 const TODAY_ISO = toISODate(TODAY);
 const CURRENT_REAL_WEEK = {
@@ -215,7 +213,7 @@ function Popover({ anchorRef, isOpen, onClose, children, width = 290 }) {
   );
 }
 
-// ---- Position Detail Modal ----
+// ---- Position Detail Modal (duplicated for now) ----
 function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   const [editData, setEditData] = useState({
     remarks: '',
@@ -260,6 +258,10 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   const historyRounds = [...(editData.allocationRounds || [])]
     .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
     .slice(0, 5);
+
+  const primaryName = position.assignee?.name || 'Unassigned';
+  const parallelNames = (position.parallelAssignees || []).map(ta => ta.name).join(', ');
+  const assigneeDisplay = parallelNames ? `${primaryName} (parallel: ${parallelNames})` : primaryName;
 
   const CloseIcon = () => (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -306,8 +308,8 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
               <span className="modal-summary-value">{position.status}</span>
             </div>
             <div className="modal-summary-item">
-              <span className="modal-summary-label">Assignee</span>
-              <span className="modal-summary-value">{position.assignee?.name || 'Unassigned'}</span>
+              <span className="modal-summary-label">Assignee(s)</span>
+              <span className="modal-summary-value">{assigneeDisplay}</span>
             </div>
             <div className="modal-summary-item">
               <span className="modal-summary-label">Level</span>
@@ -383,7 +385,7 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   );
 }
 
-// ---- PositionPool ----
+// ---- PositionPool (unchanged) ----
 function PositionPool({ positions, navigate, onPositionClick }) {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -466,9 +468,37 @@ function PositionPool({ positions, navigate, onPositionClick }) {
   );
 }
 
-// ---- GridCell ----
-function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
+// ---- AssignmentTooltip (hover-gated) ----
+function AssignmentTooltip({ position }) {
+  const recent = useMemo(() => {
+    if (!position?.allocationRounds) return [];
+    return [...position.allocationRounds]
+      .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
+      .slice(0, 3);
+  }, [position]);
+
+  if (recent.length === 0) return null;
+
+  return (
+    <div className="assignment-tooltip assignment-tooltip--top-left">
+      {recent.map((r, idx) => (
+        <div key={idx} className="assignment-tooltip-row">
+          <span className="assignment-tooltip-name">{r.taAssigned?.name || '—'}</span>
+          <span className="assignment-tooltip-date">
+            {r.dateAssigned
+              ? new Date(r.dateAssigned).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+              : '—'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---- GridCell (with hover state) ----
+function GridCell({ position, positions, isOpen, onToggle, onSelect, weekStart, taId, day }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [showTooltip, setShowTooltip] = useState(false);
   const triggerRef = useRef(null);
 
   const filtered = positions.filter(p => {
@@ -488,10 +518,15 @@ function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
   });
 
   return (
-    <div className="grid-cell-wrap">
+    <div
+      className="grid-cell-wrap"
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
       {position ? (
         <button ref={triggerRef} className="grid-pill" style={roleChipStyle(position.position)} onClick={onToggle}>
           {position.client?.clientName || '—'} — {position.position}
+          {showTooltip && <AssignmentTooltip position={position} />}
         </button>
       ) : (
         <button ref={triggerRef} className="grid-pill grid-pill-empty" onClick={() => { onToggle(); }}>
@@ -540,7 +575,7 @@ function GridCell({ position, positions, isOpen, onToggle, onSelect }) {
   );
 }
 
-// ---- TACard ----
+// ---- TACard (passes weekStart) ----
 function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openCellKey, onCellToggle, onSelectCell, navigate, workloadCount }) {
   const initials = ta.name?.[0]?.toUpperCase() || '?';
   return (
@@ -578,7 +613,10 @@ function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openC
                       positions={positions}
                       isOpen={openCellKey === cellKey}
                       onToggle={() => onCellToggle(cellKey)}
-                      onSelect={(newId) => onSelectCell(ta._id, day, newId)}
+                      onSelect={(newId) => onSelectCell(ta._id, w.weekStart, day, newId)}
+                      weekStart={w.weekStart}
+                      taId={ta._id}
+                      day={day}
                     />
                   </div>
                 );
@@ -592,26 +630,48 @@ function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openC
 }
 
 // ---- Action Board subcomponents ----
+function isOnPosition(position, taId) {
+  return (
+    position.assignee?._id === taId ||
+    (position.parallelAssignees || []).some(pa => pa._id === taId)
+  );
+}
+
 function ReassignChip({ p, flagKey, ta, tas, onReassign, onToggleFlag, isOpen, onToggleOpen }) {
   const triggerRef = useRef(null);
   return (
     <div className="ab-chip-wrap">
-      <button ref={triggerRef} className="ab-chip ab-chip-btn" style={flagChipStyle(p.flags[flagKey])}
-        onClick={onToggleOpen}>
+      <button
+        ref={triggerRef}
+        className="ab-chip ab-chip-btn"
+        style={flagChipStyle(p.flags[flagKey])}
+        onClick={onToggleOpen}
+      >
         {p.client?.clientName || '—'} — {p.position}
         {p.flags[flagKey].manual && <span className="ab-manual-dot" title="Manually set" />}
       </button>
       <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggleOpen} width={220}>
         <p className="popover-heading">Reassign to</p>
         {tas.filter(t => t._id !== ta._id).map(t => (
-          <button key={t._id} className="cell-popover-option cell-popover-option--simple"
-            onClick={() => { onReassign(p._id, t._id); onToggleOpen(); }}>
+          <button
+            key={t._id}
+            className="cell-popover-option cell-popover-option--simple"
+            onClick={() => {
+              onReassign(p._id, t._id);
+              onToggleOpen();
+            }}
+          >
             <span className="cpo-text">{t.name}</span>
           </button>
         ))}
         <div className="popover-divider" />
-        <button className="cell-popover-option cell-popover-option--simple cell-popover-danger"
-          onClick={() => { onToggleFlag(p._id, flagKey, 'off'); onToggleOpen(); }}>
+        <button
+          className="cell-popover-option cell-popover-option--simple cell-popover-danger"
+          onClick={() => {
+            onToggleFlag(p._id, flagKey, 'off');
+            onToggleOpen();
+          }}
+        >
           <span className="cpo-text">Remove flag (manual off)</span>
         </button>
       </Popover>
@@ -619,7 +679,18 @@ function ReassignChip({ p, flagKey, ta, tas, onReassign, onToggleFlag, isOpen, o
   );
 }
 
-function AddPositionButton({ ta, flagKey, candidates, matchesCount, onReassign, onToggleFlag, isOpen, onToggleOpen, searchTerm, onSearchChange }) {
+function AddPositionButton({
+  ta,
+  flagKey,
+  candidates,
+  matchesCount,
+  onReassign,
+  onToggleFlag,
+  isOpen,
+  onToggleOpen,
+  searchTerm,
+  onSearchChange,
+}) {
   const triggerRef = useRef(null);
   const filtered = candidates.filter(p => {
     const term = searchTerm.toLowerCase();
@@ -654,11 +725,19 @@ function AddPositionButton({ ta, flagKey, candidates, matchesCount, onReassign, 
           />
         </div>
         {sorted.slice(0, 30).map(p => (
-          <button key={p._id} className="cell-popover-option" onClick={() => {
-            if (p.assignee?._id !== ta._id) onReassign(p._id, ta._id);
-            onToggleFlag(p._id, flagKey, 'on');
-            onToggleOpen();
-          }}>
+          <button
+            key={p._id}
+            className="cell-popover-option"
+            onClick={() => {
+              // If the position is not already assigned to this TA, reassign it (primary)
+              if (!isOnPosition(p, ta._id)) {
+                onReassign(p._id, ta._id);
+              }
+              // Then turn the flag on
+              onToggleFlag(p._id, flagKey, 'on');
+              onToggleOpen();
+            }}
+          >
             <span className="cpo-check" />
             <span className={`cpo-level cpo-level--${p.pLevel}`}>{p.pLevel}</span>
             <span className="cpo-text">
@@ -690,7 +769,10 @@ function ActionBoard({ positions, tas, onToggleFlag, onReassign, workloadByTA })
   return (
     <div className="action-board-wrap">
       <div className="action-board">
-        <div className="ab-row ab-header-row" style={{ gridTemplateColumns: `140px repeat(${tas.length}, minmax(140px, 1fr))` }}>
+        <div
+          className="ab-row ab-header-row"
+          style={{ gridTemplateColumns: `140px repeat(${tas.length}, minmax(140px, 1fr))` }}
+        >
           <div className="ab-label-col" />
           {tas.map(ta => (
             <div className="ab-col-header" key={ta._id}>
@@ -701,16 +783,20 @@ function ActionBoard({ positions, tas, onToggleFlag, onReassign, workloadByTA })
         </div>
 
         {ACTION_ORDER.map(flagKey => (
-          <div className="ab-row" key={flagKey} style={{ gridTemplateColumns: `140px repeat(${tas.length}, minmax(140px, 1fr))` }}>
+          <div
+            className="ab-row"
+            key={flagKey}
+            style={{ gridTemplateColumns: `140px repeat(${tas.length}, minmax(140px, 1fr))` }}
+          >
             <div className="ab-label-col">{FLAG_META[flagKey].label}</div>
             {tas.map(ta => {
-              const matches = positions.filter(p =>
-                p.assignee?._id === ta._id && isActionable(flagKey, p.flags?.[flagKey])
+              // Matches: positions where this TA is on the position (primary or parallel) AND has the flag
+              const matches = positions.filter(
+                p => isOnPosition(p, ta._id) && isActionable(flagKey, p.flags?.[flagKey])
               );
               const cellKey = `cell|${flagKey}|${ta._id}`;
-              const candidates = positions.filter(p =>
-                !(p.assignee?._id === ta._id && isActionable(flagKey, p.flags?.[flagKey]))
-              );
+              // Candidates: positions not on this TA (so they can be assigned)
+              const candidates = positions.filter(p => !isOnPosition(p, ta._id));
 
               return (
                 <div className="ab-cell" key={ta._id}>
@@ -833,14 +919,19 @@ function TABoard() {
         .sort((a, b) => new Date(b.weekStart) - new Date(a.weekStart))[0];
       if (!prev) return 0;
       const res = await getArchiveSnapshot(prev._id);
-      const openIds = new Set(positions.filter(p => !['Placed', 'Lost'].includes(p.status)).map(p => String(p._id)));
-      const count = res.data.snapshot.filter(item =>
-        !['Placed', 'Lost'].includes(item.status) && item.positionId && openIds.has(String(item.positionId))
+      const openIds = new Set(
+        positions.filter(p => !['Placed', 'Lost'].includes(p.status)).map(p => String(p._id))
+      );
+      const count = res.data.snapshot.filter(
+        item =>
+          !['Placed', 'Lost'].includes(item.status) &&
+          item.positionId &&
+          openIds.has(String(item.positionId))
       ).length;
       return count;
     },
     enabled: !!snapshots.length && !!positions.length && displayWeeks.length > 0,
-    onSuccess: (data) => setCarriedForward(data),
+    onSuccess: data => setCarriedForward(data),
   });
 
   // ---- Mutations ----
@@ -860,7 +951,8 @@ function TABoard() {
   });
 
   const reassignMutation = useMutation({
-    mutationFn: ({ positionId, newTaId }) => assignPosition(positionId, newTaId, 'Reassigned from Action Board'),
+    mutationFn: ({ positionId, newTaId }) =>
+      assignPosition(positionId, newTaId, 'Reassigned from Action Board'),
     onSuccess: () => {
       queryClient.invalidateQueries(['positions']);
     },
@@ -869,41 +961,51 @@ function TABoard() {
   // ---- Derived data ----
   const byId = useMemo(() => Object.fromEntries(positions.map(p => [p._id, p])), [positions]);
 
+  // workloadByTA: count primary + parallel open positions
   const workloadByTA = useMemo(() => {
     const acc = {};
     tas.forEach(ta => {
-      acc[ta._id] = positions.filter(p =>
-        p.assignee?._id === ta._id && !['Placed', 'Lost'].includes(p.status)
+      const primary = positions.filter(
+        p => p.assignee?._id === ta._id && !['Placed', 'Lost'].includes(p.status)
       ).length;
+      const parallel = positions.filter(
+        p =>
+          p.parallelAssignees?.some(pa => pa._id === ta._id) &&
+          !['Placed', 'Lost'].includes(p.status)
+      ).length;
+      acc[ta._id] = primary + parallel;
     });
     return acc;
   }, [tas, positions]);
 
-  const getCell = useCallback((taId, weekStart, day) => {
-    const weekGrid = gridsByWeek[weekStart];
-    if (!weekGrid) return null;
-    const row = weekGrid.find(r => String(r.ta._id) === String(taId));
-    return row?.days?.[day]?.position || null;
-  }, [gridsByWeek]);
+  const getCell = useCallback(
+    (taId, weekStart, day) => {
+      const weekGrid = gridsByWeek[weekStart];
+      if (!weekGrid) return null;
+      const row = weekGrid.find(r => String(r.ta._id) === String(taId));
+      return row?.days?.[day]?.position || null;
+    },
+    [gridsByWeek]
+  );
 
   // ---- Handlers ----
-  const handleCellSelect = async (taId, day, newPositionId) => {
-    const activeWeekStart = CURRENT_REAL_WEEK.weekStart;
+  // Fixed: uses passed weekStart
+  const handleCellSelect = async (taId, weekStart, day, newPositionId) => {
     const newPosObj = newPositionId ? byId[newPositionId] : null;
 
-    // Optimistic update
-    queryClient.setQueryData(['weeklyAllocations', selectedMonthIdx], (old) => {
+    // Optimistic update – use the passed weekStart
+    queryClient.setQueryData(['weeklyAllocations', selectedMonthIdx], old => {
       if (!old) return old;
       return old.map(week => {
-        if (week.weekStart !== activeWeekStart) return week;
+        if (week.weekStart !== weekStart) return week;
         const updatedGrid = week.grid.map(row => {
           if (String(row.ta._id) !== String(taId)) return row;
           return {
             ...row,
             days: {
               ...row.days,
-              [day]: { ...row.days[day], position: newPosObj }
-            }
+              [day]: { ...row.days[day], position: newPosObj },
+            },
           };
         });
         return { ...week, grid: updatedGrid };
@@ -912,7 +1014,12 @@ function TABoard() {
 
     setOpenCellKey(null);
     try {
-      await updateCellMutation.mutateAsync({ taId, weekStart: activeWeekStart, day, positionId: newPositionId || null });
+      await updateCellMutation.mutateAsync({
+        taId,
+        weekStart,
+        day,
+        positionId: newPositionId || null,
+      });
     } catch (err) {
       queryClient.invalidateQueries(['weeklyAllocations', selectedMonthIdx]);
       alert(err.response?.data?.error || 'Failed to update cell');
@@ -932,7 +1039,8 @@ function TABoard() {
   };
 
   const taList = useMemo(() => {
-    const source = displayWeeks.map(w => gridsByWeek[w.weekStart]).find(g => g && g.length > 0) || [];
+    const source =
+      displayWeeks.map(w => gridsByWeek[w.weekStart]).find(g => g && g.length > 0) || [];
     return source.map(row => row.ta);
   }, [displayWeeks, gridsByWeek]);
 
@@ -957,12 +1065,30 @@ function TABoard() {
         <h1>TA Board</h1>
         <div className="taboard-controls">
           <div className="view-toggle">
-            <button className={activeView === 'grid' ? 'toggle-btn toggle-btn-active' : 'toggle-btn'} onClick={() => setActiveView('grid')}>Weekly grid</button>
-            <button className={activeView === 'action' ? 'toggle-btn toggle-btn-active' : 'toggle-btn'} onClick={() => setActiveView('action')}>Action board</button>
+            <button
+              className={activeView === 'grid' ? 'toggle-btn toggle-btn-active' : 'toggle-btn'}
+              onClick={() => setActiveView('grid')}
+            >
+              Weekly grid
+            </button>
+            <button
+              className={activeView === 'action' ? 'toggle-btn toggle-btn-active' : 'toggle-btn'}
+              onClick={() => setActiveView('action')}
+            >
+              Action board
+            </button>
           </div>
           {activeView === 'grid' && (
-            <select className="week-select" value={selectedMonthIdx} onChange={e => setSelectedMonthIdx(Number(e.target.value))}>
-              {MONTH_OPTIONS.map((m, i) => <option key={`${m.year}-${m.monthIndex}`} value={i}>{m.label}</option>)}
+            <select
+              className="week-select"
+              value={selectedMonthIdx}
+              onChange={e => setSelectedMonthIdx(Number(e.target.value))}
+            >
+              {MONTH_OPTIONS.map((m, i) => (
+                <option key={`${m.year}-${m.monthIndex}`} value={i}>
+                  {m.label}
+                </option>
+              ))}
             </select>
           )}
         </div>
@@ -970,8 +1096,8 @@ function TABoard() {
 
       {activeView === 'grid' && !isActiveVisible && (
         <div className="taboard-notice">
-          You're viewing a different month -- nothing here is editable right now.
-          Switch the dropdown back to "Current" to make assignments.
+          You're viewing a different month -- nothing here is editable right now. Switch the
+          dropdown back to "Current" to make assignments.
         </div>
       )}
 
@@ -1008,7 +1134,9 @@ function TABoard() {
                     getCell={getCell}
                     positions={positions}
                     openCellKey={openCellKey}
-                    onCellToggle={(cellKey) => setOpenCellKey(openCellKey === cellKey ? null : cellKey)}
+                    onCellToggle={cellKey =>
+                      setOpenCellKey(openCellKey === cellKey ? null : cellKey)
+                    }
                     onSelectCell={handleCellSelect}
                     navigate={navigate}
                     workloadCount={workloadByTA[ta._id] ?? 0}
