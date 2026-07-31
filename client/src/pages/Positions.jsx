@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { getPositions, deletePosition, updatePosition, assignPosition } from '../api/positions';
@@ -103,9 +103,24 @@ const CheckIcon = () => (
   </svg>
 );
 
+// ---- View toggle icons ----
+const TableViewIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="10" x2="21" y2="10" /><line x1="9" y1="4" x2="9" y2="20" />
+  </svg>
+);
+
+const GridViewIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+  </svg>
+);
+
 // ---- HeaderFilter ----
-function HeaderFilter({ options, value, onChange, allLabel = 'All', label }) {
+function HeaderFilter({ options, value, onChange, allLabel = 'All', label, showLabel = false, searchable = false }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -119,41 +134,64 @@ function HeaderFilter({ options, value, onChange, allLabel = 'All', label }) {
   }, []);
 
   const getDisplayLabel = () => {
-    if (!value) return allLabel;
+    if (!value) return showLabel ? allLabel : '';
     const option = options.find(o => o.value === value);
-    return option ? option.label : allLabel;
+    return option ? option.label : (showLabel ? allLabel : '');
   };
+
+  const filteredOptions = searchable && searchTerm
+    ? options.filter(opt => opt.label.toLowerCase().includes(searchTerm.toLowerCase()))
+    : options;
 
   return (
     <div className="header-filter-wrap" ref={containerRef}>
       <button
-        className={`header-filter-btn ${value ? 'header-filter-btn--active' : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+        className={`header-filter-btn ${value ? 'header-filter-btn--active' : ''} ${showLabel ? 'header-filter-btn--pill' : ''}`}
+        onClick={() => { setIsOpen(!isOpen); setSearchTerm(''); }}
         title={`Filter by ${label}`}
       >
         <FilterIcon />
+        {showLabel && <span className="header-filter-title">{label}:</span>}
         <span className="header-filter-badge">{getDisplayLabel()}</span>
         <span className="header-filter-arrow">▾</span>
       </button>
       {isOpen && (
         <div className="header-filter-dropdown">
-          <button
-            className={`header-filter-option ${!value ? 'selected' : ''}`}
-            onClick={() => { onChange(''); setIsOpen(false); }}
-          >
-            <span className="hfo-check">{!value && <CheckIcon />}</span>
-            <span>{allLabel}</span>
-          </button>
-          {options.map(opt => (
+          {searchable && (
+            <div className="header-filter-search-wrap">
+              <input
+                type="text"
+                className="header-filter-search-input"
+                placeholder={`Search ${label.toLowerCase()}...`}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
+          <div className="header-filter-options-list">
             <button
-              key={opt.value}
-              className={`header-filter-option ${value === opt.value ? 'selected' : ''}`}
-              onClick={() => { onChange(opt.value); setIsOpen(false); }}
+              className={`header-filter-option ${!value ? 'selected' : ''}`}
+              onClick={() => { onChange(''); setIsOpen(false); }}
             >
-              <span className="hfo-check">{value === opt.value && <CheckIcon />}</span>
-              <span>{opt.label}</span>
+              <span className="hfo-check">{!value && <CheckIcon />}</span>
+              <span>{allLabel}</span>
             </button>
-          ))}
+            {filteredOptions.map(opt => (
+              <button
+                key={opt.value}
+                className={`header-filter-option ${value === opt.value ? 'selected' : ''}`}
+                onClick={() => { onChange(opt.value); setIsOpen(false); }}
+              >
+                <span className="hfo-check">{value === opt.value && <CheckIcon />}</span>
+                <span>{opt.label}</span>
+              </button>
+            ))}
+            {searchable && filteredOptions.length === 0 && (
+              <div className="header-filter-no-results">No {label.toLowerCase()} found</div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -506,6 +544,79 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   );
 }
 
+// ---- PositionCard (grid view — Azeem's view) ----
+function PositionCard({ pos, onView, onDelete }) {
+  const statusColor = STATUS_COLORS[pos.status] || { bg: '#e5e7eb', text: '#374151' };
+  const levelColor = PLEVEL_COLORS[pos.pLevel] || { bg: '#e5e7eb', text: '#374151' };
+  const primaryName = pos.assignee?.name || 'Unassigned';
+  const parallelCount = pos.parallelAssignees?.length || 0;
+
+  return (
+    <div
+      className="position-card"
+      style={{ borderTopColor: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : 'transparent' }}
+      onClick={() => onView(pos)}
+    >
+      <button
+        className="position-card-delete"
+        onClick={(e) => { e.stopPropagation(); onDelete(pos); }}
+        title="Delete position"
+      >
+        <DeleteIcon />
+      </button>
+
+      {/* Top row: enlarged P-Level circle only */}
+      <div className="position-card-top">
+        <span
+          className="position-card-level-circle"
+          style={{ background: levelColor.bg, color: levelColor.text }}
+        >
+          {pos.pLevel}
+        </span>
+        <span className="position-card-status" style={{ background: statusColor.bg, color: statusColor.text }}>
+          {pos.status}
+        </span>
+      </div>
+
+      {/* Position title — large */}
+      <h3 className="position-card-title" title={pos.position}>{pos.position}</h3>
+
+      {/* Client name — distinct color/weight */}
+      <div className="position-card-client" title={pos.client?.clientName}>
+        {pos.client?.clientName || '—'}
+      </div>
+
+      {/* Assignee */}
+      <div className="position-card-assignee">
+        {primaryName}{parallelCount > 0 && <span className="position-card-parallel"> +{parallelCount}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ---- PositionGroup (grid view grouping by P-Level) ----
+function PositionGroup({ pLevel, positions, onView, onDelete }) {
+  if (positions.length === 0) return null;
+  return (
+    <div className="position-group">
+      <div className="position-group-header">
+        <span
+          className="position-group-label"
+          style={{ background: PLEVEL_COLORS[pLevel]?.bg, color: PLEVEL_COLORS[pLevel]?.text }}
+        >
+          {pLevel}
+        </span>
+        <span className="position-group-count">{positions.length} position{positions.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div className="positions-grid">
+        {positions.map(pos => (
+          <PositionCard key={pos._id} pos={pos} onView={onView} onDelete={onDelete} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---- Main Positions Component ----
 function Positions() {
   const navigate = useNavigate();
@@ -525,6 +636,7 @@ function Positions() {
     flag: '',
     search: ''
   });
+  const [viewMode, setViewMode] = useState('table'); // 'table' | 'grid'
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -592,8 +704,13 @@ function Positions() {
   };
 
   // ---- Filtering & Sorting ----
+  const ARCHIVE_STATUSES = ['Placed', 'Lost', 'Hold'];
+
   const filteredPositions = useMemo(() => {
     let filtered = positions.filter(pos => {
+      // Base exclusion: archived statuses never appear in main view
+      if (ARCHIVE_STATUSES.includes(pos.status)) return false;
+
       const matchesClient = !filters.client || pos.client?._id === filters.client;
 
       let matchesAssignee = true;
@@ -897,6 +1014,12 @@ function Positions() {
   ];
   const flagOptions = FLAG_OPTIONS.map(f => ({ value: f.value, label: f.label }));
 
+  // Filter dropdown excludes archived statuses (they'd return 0 results)
+  const filterStatusOptions = STATUS_OPTIONS
+    .filter(s => !['Placed', 'Lost', 'Hold'].includes(s))
+    .map(s => ({ value: s, label: s }));
+
+  // Inline row status dropdown keeps ALL statuses so users can archive from the row
   const rowStatusOptions = STATUS_OPTIONS.map(s => {
     const sc = STATUS_COLORS[s] || { bg: '#e5e7eb', text: '#374151' };
     return { value: s, label: s, bg: sc.bg, text: sc.text };
@@ -914,7 +1037,27 @@ function Positions() {
     <div className="positions">
       <div className="positions-header">
         <h1>Positions</h1>
-        <button className="btn-primary" onClick={() => navigate('/positions/new')}>+ New Position</button>
+        <div className="header-actions">
+          <div className="view-toggle">
+            <button
+              type="button"
+              className={`view-toggle-btn ${viewMode === 'table' ? 'active' : ''}`}
+              onClick={() => setViewMode('table')}
+              title="Table view"
+            >
+              <TableViewIcon /> Table
+            </button>
+            <button
+              type="button"
+              className={`view-toggle-btn ${viewMode === 'grid' ? 'active' : ''}`}
+              onClick={() => setViewMode('grid')}
+              title="Grid view"
+            >
+              <GridViewIcon /> Grid
+            </button>
+          </div>
+          <button className="btn-primary" onClick={() => navigate('/positions/new')}>+ New Position</button>
+        </div>
       </div>
 
       <div className="color-legend-bar">
@@ -931,240 +1074,273 @@ function Positions() {
 
       <div className="filters-bar">
         <input type="text" name="search" placeholder="Search by JO ID, position, client..." value={filters.search} onChange={(e) => handleFilterChange('search', e.target.value)} className="filter-search" />
+        <div className="filters-group">
+          <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" showLabel searchable />
+          <HeaderFilter options={filterStatusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" showLabel />
+          <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" showLabel searchable />
+          <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" showLabel />
+          {(filters.client || filters.pLevel || filters.status || filters.assignee || filters.flag || filters.highlightColor || filters.search) && (
+            <button
+              type="button"
+              className="clear-filters-btn"
+              onClick={() => setFilters({ client: '', assignee: '', status: '', pLevel: '', highlightColor: '', flag: '', search: '' })}
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="table-wrapper">
-        <table className="positions-table">
-          <colgroup>
-            <col style={{ width: '7%' }} /><col style={{ width: '11%' }} /><col style={{ width: '16%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} /><col style={{ width: '10%' }} /><col style={{ width: '12%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} /><col style={{ width: '8%' }} /><col style={{ width: '10%' }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>JO ID</th>
-              <th className="th-with-filter">Client <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" /></th>
-              <th>Position</th>
-              <th>Package Range</th>
-              <th className="th-with-filter">Level <HeaderFilter options={levelOptions} value={filters.pLevel} onChange={(v) => handleFilterChange('pLevel', v)} allLabel="All" label="Level" /></th>
-              <th className="th-with-filter">Status <HeaderFilter options={statusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" /></th>
-              <th className="th-with-filter">Assignees <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" /></th>
-              <th className="th-with-filter">Flags <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" /></th>
-              <th>Int Shortlist</th>
-              <th>Ext Shortlist</th>
-              <th className="th-with-filter">Actions <HeaderFilter options={colorOptions} value={filters.highlightColor} onChange={(v) => handleFilterChange('highlightColor', v)} allLabel="All" label="Color" /></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredPositions.length === 0 ? (
-              <tr><td colSpan="11" className="no-rows">No positions found</td></tr>
-            ) : (
-              filteredPositions.map(pos => {
-                const flagEntries = pos.flags ? Object.entries(pos.flags).filter(([, f]) => f !== null) : [];
-                const isEditing = editingId === pos._id;
-                const isUpdating = updatingId === pos._id;
+      {viewMode === 'table' ? (
+        <div className="table-wrapper">
+          <table className="positions-table">
+            <colgroup>
+              <col style={{ width: '7%' }} /><col style={{ width: '11%' }} /><col style={{ width: '16%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} /><col style={{ width: '10%' }} /><col style={{ width: '12%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} /><col style={{ width: '8%' }} /><col style={{ width: '10%' }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>JO ID</th>
+                <th className="th-with-filter">Client <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" /></th>
+                <th>Position</th>
+                <th>Package Range</th>
+                <th className="th-with-filter">Level <HeaderFilter options={levelOptions} value={filters.pLevel} onChange={(v) => handleFilterChange('pLevel', v)} allLabel="All" label="Level" /></th>
+                <th className="th-with-filter">Status <HeaderFilter options={filterStatusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" /></th>
+                <th className="th-with-filter">Assignees <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" /></th>
+                <th className="th-with-filter">Flags <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" /></th>
+                <th>Int Shortlist</th>
+                <th>Ext Shortlist</th>
+                <th className="th-with-filter">Actions <HeaderFilter options={colorOptions} value={filters.highlightColor} onChange={(v) => handleFilterChange('highlightColor', v)} allLabel="All" label="Color" /></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredPositions.length === 0 ? (
+                <tr><td colSpan="11" className="no-rows">No positions found</td></tr>
+              ) : (
+                filteredPositions.map(pos => {
+                  const flagEntries = pos.flags ? Object.entries(pos.flags).filter(([, f]) => f !== null) : [];
+                  const isEditing = editingId === pos._id;
+                  const isUpdating = updatingId === pos._id;
 
-                let rowClassName = '';
-                if (pos.highlightColor === 'blue') rowClassName = 'row-tint-blue';
-                else if (pos.highlightColor === 'red') rowClassName = 'row-tint-red';
+                  let rowClassName = '';
+                  if (pos.highlightColor === 'blue') rowClassName = 'row-tint-blue';
+                  else if (pos.highlightColor === 'red') rowClassName = 'row-tint-red';
 
-                const currentAssigneeId = pos.assignee?._id || null;
-                const currentParallelIds = pos.parallelAssignees?.map(a => a._id) || [];
+                  const currentAssigneeId = pos.assignee?._id || null;
+                  const currentParallelIds = pos.parallelAssignees?.map(a => a._id) || [];
 
-                // Compute trigger style from primary assignee's color (if any)
-                const primaryTA = pos.assignee;
-                const triggerStyle = primaryTA?.color
-                  ? { backgroundColor: TA_COLORS[primaryTA.color].bg, color: TA_COLORS[primaryTA.color].text, borderColor: 'transparent' }
-                  : undefined;
+                  // Compute trigger style from primary assignee's color (if any)
+                  const primaryTA = pos.assignee;
+                  const triggerStyle = primaryTA?.color
+                    ? { backgroundColor: TA_COLORS[primaryTA.color].bg, color: TA_COLORS[primaryTA.color].text, borderColor: 'transparent' }
+                    : undefined;
 
-                return (
-                  <tr key={pos._id} className={rowClassName}>
-                    <td><Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link></td>
-                    <td><span className="text-ellipsis">{pos.client?.clientName || '—'}</span></td>
-                    <td>
-                      {isEditing ? (
-                        <input className="inline-edit-input" name="position" value={editForm.position} onChange={handleEditFormChange} placeholder="Position title" />
-                      ) : (
-                        <span className="text-ellipsis">{pos.position}</span>
-                      )}
-                    </td>
-                    <td>
-                      {isEditing ? (
-                        <input className="inline-edit-input inline-edit-input--range" name="packageRange" value={editForm.packageRange} onChange={handleEditFormChange} placeholder="e.g. £40-50k" />
-                      ) : (
-                        <span className="package-range-value">{pos.packageRange || '—'}</span>
-                      )}
-                    </td>
-                    <td className="td-dropdown">
-                      <InlineDropdown value={pos.pLevel} options={rowLevelOptions} onChange={(v) => handleDirectUpdate(pos, 'pLevel', v)} disabled={isUpdating} shape="circle" />
-                    </td>
-                    <td className="td-dropdown">
-                      <InlineDropdown value={pos.status} options={rowStatusOptions} onChange={(v) => handleDirectUpdate(pos, 'status', v)} disabled={isUpdating} shape="pill" />
-                    </td>
-                    <td className="td-dropdown">
-                      <div className="assignee-cell">
-                        <SingleInlineDropdown
-                          value={currentAssigneeId}
-                          options={assigneeOptions.map(opt => ({ ...opt, value: opt.value === 'unassigned' ? null : opt.value }))}
-                          onChange={(newId) => handleDirectUpdate(pos, 'assignee', newId)}
-                          disabled={isUpdating}
-                          placeholder="Assign TA"
-                          triggerStyle={triggerStyle}   // <-- pass style
-                        />
-                        <ParallelAssigneesPicker
-                          values={currentParallelIds}
-                          options={parallelOptions}
-                          onChange={(newIds) => handleParallelAssign(pos, newIds)}
-                          disabled={isUpdating}
-                        />
-                        {currentParallelIds.length > 0 && (
-                          <div className="parallel-chips">
-                            {currentParallelIds.map(id => {
-                              const ta = tas.find(t => t._id === id);
-                              const chipStyle = ta?.color
-                                ? { backgroundColor: TA_COLORS[ta.color].bg, color: TA_COLORS[ta.color].text }
-                                : undefined;
-                              return ta ? (
-                                <span key={id} className="parallel-chip" style={chipStyle}>
-                                  {ta.name}
-                                  <button className="parallel-chip-remove" onClick={() => {
-                                    const newIds = currentParallelIds.filter(i => i !== id);
-                                    handleParallelAssign(pos, newIds);
-                                  }} disabled={isUpdating}>×</button>
-                                </span>
-                              ) : null;
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="td-dropdown">
-                      <div className="flags-cell">
-                        {flagEntries.map(([flagKey, flag]) => {
-                          const popoverKey = `${pos._id}:${flagKey}`;
-                          const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
-                          const isOpen = flagPopoverId === popoverKey;
-                          const direction = flagPopoverDirection[popoverKey] || 'up';
-                          return (
-                            <div className="flag-badge-wrap" key={flagKey}>
-                              <button type="button" className="flag-badge-btn" onClick={(e) => {
-                                if (flagPopoverId === popoverKey) setFlagPopoverId(null);
-                                else {
-                                  const dir = computeFlagPopoverDirection(e.currentTarget);
-                                  setFlagPopoverDirection(prev => ({ ...prev, [popoverKey]: dir }));
-                                  setFlagPopoverId(popoverKey);
-                                }
-                              }} title={`${flag.label} — click to change`}>
-                                <FlagBadge flag={flag} />
-                              </button>
-                              {isOpen && (
-                                <>
-                                  <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
-                                  <div className={`flag-popover flag-popover--${direction}`}>
-                                    <div className="flag-popover-title">{flag.label}</div>
-                                    {['auto', 'on', 'off'].map(mode => (
-                                      <button key={mode} className={`flag-popover-option ${currentMode === mode ? 'selected' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
-                                        {mode === 'auto' ? 'Auto (default)' : mode === 'on' ? 'Force On' : 'Turn Off'}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          );
-                        })}
-                        <div className="flag-badge-wrap">
-                          <button type="button" className="flag-add-btn" onClick={(e) => {
-                            const manageKey = `${pos._id}:manage`;
-                            if (flagPopoverId === manageKey) setFlagPopoverId(null);
-                            else {
-                              const dir = computeFlagPopoverDirection(e.currentTarget);
-                              setFlagPopoverDirection(prev => ({ ...prev, [manageKey]: dir }));
-                              setFlagPopoverId(manageKey);
-                            }
-                          }} title="Manage all flags">+</button>
-                          {flagPopoverId === `${pos._id}:manage` && (
-                            <>
-                              <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
-                              <div className={`flag-popover flag-popover--manage flag-popover--${flagPopoverDirection[`${pos._id}:manage`] || 'up'}`}>
-                                <div className="flag-popover-title">Manage Flags</div>
-                                {FLAG_OPTIONS.map(({ value: flagKey, label }) => {
-                                  const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
-                                  return (
-                                    <div className="flag-manage-row" key={flagKey}>
-                                      <span className="flag-manage-label">{label}</span>
-                                      <div className="flag-manage-btns">
-                                        {['auto', 'on', 'off'].map(mode => (
-                                          <button key={mode} className={`flag-mode-btn ${currentMode === mode ? 'active' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
-                                            {mode === 'auto' ? 'Auto' : mode === 'on' ? 'On' : 'Off'}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      {isEditing ? (
-                        <input type="number" min="0" className="inline-edit-input inline-edit-input--num" name="cvCount" value={editForm.cvCount} onChange={handleEditFormChange} />
-                      ) : (pos.cvCount ?? '—')}
-                    </td>
-                    <td>
-                      {isEditing ? (
-                        <div className="ext-shortlist-edit">
-                          <input type="text" inputMode="numeric" className="inline-edit-input inline-edit-input--num" name="extShortlistCount" value={editForm.extShortlistCount === 'Client Review' ? '' : editForm.extShortlistCount} onChange={handleEditFormChange} placeholder="Number" disabled={editForm.extShortlistCount === 'Client Review'} />
-                          <select className="ext-shortlist-select" value={editForm.extShortlistCount === 'Client Review' ? 'clientReview' : ''} onChange={(e) => {
-                            if (e.target.value === 'clientReview') setEditForm(prev => ({ ...prev, extShortlistCount: 'Client Review' }));
-                            else setEditForm(prev => ({ ...prev, extShortlistCount: '' }));
-                          }} title="Or mark as Client Review instead of a number">
-                            <option value="">#</option>
-                            <option value="clientReview">Client Review</option>
-                          </select>
-                        </div>
-                      ) : pos.extShortlistCount === 'Client Review' ? (
-                        <span className="ext-shortlist-badge ext-shortlist-badge--review">Client Review</span>
-                      ) : (pos.extShortlistCount ?? '—')}
-                    </td>
-                    <td className="td-dropdown">
-                      <div className="actions-cell">
-                        <div className="color-picker-wrap">
-                          <button className="color-swatch-btn" style={{ background: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : '#e5e7eb', border: pos.highlightColor ? '2px solid rgba(0,0,0,0.15)' : '2px dashed #d1d5db' }} onClick={() => setColorPopoverId(colorPopoverId === pos._id ? null : pos._id)} title="Set highlight color" />
-                          {colorPopoverId === pos._id && (
-                            <>
-                              <div className="popover-backdrop" onClick={() => setColorPopoverId(null)} />
-                              <div className="color-popover">
-                                <button className="color-popover-option" onClick={() => handleColorChange(pos, null)}><span className="color-swatch-dot color-swatch-dot--none" />None</button>
-                                {COLOR_KEYS.map(key => (
-                                  <button key={key} className="color-popover-option" onClick={() => handleColorChange(pos, key)}><span className="color-swatch-dot" style={{ background: COLOR_HEX[key] }} />{legendLabel(key) || key}</button>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                        </div>
+                  return (
+                    <tr key={pos._id} className={rowClassName}>
+                      <td><Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link></td>
+                      <td><span className="text-ellipsis">{pos.client?.clientName || '—'}</span></td>
+                      <td>
                         {isEditing ? (
-                          <>
-                            <button className="action-save" onClick={() => saveEdit(pos)} disabled={savingEdit}>Save</button>
-                            <button className="action-cancel" onClick={cancelEdit} disabled={savingEdit}>Cancel</button>
-                          </>
+                          <input className="inline-edit-input" name="position" value={editForm.position} onChange={handleEditFormChange} placeholder="Position title" />
                         ) : (
-                          <>
-                            <button className="action-edit" onClick={() => startEdit(pos)} title="Edit row"><EditIcon /></button>
-                            <button className="action-link" onClick={() => setSelectedPosition(pos)} title="View details"><ViewIcon /></button>
-                            <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position"><DeleteIcon /></button>
-                          </>
+                          <span className="text-ellipsis">{pos.position}</span>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <input className="inline-edit-input inline-edit-input--range" name="packageRange" value={editForm.packageRange} onChange={handleEditFormChange} placeholder="e.g. £40-50k" />
+                        ) : (
+                          <span className="package-range-value">{pos.packageRange || '—'}</span>
+                        )}
+                      </td>
+                      <td className="td-dropdown">
+                        <InlineDropdown value={pos.pLevel} options={rowLevelOptions} onChange={(v) => handleDirectUpdate(pos, 'pLevel', v)} disabled={isUpdating} shape="circle" />
+                      </td>
+                      <td className="td-dropdown">
+                        <InlineDropdown value={pos.status} options={rowStatusOptions} onChange={(v) => handleDirectUpdate(pos, 'status', v)} disabled={isUpdating} shape="pill" />
+                      </td>
+                      <td className="td-dropdown">
+                        <div className="assignee-cell">
+                          <SingleInlineDropdown
+                            value={currentAssigneeId}
+                            options={assigneeOptions.map(opt => ({ ...opt, value: opt.value === 'unassigned' ? null : opt.value }))}
+                            onChange={(newId) => handleDirectUpdate(pos, 'assignee', newId)}
+                            disabled={isUpdating}
+                            placeholder="Assign TA"
+                            triggerStyle={triggerStyle}   // <-- pass style
+                          />
+                          <ParallelAssigneesPicker
+                            values={currentParallelIds}
+                            options={parallelOptions}
+                            onChange={(newIds) => handleParallelAssign(pos, newIds)}
+                            disabled={isUpdating}
+                          />
+                          {currentParallelIds.length > 0 && (
+                            <div className="parallel-chips">
+                              {currentParallelIds.map(id => {
+                                const ta = tas.find(t => t._id === id);
+                                const chipStyle = ta?.color
+                                  ? { backgroundColor: TA_COLORS[ta.color].bg, color: TA_COLORS[ta.color].text }
+                                  : undefined;
+                                return ta ? (
+                                  <span key={id} className="parallel-chip" style={chipStyle}>
+                                    {ta.name}
+                                    <button className="parallel-chip-remove" onClick={() => {
+                                      const newIds = currentParallelIds.filter(i => i !== id);
+                                      handleParallelAssign(pos, newIds);
+                                    }} disabled={isUpdating}>×</button>
+                                  </span>
+                                ) : null;
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="td-dropdown">
+                        <div className="flags-cell">
+                          {flagEntries.map(([flagKey, flag]) => {
+                            const popoverKey = `${pos._id}:${flagKey}`;
+                            const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
+                            const isOpen = flagPopoverId === popoverKey;
+                            const direction = flagPopoverDirection[popoverKey] || 'up';
+                            return (
+                              <div className="flag-badge-wrap" key={flagKey}>
+                                <button type="button" className="flag-badge-btn" onClick={(e) => {
+                                  if (flagPopoverId === popoverKey) setFlagPopoverId(null);
+                                  else {
+                                    const dir = computeFlagPopoverDirection(e.currentTarget);
+                                    setFlagPopoverDirection(prev => ({ ...prev, [popoverKey]: dir }));
+                                    setFlagPopoverId(popoverKey);
+                                  }
+                                }} title={`${flag.label} — click to change`}>
+                                  <FlagBadge flag={flag} />
+                                </button>
+                                {isOpen && (
+                                  <>
+                                    <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
+                                    <div className={`flag-popover flag-popover--${direction}`}>
+                                      <div className="flag-popover-title">{flag.label}</div>
+                                      {['auto', 'on', 'off'].map(mode => (
+                                        <button key={mode} className={`flag-popover-option ${currentMode === mode ? 'selected' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
+                                          {mode === 'auto' ? 'Auto (default)' : mode === 'on' ? 'Force On' : 'Turn Off'}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })}
+                          <div className="flag-badge-wrap">
+                            <button type="button" className="flag-add-btn" onClick={(e) => {
+                              const manageKey = `${pos._id}:manage`;
+                              if (flagPopoverId === manageKey) setFlagPopoverId(null);
+                              else {
+                                const dir = computeFlagPopoverDirection(e.currentTarget);
+                                setFlagPopoverDirection(prev => ({ ...prev, [manageKey]: dir }));
+                                setFlagPopoverId(manageKey);
+                              }
+                            }} title="Manage all flags">+</button>
+                            {flagPopoverId === `${pos._id}:manage` && (
+                              <>
+                                <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
+                                <div className={`flag-popover flag-popover--manage flag-popover--${flagPopoverDirection[`${pos._id}:manage`] || 'up'}`}>
+                                  <div className="flag-popover-title">Manage Flags</div>
+                                  {FLAG_OPTIONS.map(({ value: flagKey, label }) => {
+                                    const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
+                                    return (
+                                      <div className="flag-manage-row" key={flagKey}>
+                                        <span className="flag-manage-label">{label}</span>
+                                        <div className="flag-manage-btns">
+                                          {['auto', 'on', 'off'].map(mode => (
+                                            <button key={mode} className={`flag-mode-btn ${currentMode === mode ? 'active' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
+                                              {mode === 'auto' ? 'Auto' : mode === 'on' ? 'On' : 'Off'}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <input type="number" min="0" className="inline-edit-input inline-edit-input--num" name="cvCount" value={editForm.cvCount} onChange={handleEditFormChange} />
+                        ) : (pos.cvCount ?? '—')}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <div className="ext-shortlist-edit">
+                            <input type="text" inputMode="numeric" className="inline-edit-input inline-edit-input--num" name="extShortlistCount" value={editForm.extShortlistCount === 'Client Review' ? '' : editForm.extShortlistCount} onChange={handleEditFormChange} placeholder="Number" disabled={editForm.extShortlistCount === 'Client Review'} />
+                            <select className="ext-shortlist-select" value={editForm.extShortlistCount === 'Client Review' ? 'clientReview' : ''} onChange={(e) => {
+                              if (e.target.value === 'clientReview') setEditForm(prev => ({ ...prev, extShortlistCount: 'Client Review' }));
+                              else setEditForm(prev => ({ ...prev, extShortlistCount: '' }));
+                            }} title="Or mark as Client Review instead of a number">
+                              <option value="">#</option>
+                              <option value="clientReview">Client Review</option>
+                            </select>
+                          </div>
+                        ) : pos.extShortlistCount === 'Client Review' ? (
+                          <span className="ext-shortlist-badge ext-shortlist-badge--review">Client Review</span>
+                        ) : (pos.extShortlistCount ?? '—')}
+                      </td>
+                      <td className="td-dropdown">
+                        <div className="actions-cell">
+                          <div className="color-picker-wrap">
+                            <button className="color-swatch-btn" style={{ background: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : '#e5e7eb', border: pos.highlightColor ? '2px solid rgba(0,0,0,0.15)' : '2px dashed #d1d5db' }} onClick={() => setColorPopoverId(colorPopoverId === pos._id ? null : pos._id)} title="Set highlight color" />
+                            {colorPopoverId === pos._id && (
+                              <>
+                                <div className="popover-backdrop" onClick={() => setColorPopoverId(null)} />
+                                <div className="color-popover">
+                                  <button className="color-popover-option" onClick={() => handleColorChange(pos, null)}><span className="color-swatch-dot color-swatch-dot--none" />None</button>
+                                  {COLOR_KEYS.map(key => (
+                                    <button key={key} className="color-popover-option" onClick={() => handleColorChange(pos, key)}><span className="color-swatch-dot" style={{ background: COLOR_HEX[key] }} />{legendLabel(key) || key}</button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                          {isEditing ? (
+                            <>
+                              <button className="action-save" onClick={() => saveEdit(pos)} disabled={savingEdit}>Save</button>
+                              <button className="action-cancel" onClick={cancelEdit} disabled={savingEdit}>Cancel</button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="action-edit" onClick={() => startEdit(pos)} title="Edit row"><EditIcon /></button>
+                              <button className="action-link" onClick={() => setSelectedPosition(pos)} title="View details"><ViewIcon /></button>
+                              <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position"><DeleteIcon /></button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="positions-grouped">
+          {filteredPositions.length === 0 ? (
+            <div className="no-rows">No positions found</div>
+          ) : (
+            PLEVEL_OPTIONS.map(pl => (
+              <PositionGroup
+                key={pl}
+                pLevel={pl}
+                positions={filteredPositions.filter(p => p.pLevel === pl)}
+                onView={setSelectedPosition}
+                onDelete={handleDeleteClick}
+              />
+            ))
+          )}
+        </div>
+      )}
 
       {showDeleteModal && deleteTarget && (
         <div className="modal-overlay" onClick={cancelDelete}>

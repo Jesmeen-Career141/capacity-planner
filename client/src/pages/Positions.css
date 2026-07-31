@@ -98,6 +98,8 @@
   border-radius: var(--radius);
   box-shadow: 0 4px 18px rgba(15, 61, 36, 0.06);
   align-items: center;
+  position: relative;
+  z-index: 100;
 }
 .filter-search {
   flex: 1;
@@ -111,6 +113,53 @@
 .filter-search:focus {
   outline: none;
   border-color: var(--color-primary);
+}
+.filters-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.header-filter-btn--pill {
+  padding: 5px 12px;
+  border: 1px solid rgba(6, 95, 70, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  gap: 5px;
+}
+.header-filter-btn--pill .header-filter-badge {
+  display: inline;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.header-filter-btn--pill.header-filter-btn--active {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, white);
+  color: var(--color-primary);
+}
+.header-filter-btn--pill.header-filter-btn--active .header-filter-badge {
+  color: var(--color-primary);
+}
+.header-filter-title {
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+.clear-filters-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 4px 6px;
+  transition: color 0.15s;
+}
+.clear-filters-btn:hover {
+  color: var(--flag-red, #ef4444);
 }
 /* ---- Table wrapper – enable vertical scroll and improve contrast ---- */
 .table-wrapper {
@@ -965,17 +1014,46 @@
   top: 100%;
   left: 0;
   z-index: 1000;
-  min-width: 140px;
-  margin-top: 2px;
-  padding: 4px;
+  min-width: 180px;
+  max-width: 260px;
+  margin-top: 4px;
+  padding: 6px;
   background: #fff;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
+}
+.header-filter-search-wrap {
+  padding: 4px 4px 6px 4px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 4px;
+}
+.header-filter-search-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+.header-filter-search-input:focus {
+  border-color: var(--color-primary);
+}
+.header-filter-options-list {
   max-height: 200px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.header-filter-no-results {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 .header-filter-option {
   display: flex;
@@ -1312,4 +1390,202 @@
 .parallel-chip-remove:disabled {
   cursor: wait;
   opacity: 0.4;
+}
+
+/* =======================================================================
+   NEW: View toggle (Table / Grid) in header
+   ======================================================================= */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.view-toggle {
+  display: flex;
+  border: 1px solid rgba(6, 95, 70, 0.18);
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.6);
+}
+.view-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: background 0.15s, color 0.15s;
+}
+.view-toggle-btn:hover {
+  color: var(--color-text);
+}
+.view-toggle-btn.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* =======================================================================
+   Grid view — grouped container
+   ======================================================================= */
+.positions-grouped {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 4px 0 24px;
+}
+
+/* ---- P-Level group header ---- */
+.position-group {}
+
+.position-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-left: 2px;
+}
+
+.position-group-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 3px 12px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+
+.position-group-count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+/* ---- Positions grid (inside each group) ---- */
+.positions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.position-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-top: 4px solid transparent;
+  border-radius: var(--radius);
+  padding: 16px 16px 14px;
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 4px 18px rgba(15, 61, 36, 0.06);
+}
+
+.position-card:hover {
+  box-shadow: 0 8px 22px rgba(15, 61, 36, 0.12);
+  transform: translateY(-2px);
+}
+
+.position-card-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  opacity: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.position-card:hover .position-card-delete {
+  opacity: 1;
+}
+
+.position-card-delete:hover {
+  color: var(--flag-red, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* Top row: P-Level circle + status pill */
+.position-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Enlarged P-Level circle */
+.position-card-level-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.position-card-status {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* Position title — large and prominent */
+.position-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+/* Client name — distinct color/weight (not size) */
+.position-card-client {
+  font-size: 15px;
+  font-weight: 600;
+  color: #000000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 1;
+}
+
+.position-card-assignee {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.position-card-parallel {
+  color: var(--color-text-muted);
+  font-weight: 500;
 }
