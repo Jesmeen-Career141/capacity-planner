@@ -1,7 +1,7 @@
 const Position = require('../models/Position');
 const PositionHistory = require('../models/PositionHistory');
 const { computeFlags } = require('../utils/flagLogic');
-
+const liveEvents = require('../utils/liveEvents');
 // GET all positions
 async function getAllPositions(req, res) {
   try {
@@ -149,6 +149,7 @@ async function updatePosition(req, res) {
       await PositionHistory.insertMany(historyEntries);
     }
 
+    liveEvents.emit('positions:changed');   // ADD THIS LINE
     res.json({ ...updatedPosition, flags: computeFlags(updatedPosition) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -203,6 +204,7 @@ async function assignPosition(req, res) {
       .populate('parallelAssignees', 'name status color')
       .lean();
 
+    liveEvents.emit('positions:changed');   // ADD THIS LINE — currently missing
     res.json({ ...populated, flags: computeFlags(populated) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -249,6 +251,7 @@ async function setFlagOverride(req, res) {
       });
     }
 
+    liveEvents.emit('positions:changed');   // ADD THIS LINE
     res.json({ ...updatedPosition, flags: computeFlags(updatedPosition) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -267,6 +270,7 @@ async function deletePosition(req, res) {
 
     await PositionHistory.deleteMany({ position: id });
 
+    liveEvents.emit('positions:changed');   // ADD THIS LINE
     res.json({ message: 'Position deleted', deleted });
   } catch (err) {
     res.status(500).json({ error: err.message });

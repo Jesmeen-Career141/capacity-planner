@@ -8,6 +8,7 @@ import { getArchiveSnapshots, getArchiveSnapshot } from '../api/archive';
 import { getActiveTAs } from '../api/tas';
 import { getWeeklyAllocationsBatch, updateWeeklyAllocationCell } from '../api/weeklyAllocations';
 import './TABoard.css';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 
 // ---- CONSTANTS ----
 const PLEVEL_ORDER = ['P1', 'P2', 'P3', 'P4', 'P5'];
@@ -843,6 +844,8 @@ function ActionBoard({ positions, tas, onToggleFlag, onReassign, workloadByTA })
 function TABoard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  useLiveRefresh();
 
   const [activeView, setActiveView] = useState('grid');
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(CURRENT_MONTH_IDX);

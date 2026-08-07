@@ -1,11 +1,12 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+﻿import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getPositions, deletePosition, updatePosition, assignPosition } from '../api/positions';
 import { getClients } from '../api/clients';
 import { getActiveTAs } from '../api/tas';
 import { getColorLegend, updateColorLegend } from '../api/colorLegend';
 import FlagBadge from '../components/FlagBadge';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import './Positions.css';
 
 // ---- Constants ----
@@ -595,16 +596,18 @@ function PositionCard({ pos, onView, onDelete }) {
 }
 
 // ---- PositionGroup (grid view grouping by P-Level) ----
-function PositionGroup({ pLevel, positions, onView, onDelete }) {
+function PositionGroup({ pLevel, positions, onView, onDelete, labelOverride }) {
   if (positions.length === 0) return null;
+  const label = labelOverride || pLevel;
+  const swatch = PLEVEL_COLORS[pLevel] || STATUS_COLORS[pLevel] || { bg: '#e5e7eb', text: '#374151' };
   return (
     <div className="position-group">
       <div className="position-group-header">
         <span
           className="position-group-label"
-          style={{ background: PLEVEL_COLORS[pLevel]?.bg, color: PLEVEL_COLORS[pLevel]?.text }}
+          style={{ background: swatch.bg, color: swatch.text }}
         >
-          {pLevel}
+          {label}
         </span>
         <span className="position-group-count">{positions.length} position{positions.length !== 1 ? 's' : ''}</span>
       </div>
@@ -621,9 +624,10 @@ function PositionGroup({ pLevel, positions, onView, onDelete }) {
 function Positions() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [loading, setLoading] = useState(true);
+  useLiveRefresh();
+
+  const [loading, setLoading] = useState(true); // covers clients/tas/legend fetch only
   const [error, setError] = useState(null);
-  const [positions, setPositions] = useState([]);
   const [clients, setClients] = useState([]);
   const [tas, setTAs] = useState([]);
   const [legend, setLegend] = useState(COLOR_KEYS.map(key => ({ key, label: '' })));
@@ -649,17 +653,28 @@ function Positions() {
   const [selectedPosition, setSelectedPosition] = useState(null);
   const [flagPopoverDirection, setFlagPopoverDirection] = useState({});
 
-  // ---- Data fetch ----
+  // ---- Positions now live in the shared TanStack Query cache instead of
+  // local state. This is what lets useLiveRefresh() (SSE-driven) and every
+  // other page's invalidateQueries(['positions']) actually update what's
+  // shown here, instead of sitting stale until a manual reload. ----
+  const {
+    data: positions = [],
+    isLoading: positionsLoading,
+    error: positionsError,
+  } = useQuery({
+    queryKey: ['positions'],
+    queryFn: () => getPositions().then(res => res.data),
+  });
+
+  // ---- Data fetch (clients / TAs / legend — unrelated to live updates) ----
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [posRes, clientRes, taRes, legendRes] = await Promise.all([
-          getPositions(),
+        const [clientRes, taRes, legendRes] = await Promise.all([
           getClients(),
           getActiveTAs(),
           getColorLegend()
         ]);
-        setPositions(posRes.data);
         setClients(clientRes.data);
         setTAs(taRes.data);
         if (legendRes.data?.entries?.length) {
@@ -674,13 +689,6 @@ function Positions() {
     fetchData();
   }, []);
 
-  // Positions.jsx keeps its own local `positions` state instead of using
-  // TanStack Query, so other pages that DO use TanStack Query (e.g. TAs.jsx,
-  // which queries ['positions'] to compute "Assigned Positions" counts and to
-  // decide whether a TA can be deleted) never find out that an assignment
-  // changed here. Without this, that cache can sit stale for up to its
-  // staleTime (5 minutes on TAs.jsx), showing outdated assignment counts and
-  // incorrectly blocking/allowing TA deletion.
   const invalidatePositionsCache = () => {
     queryClient.invalidateQueries(['positions']);
     queryClient.invalidateQueries(['tas']);
@@ -732,11 +740,17 @@ function Positions() {
         const flags = pos.flags || {};
         matchesFlag = flags[filters.flag] !== null && flags[filters.flag] !== undefined;
       }
-      const searchLower = filters.search.toLowerCase();
-      const matchesSearch = !filters.search ||
-        pos.jobOrderId.toLowerCase().includes(searchLower) ||
-        pos.position.toLowerCase().includes(searchLower) ||
-        (pos.client?.clientName || '').toLowerCase().includes(searchLower);
+
+      // Word-based matching: every word in the search box must appear
+      // somewhere across JO ID / position / client, independent of order.
+      // This is what lets "Head marketing" match "Head of Marketing".
+      const searchWords = filters.search.toLowerCase().split(/\s+/).filter(Boolean);
+      const matchesSearch = searchWords.length === 0 || searchWords.every(word =>
+        pos.jobOrderId.toLowerCase().includes(word) ||
+        pos.position.toLowerCase().includes(word) ||
+        (pos.client?.clientName || '').toLowerCase().includes(word)
+      );
+
       return matchesClient && matchesAssignee && matchesStatus &&
              matchesPLevel && matchesHighlight && matchesFlag && matchesSearch;
     });
@@ -766,8 +780,8 @@ function Positions() {
     if (oldAssignee === newTaId) return;
 
     setUpdatingId(pos._id);
-    setPositions(prev =>
-      prev.map(p =>
+    queryClient.setQueryData(['positions'], prev =>
+      (prev || []).map(p =>
         p._id === pos._id
           ? { ...p, assignee: newTaId ? tas.find(t => t._id === newTaId) : null }
           : p
@@ -776,8 +790,8 @@ function Positions() {
 
     try {
       const res = await assignPosition(pos._id, newTaId, newTaId ? 'Primary assignment changed' : 'Unassigned', 'primary');
-      setPositions(prev =>
-        prev.map(p => {
+      queryClient.setQueryData(['positions'], prev =>
+        (prev || []).map(p => {
           if (p._id !== pos._id) return p;
           const merged = { ...p, ...res.data };
           merged.assignee = newTaId ? tas.find(t => t._id === newTaId) : null;
@@ -786,8 +800,8 @@ function Positions() {
       );
       invalidatePositionsCache();
     } catch (err) {
-      setPositions(prev =>
-        prev.map(p =>
+      queryClient.setQueryData(['positions'], prev =>
+        (prev || []).map(p =>
           p._id === pos._id
             ? { ...p, assignee: oldAssignee ? tas.find(t => t._id === oldAssignee) : null }
             : p
@@ -806,8 +820,8 @@ function Positions() {
     if (sortedOld.join(',') === sortedNew.join(',')) return;
 
     setUpdatingId(pos._id);
-    setPositions(prev =>
-      prev.map(p =>
+    queryClient.setQueryData(['positions'], prev =>
+      (prev || []).map(p =>
         p._id === pos._id
           ? { ...p, parallelAssignees: newParallelIds.map(id => tas.find(t => t._id === id)).filter(Boolean) }
           : p
@@ -816,16 +830,16 @@ function Positions() {
 
     try {
       const res = await updatePosition(pos._id, { parallelAssignees: newParallelIds });
-      setPositions(prev =>
-        prev.map(p => {
+      queryClient.setQueryData(['positions'], prev =>
+        (prev || []).map(p => {
           if (p._id !== pos._id) return p;
           return { ...p, ...res.data };
         })
       );
       invalidatePositionsCache();
     } catch (err) {
-      setPositions(prev =>
-        prev.map(p =>
+      queryClient.setQueryData(['positions'], prev =>
+        (prev || []).map(p =>
           p._id === pos._id
             ? { ...p, parallelAssignees: oldParallel.map(id => tas.find(t => t._id === id)).filter(Boolean) }
             : p
@@ -844,23 +858,23 @@ function Positions() {
     }
     const prevValue = pos[field];
     setUpdatingId(pos._id);
-    setPositions(prev =>
-      prev.map(p =>
+    queryClient.setQueryData(['positions'], prev =>
+      (prev || []).map(p =>
         p._id === pos._id ? { ...p, [field]: value } : p
       )
     );
     try {
       const res = await updatePosition(pos._id, { [field]: value });
-      setPositions(prev =>
-        prev.map(p => {
+      queryClient.setQueryData(['positions'], prev =>
+        (prev || []).map(p => {
           if (p._id !== pos._id) return p;
           return { ...p, ...res.data };
         })
       );
       invalidatePositionsCache();
     } catch (err) {
-      setPositions(prev =>
-        prev.map(p =>
+      queryClient.setQueryData(['positions'], prev =>
+        (prev || []).map(p =>
           p._id === pos._id ? { ...p, [field]: prevValue } : p
         )
       );
@@ -874,12 +888,12 @@ function Positions() {
   const handleColorChange = async (pos, colorKey) => {
     if (colorKey === pos.highlightColor) { setColorPopoverId(null); return; }
     const prevColor = pos.highlightColor;
-    setPositions(prev => prev.map(p => p._id === pos._id ? { ...p, highlightColor: colorKey } : p));
+    queryClient.setQueryData(['positions'], prev => (prev || []).map(p => p._id === pos._id ? { ...p, highlightColor: colorKey } : p));
     setColorPopoverId(null);
     try {
       await updatePosition(pos._id, { highlightColor: colorKey });
     } catch (err) {
-      setPositions(prev => prev.map(p => p._id === pos._id ? { ...p, highlightColor: prevColor } : p));
+      queryClient.setQueryData(['positions'], prev => (prev || []).map(p => p._id === pos._id ? { ...p, highlightColor: prevColor } : p));
       alert(err.response?.data?.error || 'Failed to set highlight color');
     }
   };
@@ -888,6 +902,7 @@ function Positions() {
     setEditingId(pos._id);
     setEditForm({
       position: pos.position,
+      client: pos.client?._id || '',
       packageRange: pos.packageRange || '',
       cvCount: pos.cvCount ?? '',
       extShortlistCount: pos.extShortlistCount ?? '',
@@ -910,6 +925,7 @@ function Positions() {
     try {
       const payload = {
         position: editForm.position.trim(),
+        client: editForm.client || null,
         packageRange: editForm.packageRange.trim(),
         cvCount: editForm.cvCount === '' ? null : Number(editForm.cvCount),
         extShortlistCount: editForm.extShortlistCount === ''
@@ -918,19 +934,14 @@ function Positions() {
             ? 'Client Review'
             : Number(editForm.extShortlistCount),
       };
-      await updatePosition(pos._id, payload);
-      setPositions(prev =>
-        prev.map(p => {
+      const res = await updatePosition(pos._id, payload);
+      queryClient.setQueryData(['positions'], prev =>
+        (prev || []).map(p => {
           if (p._id !== pos._id) return p;
-          return {
-            ...p,
-            position: payload.position,
-            packageRange: payload.packageRange,
-            cvCount: payload.cvCount,
-            extShortlistCount: payload.extShortlistCount,
-          };
+          return { ...p, ...res.data };
         })
       );
+      invalidatePositionsCache();
       setEditingId(null);
       setEditForm({});
     } catch (err) {
@@ -948,7 +959,7 @@ function Positions() {
     setUpdatingId(pos._id);
     try {
       const res = await updatePosition(pos._id, { flagOverrides: nextOverrides });
-      setPositions(prev => prev.map(p => p._id === pos._id ? res.data : p));
+      queryClient.setQueryData(['positions'], prev => (prev || []).map(p => p._id === pos._id ? res.data : p));
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to update flag');
     } finally {
@@ -966,7 +977,7 @@ function Positions() {
     setDeleting(true);
     try {
       await deletePosition(deleteTarget._id);
-      setPositions(positions.filter(p => p._id !== deleteTarget._id));
+      queryClient.setQueryData(['positions'], prev => (prev || []).filter(p => p._id !== deleteTarget._id));
       setShowDeleteModal(false);
       setDeleteTarget(null);
       invalidatePositionsCache();
@@ -995,9 +1006,7 @@ function Positions() {
   };
 
   const refreshList = async () => {
-    const res = await getPositions();
-    setPositions(res.data);
-    invalidatePositionsCache();
+    queryClient.invalidateQueries(['positions']);
   };
 
   // ---- Options ----
@@ -1030,8 +1039,13 @@ function Positions() {
   });
   const parallelOptions = tas.map(ta => ({ value: ta._id, label: ta.name }));
 
-  if (loading) return <div className="positions-loading">Loading positions...</div>;
-  if (error) return <div className="positions-error">Error: {error}</div>;
+  if (loading || positionsLoading) return <div className="positions-loading">Loading positions...</div>;
+  if (error || positionsError) return <div className="positions-error">Error: {error || positionsError?.message}</div>;
+
+  // ---- Grid view grouping: Fence positions pinned to the top regardless
+  // of P-Level, everything else grouped by P-Level as before. ----
+  const fencePositions = filteredPositions.filter(p => p.status === 'Fence');
+  const nonFenceByLevel = (pl) => filteredPositions.filter(p => p.pLevel === pl && p.status !== 'Fence');
 
   return (
     <div className="positions">
@@ -1137,7 +1151,16 @@ function Positions() {
                   return (
                     <tr key={pos._id} className={rowClassName}>
                       <td><Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link></td>
-                      <td><span className="text-ellipsis">{pos.client?.clientName || '—'}</span></td>
+                      <td>
+                        {isEditing ? (
+                          <select className="inline-edit-input" name="client" value={editForm.client} onChange={handleEditFormChange}>
+                            <option value="">— Select client —</option>
+                            {clientOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                          </select>
+                        ) : (
+                          <span className="text-ellipsis">{pos.client?.clientName || '—'}</span>
+                        )}
+                      </td>
                       <td>
                         {isEditing ? (
                           <input className="inline-edit-input" name="position" value={editForm.position} onChange={handleEditFormChange} placeholder="Position title" />
@@ -1329,15 +1352,24 @@ function Positions() {
           {filteredPositions.length === 0 ? (
             <div className="no-rows">No positions found</div>
           ) : (
-            PLEVEL_OPTIONS.map(pl => (
+            <>
               <PositionGroup
-                key={pl}
-                pLevel={pl}
-                positions={filteredPositions.filter(p => p.pLevel === pl)}
+                pLevel="Fence"
+                labelOverride="Fence"
+                positions={fencePositions}
                 onView={setSelectedPosition}
                 onDelete={handleDeleteClick}
               />
-            ))
+              {PLEVEL_OPTIONS.map(pl => (
+                <PositionGroup
+                  key={pl}
+                  pLevel={pl}
+                  positions={nonFenceByLevel(pl)}
+                  onView={setSelectedPosition}
+                  onDelete={handleDeleteClick}
+                />
+              ))}
+            </>
           )}
         </div>
       )}

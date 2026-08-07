@@ -1,5 +1,3 @@
-
-
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -11,6 +9,7 @@ const positionRoutes = require('./routes/positionRoutes');
 const archiveRoutes = require('./routes/archiveRoutes');
 const positionHistoryRoutes = require('./routes/positionHistoryRoutes');
 const weeklyAllocationRoutes = require('./routes/weeklyAllocationRoutes');
+const eventRoutes = require('./routes/eventRoutes');              // ADD THIS LINE
 
 
 const app = express();
@@ -32,6 +31,7 @@ app.use('/api/positions', positionRoutes);
 app.use('/api/archive', archiveRoutes);
 app.use('/api/position-history', positionHistoryRoutes);
 app.use('/api/weekly-allocations', weeklyAllocationRoutes);
+app.use('/api/events', eventRoutes);                              // ADD THIS LINE
 app.use('/api/color-legend', require('./routes/colorLegend'));
 
 const PORT = process.env.PORT || 5000;

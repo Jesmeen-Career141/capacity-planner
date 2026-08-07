@@ -1,6 +1,7 @@
 const WeeklyAllocation = require('../models/WeeklyAllocation');
 const TA = require('../models/TA');
 const Position = require('../models/Position');
+const liveEvents = require('../utils/liveEvents');
 
 const defaultDays = {
   mon: { position: null, isAutoFilled: false },
@@ -225,6 +226,7 @@ async function updateCell(req, res) {
       return res.status(404).json({ error: 'Weekly allocation not found for this TA and week.' });
     }
 
+    liveEvents.emit('weeklyAllocations:changed');   // ADD THIS LINE
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -306,6 +308,7 @@ async function autofillWeek(req, res) {
         });
     }));
 
+    liveEvents.emit('weeklyAllocations:changed');   // ADD THIS LINE
     res.json(grid);
   } catch (err) {
     res.status(500).json({ error: err.message });
