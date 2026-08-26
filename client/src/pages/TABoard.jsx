@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getPositions, assignPosition, setFlagOverride, updatePosition } from '../api/positions';
 import { getArchiveSnapshots, getArchiveSnapshot } from '../api/archive';
 import { getActiveTAs } from '../api/tas';
-import { getWeeklyAllocationsBatch, updateWeeklyAllocationCell } from '../api/weeklyAllocations';
+import { getWeeklyAllocationsBatch, updateWeeklyAllocationCell, setLeaveBulk } from '../api/weeklyAllocations';
 import './TABoard.css';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 
@@ -386,6 +386,123 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
   );
 }
 
+// ---- Leave / Holiday Modal ----
+function LeaveModal({ tas, onClose, onSave, saving }) {
+  const [selectedTAs, setSelectedTAs] = useState([]);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [leaveType, setLeaveType] = useState('leave');
+
+  const allSelected = selectedTAs.length === tas.length && tas.length > 0;
+  const toggleTA = (id) =>
+    setSelectedTAs(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  const toggleAll = () => setSelectedTAs(allSelected ? [] : tas.map(t => t._id));
+
+  const canSave = selectedTAs.length > 0 && startDate && endDate && startDate <= endDate;
+
+  const CloseIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+
+  return (
+    <motion.div
+      className="modal-overlay"
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        className="modal"
+        onClick={e => e.stopPropagation()}
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+      >
+        <div className="modal-header">
+          <h2>Mark Leave / Holiday</h2>
+          <button className="modal-close-btn" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="modal-body">
+          <div className="modal-field">
+            <label>Type</label>
+            <div className="leave-type-toggle">
+              <button
+                type="button"
+                className={leaveType === 'leave' ? 'active' : ''}
+                onClick={() => setLeaveType('leave')}
+              >
+                Leave
+              </button>
+              <button
+                type="button"
+                className={leaveType === 'holiday' ? 'active' : ''}
+                onClick={() => setLeaveType('holiday')}
+              >
+                Holiday
+              </button>
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label>Team members {leaveType === 'holiday' ? '(use "Select all" for a common holiday)' : ''}</label>
+            <button
+              type="button"
+              className="cell-popover-option cell-popover-option--simple"
+              onClick={toggleAll}
+            >
+              <span className="cpo-check">{allSelected && <CheckIcon />}</span>
+              <span className="cpo-text">Select all</span>
+            </button>
+            <div className="leave-ta-list">
+              {tas.map(ta => (
+                <button
+                  type="button"
+                  key={ta._id}
+                  className="cell-popover-option cell-popover-option--simple"
+                  onClick={() => toggleTA(ta._id)}
+                >
+                  <span className="cpo-check">{selectedTAs.includes(ta._id) && <CheckIcon />}</span>
+                  <span className="cpo-text">{ta.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="modal-field-row">
+            <div className="modal-field">
+              <label>From</label>
+              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            </div>
+            <div className="modal-field">
+              <label>To</label>
+              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button
+            className="btn-primary"
+            disabled={!canSave || saving}
+            onClick={() => onSave({ taIds: selectedTAs, startDate, endDate, leaveType })}
+          >
+            {saving ? 'Saving...' : 'Apply'}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ---- PositionPool (unchanged) ----
 function PositionPool({ positions, navigate, onPositionClick }) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -496,11 +613,14 @@ function AssignmentTooltip({ position }) {
   );
 }
 
-// ---- GridCell (with hover state) ----
-function GridCell({ position, positions, isOpen, onToggle, onSelect, weekStart, taId, day }) {
+// ---- GridCell (with hover state + leave/holiday support) ----
+function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, weekStart, taId, day }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showTooltip, setShowTooltip] = useState(false);
   const triggerRef = useRef(null);
+
+  const position = dayCell?.position || null;
+  const leave = dayCell?.leave?.type ? dayCell.leave : null;
 
   const filtered = positions.filter(p => {
     const term = searchTerm.toLowerCase();
@@ -517,6 +637,30 @@ function GridCell({ position, positions, isOpen, onToggle, onSelect, weekStart, 
     if (clientA !== clientB) return clientA.localeCompare(clientB);
     return (a.position || '').localeCompare(b.position || '');
   });
+
+  // ---- On leave / holiday: show badge, no assignment allowed ----
+  if (leave) {
+    return (
+      <div className="grid-cell-wrap">
+        <button
+          ref={triggerRef}
+          className={`grid-pill grid-pill-leave grid-pill-leave--${leave.type}`}
+          onClick={onToggle}
+        >
+          {leave.type === 'holiday' ? 'Holiday' : 'Leave'}
+        </button>
+        <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggle} width={200}>
+          <p className="popover-heading">{leave.type === 'holiday' ? 'Holiday' : 'On leave'}</p>
+          <button
+            className="cell-popover-option cell-popover-option--simple cell-popover-danger"
+            onClick={() => { onSetLeave(null); onToggle(); }}
+          >
+            <span className="cpo-text">Clear {leave.type === 'holiday' ? 'holiday' : 'leave'}</span>
+          </button>
+        </Popover>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -571,13 +715,20 @@ function GridCell({ position, positions, isOpen, onToggle, onSelect, weekStart, 
         {sorted.length === 0 && (
           <div className="popover-empty">No positions available</div>
         )}
+        <div className="popover-divider" />
+        <button className="cell-popover-option cell-popover-option--simple" onClick={() => onSetLeave('leave')}>
+          <span className="cpo-text">Mark as Leave</span>
+        </button>
+        <button className="cell-popover-option cell-popover-option--simple" onClick={() => onSetLeave('holiday')}>
+          <span className="cpo-text">Mark as Holiday</span>
+        </button>
       </Popover>
     </div>
   );
 }
 
-// ---- TACard (passes weekStart) ----
-function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openCellKey, onCellToggle, onSelectCell, navigate, workloadCount }) {
+// ---- TACard (passes weekStart, dayCell, onSetLeave) ----
+function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openCellKey, onCellToggle, onSelectCell, onSetCellLeave, navigate, workloadCount }) {
   const initials = ta.name?.[0]?.toUpperCase() || '?';
   return (
     <section className="ta-card">
@@ -603,18 +754,19 @@ function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openC
             <div className="ta-grid-row" key={day} style={{ gridTemplateColumns: `62px repeat(${displayWeeks.length}, minmax(165px, 1fr))` }}>
               <div className="ta-day-col">{DAY_LABELS[day].toUpperCase()}</div>
               {displayWeeks.map((w, idx) => {
-                const position = getCell(ta._id, w.weekStart, day);
+                const dayCell = getCell(ta._id, w.weekStart, day);
                 const isCurrentWeek = idx === activeColumnIndex;
                 const cellKey = `${String(ta._id)}|${w.weekStart}|${day}`;
 
                 return (
                   <div key={cellKey} className={`ta-grid-cell ${isCurrentWeek ? 'ta-grid-cell--active' : ''}`}>
                     <GridCell
-                      position={position}
+                      dayCell={dayCell}
                       positions={positions}
                       isOpen={openCellKey === cellKey}
                       onToggle={() => onCellToggle(cellKey)}
                       onSelect={(newId) => onSelectCell(ta._id, w.weekStart, day, newId)}
+                      onSetLeave={(leaveType) => onSetCellLeave(ta._id, w.weekStart, day, leaveType)}
                       weekStart={w.weekStart}
                       taId={ta._id}
                       day={day}
@@ -852,6 +1004,7 @@ function TABoard() {
   const [openCellKey, setOpenCellKey] = useState(null);
   const [poolModalPosition, setPoolModalPosition] = useState(null);
   const [carriedForward, setCarriedForward] = useState(0);
+  const [leaveModalOpen, setLeaveModalOpen] = useState(false);
 
   const selectedMonth = MONTH_OPTIONS[selectedMonthIdx];
   const displayWeeks = getMonthWeeks(selectedMonth.year, selectedMonth.monthIndex);
@@ -939,8 +1092,8 @@ function TABoard() {
 
   // ---- Mutations ----
   const updateCellMutation = useMutation({
-    mutationFn: ({ taId, weekStart, day, positionId }) =>
-      updateWeeklyAllocationCell(taId, weekStart, { day, positionId }),
+    mutationFn: ({ taId, weekStart, day, positionId, leaveType }) =>
+      updateWeeklyAllocationCell(taId, weekStart, { day, positionId, leaveType }),
     onSuccess: () => {
       queryClient.invalidateQueries(['weeklyAllocations', selectedMonthIdx]);
     },
@@ -958,6 +1111,15 @@ function TABoard() {
       assignPosition(positionId, newTaId, 'Reassigned from Action Board'),
     onSuccess: () => {
       queryClient.invalidateQueries(['positions']);
+    },
+  });
+
+  const leaveBulkMutation = useMutation({
+    mutationFn: ({ taIds, startDate, endDate, leaveType }) =>
+      setLeaveBulk(taIds, startDate, endDate, leaveType),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['weeklyAllocations']);
+      setLeaveModalOpen(false);
     },
   });
 
@@ -986,13 +1148,12 @@ function TABoard() {
       const weekGrid = gridsByWeek[weekStart];
       if (!weekGrid) return null;
       const row = weekGrid.find(r => String(r.ta._id) === String(taId));
-      return row?.days?.[day]?.position || null;
+      return row?.days?.[day] || null;
     },
     [gridsByWeek]
   );
 
   // ---- Handlers ----
-  // Fixed: uses passed weekStart
   const handleCellSelect = async (taId, weekStart, day, newPositionId) => {
     const newPosObj = newPositionId ? byId[newPositionId] : null;
 
@@ -1029,12 +1190,49 @@ function TABoard() {
     }
   };
 
+  const handleCellSetLeave = async (taId, weekStart, day, leaveType) => {
+    // Optimistic update
+    queryClient.setQueryData(['weeklyAllocations', selectedMonthIdx], old => {
+      if (!old) return old;
+      return old.map(week => {
+        if (week.weekStart !== weekStart) return week;
+        const updatedGrid = week.grid.map(row => {
+          if (String(row.ta._id) !== String(taId)) return row;
+          return {
+            ...row,
+            days: {
+              ...row.days,
+              [day]: {
+                ...row.days[day],
+                leave: leaveType ? { type: leaveType } : null,
+                position: leaveType ? null : row.days[day].position,
+              },
+            },
+          };
+        });
+        return { ...week, grid: updatedGrid };
+      });
+    });
+
+    setOpenCellKey(null);
+    try {
+      await updateCellMutation.mutateAsync({ taId, weekStart, day, leaveType });
+    } catch (err) {
+      queryClient.invalidateQueries(['weeklyAllocations', selectedMonthIdx]);
+      alert(err.response?.data?.error || 'Failed to update leave');
+    }
+  };
+
   const handleToggleFlag = (positionId, flagKey, mode) => {
     toggleFlagMutation.mutate({ positionId, flagKey, mode });
   };
 
   const handleReassign = (positionId, newTaId) => {
     reassignMutation.mutate({ positionId, newTaId });
+  };
+
+  const handleSaveLeave = (payload) => {
+    leaveBulkMutation.mutate(payload);
   };
 
   const refreshPositions = () => {
@@ -1081,6 +1279,9 @@ function TABoard() {
               Action board
             </button>
           </div>
+          <button className="toggle-btn" onClick={() => setLeaveModalOpen(true)}>
+            Mark Leave / Holiday
+          </button>
           {activeView === 'grid' && (
             <select
               className="week-select"
@@ -1141,6 +1342,7 @@ function TABoard() {
                       setOpenCellKey(openCellKey === cellKey ? null : cellKey)
                     }
                     onSelectCell={handleCellSelect}
+                    onSetCellLeave={handleCellSetLeave}
                     navigate={navigate}
                     workloadCount={workloadByTA[ta._id] ?? 0}
                   />
@@ -1168,6 +1370,17 @@ function TABoard() {
             onClose={() => setPoolModalPosition(null)}
             onUpdate={refreshPositions}
             tas={tas}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {leaveModalOpen && (
+          <LeaveModal
+            tas={tas}
+            onClose={() => setLeaveModalOpen(false)}
+            onSave={handleSaveLeave}
+            saving={leaveBulkMutation.isLoading}
           />
         )}
       </AnimatePresence>

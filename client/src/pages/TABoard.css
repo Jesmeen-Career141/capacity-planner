@@ -1152,3 +1152,52 @@
 .assignment-tooltip-date {
   color: #9ca3af;
 }
+
+.grid-pill-leave {
+  cursor: pointer;
+  font-weight: 600;
+  width: 100%;
+}
+.grid-pill-leave--leave {
+  background: color-mix(in srgb, var(--flag-orange) 16%, white);
+  color: var(--flag-orange);
+}
+.grid-pill-leave--holiday {
+  background: color-mix(in srgb, var(--role-teal) 16%, white);
+  color: var(--role-teal);
+}
+
+.leave-type-toggle {
+  display: flex;
+  gap: 8px;
+}
+.leave-type-toggle button {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #ddd);
+  background: var(--color-bg, #fff);
+  cursor: pointer;
+}
+.leave-type-toggle button.active {
+  background: var(--role-blue, #3b82f6);
+  color: white;
+  border-color: var(--role-blue, #3b82f6);
+}
+
+.leave-ta-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border, #eee);
+  border-radius: 8px;
+  margin-top: 6px;
+}
+
+.modal-field-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+.modal-field-row .modal-field {
+  flex: 1;
+}

@@ -9,6 +9,17 @@ const dayAllocationSchema = new mongoose.Schema({
   isAutoFilled: {
     type: Boolean,
     default: false
+  },
+  leave: {
+    type: {
+      type: String,
+      enum: ['leave', 'holiday'],
+      default: null
+    },
+    setAt: {
+      type: Date,
+      default: null
+    }
   }
 }, { _id: false });
 
@@ -42,18 +53,12 @@ const weeklyAllocationSchema = new mongoose.Schema({
 weeklyAllocationSchema.index({ ta: 1, weekStart: 1 }, { unique: true });
 
 // 2. Compound index for batch queries that filter by weekStart first (then ta)
-//    This is used in the new /batch endpoint: 
-//    find({ weekStart: { $in: [...] }, ta: { $in: [...] } })
-//    Order matters: (weekStart, ta) is optimal for that query.
 weeklyAllocationSchema.index({ weekStart: 1, ta: 1 });
 
 // 3. Single‑field index on weekStart for queries that filter only by weekStart
-//    (e.g., the old getGridForWeek endpoint, or any other week‑only queries)
 weeklyAllocationSchema.index({ weekStart: 1 });
 
 // 4. Single‑field index on ta for queries that filter only by TA
-//    (though the unique compound index { ta: 1, weekStart: 1 } already covers ta‑only queries,
-//     this extra index is kept for maximum flexibility)
 weeklyAllocationSchema.index({ ta: 1 });
 
 module.exports = mongoose.model('WeeklyAllocation', weeklyAllocationSchema);

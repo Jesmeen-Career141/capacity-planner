@@ -13,6 +13,8 @@ const defaultDays = {
   sun: { position: null, isAutoFilled: false }
 };
 
+const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
 // ---- UTC‑based helpers ----
 function getMondayOfWeek(date) {
   const d = new Date(date);
@@ -85,7 +87,7 @@ async function getGridForWeek(req, res) {
   }
 }
 
-// ---- NEW: batch get for multiple weeks with row insertion (UTC) ----
+// ---- getGridBatch: batch get for multiple weeks with row insertion (UTC) ----
 async function getGridBatch(req, res) {
   try {
     const { startDate, endDate } = req.query;
@@ -99,11 +101,9 @@ async function getGridBatch(req, res) {
       return res.status(400).json({ error: 'Invalid date format' });
     }
 
-    // Get all active TAs once
     const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
     const taIds = activeTAs.map(ta => ta._id);
 
-    // Generate all weeks between start and end (Monday‑Sunday) using UTC helpers
     const weeks = [];
     let cursor = getMondayOfWeek(start);
     while (cursor <= end) {
@@ -112,7 +112,6 @@ async function getGridBatch(req, res) {
       cursor = addDays(cursor, 7);
     }
 
-    // For each week, find missing rows and bulk insert
     const bulkOps = [];
     for (const week of weeks) {
       const existing = await WeeklyAllocation.find({
@@ -149,7 +148,6 @@ async function getGridBatch(req, res) {
       await WeeklyAllocation.bulkWrite(bulkOps);
     }
 
-    // Fetch all allocations for these weeks and TAs
     const allocations = await WeeklyAllocation.find({
       weekStart: { $in: weeks.map(w => w.weekStart) },
       ta: { $in: taIds }
@@ -161,7 +159,6 @@ async function getGridBatch(req, res) {
         populate: { path: 'client', select: 'clientName' }
       });
 
-    // Build response with UTC ISO weekStart keys
     const result = weeks.map(week => {
       const weekGrid = activeTAs.map(ta => {
         const doc = allocations.find(a =>
@@ -171,7 +168,7 @@ async function getGridBatch(req, res) {
         return doc || null;
       }).filter(Boolean);
       return {
-        weekStart: toISODate(week.weekStart), // now UTC‑consistent
+        weekStart: toISODate(week.weekStart),
         grid: weekGrid
       };
     });
@@ -182,11 +179,11 @@ async function getGridBatch(req, res) {
   }
 }
 
-// ---- updateCell (unchanged, but note it expects weekStart as UTC ISO) ----
+// ---- updateCell: supports position assignment AND leave/holiday ----
 async function updateCell(req, res) {
   try {
     const { taId, weekStart } = req.params;
-    const { day, positionId } = req.body;
+    const { day, positionId, leaveType } = req.body;
 
     if (!day) {
       return res.status(400).json({ error: 'day is required in the body' });
@@ -197,15 +194,18 @@ async function updateCell(req, res) {
       return res.status(400).json({ error: 'Invalid weekStart date format' });
     }
 
-    const validDays = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-    if (!validDays.includes(day)) {
-      return res.status(400).json({ error: `Invalid day. Must be one of: ${validDays.join(', ')}` });
+    if (!DAY_KEYS.includes(day)) {
+      return res.status(400).json({ error: `Invalid day. Must be one of: ${DAY_KEYS.join(', ')}` });
     }
 
-    const updateObj = {
-      [`days.${day}.position`]: positionId || null,
-      [`days.${day}.isAutoFilled`]: false
-    };
+    const updateObj = { [`days.${day}.isAutoFilled`]: false };
+
+    if (leaveType !== undefined) {
+      updateObj[`days.${day}.leave`] = leaveType ? { type: leaveType, setAt: new Date() } : null;
+      updateObj[`days.${day}.position`] = leaveType ? null : (positionId || null);
+    } else {
+      updateObj[`days.${day}.position`] = positionId || null;
+    }
 
     const updated = await WeeklyAllocation.findOneAndUpdate(
       { ta: taId, weekStart: start },
@@ -226,14 +226,14 @@ async function updateCell(req, res) {
       return res.status(404).json({ error: 'Weekly allocation not found for this TA and week.' });
     }
 
-    liveEvents.emit('weeklyAllocations:changed');   // ADD THIS LINE
+    liveEvents.emit('weeklyAllocations:changed');
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }
 
-// ---- autofillWeek (uses UTC helpers as well) ----
+// ---- autofillWeek — skips days marked on leave/holiday ----
 async function autofillWeek(req, res) {
   try {
     const { weekStart, weekEnd } = req.body;
@@ -251,7 +251,7 @@ async function autofillWeek(req, res) {
     if (weekEnd) {
       end = new Date(weekEnd);
     } else {
-      end = addDays(start, 6); // UTC add
+      end = addDays(start, 6);
     }
 
     const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
@@ -276,10 +276,12 @@ async function autofillWeek(req, res) {
       if (activePositions.length > 0) {
         const posId = activePositions[0]._id;
         let changed = false;
-        const daysList = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const daysList = DAY_KEYS;
 
         for (const d of daysList) {
           const dayCell = allocation.days[d];
+          if (dayCell.leave?.type) continue;
+
           if (dayCell.position === null || dayCell.isAutoFilled === true) {
             if (String(dayCell.position) !== String(posId)) {
               dayCell.position = posId;
@@ -308,8 +310,91 @@ async function autofillWeek(req, res) {
         });
     }));
 
-    liveEvents.emit('weeklyAllocations:changed');   // ADD THIS LINE
+    liveEvents.emit('weeklyAllocations:changed');
     res.json(grid);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ---- setLeaveBulk — mark leave/holiday for multiple TAs across a date range ----
+async function setLeaveBulk(req, res) {
+  try {
+    const { taIds, startDate, endDate, leaveType, days: dayFilter } = req.body;
+
+    if (!Array.isArray(taIds) || taIds.length === 0) {
+      return res.status(400).json({ error: 'taIds must be a non-empty array' });
+    }
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'startDate and endDate are required' });
+    }
+
+    const allowedDays = Array.isArray(dayFilter) && dayFilter.length > 0
+      ? dayFilter.filter(d => DAY_KEYS.includes(d))
+      : DAY_KEYS;
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+    start.setUTCHours(0, 0, 0, 0);
+    end.setUTCHours(0, 0, 0, 0);
+
+    const weekTouches = new Map();
+    let cursor = new Date(start);
+    while (cursor <= end) {
+      const monday = getMondayOfWeek(cursor);
+      const mondayKey = toISODate(monday);
+      const dow = cursor.getUTCDay();
+      const dayKey = DAY_KEYS[(dow + 6) % 7];
+      if (allowedDays.includes(dayKey)) {
+        if (!weekTouches.has(mondayKey)) {
+          weekTouches.set(mondayKey, { weekStart: monday, dayKeys: new Set() });
+        }
+        weekTouches.get(mondayKey).dayKeys.add(dayKey);
+      }
+      cursor = addDays(cursor, 1);
+    }
+
+    const bulkOps = [];
+    for (const { weekStart, dayKeys: touchedDays } of weekTouches.values()) {
+      const weekEnd = addDays(weekStart, 6);
+      for (const taId of taIds) {
+        const setObj = {};
+        const setOnInsertObj = { weekEnd };
+
+        for (const d of DAY_KEYS) {
+          if (touchedDays.has(d)) {
+            setObj[`days.${d}.leave`] = leaveType ? { type: leaveType, setAt: new Date() } : null;
+            setObj[`days.${d}.isAutoFilled`] = false;
+            if (leaveType) {
+              setObj[`days.${d}.position`] = null;
+            }
+          } else {
+            setOnInsertObj[`days.${d}`] = { position: null, isAutoFilled: false };
+          }
+        }
+
+        bulkOps.push({
+          updateOne: {
+            filter: { ta: taId, weekStart },
+            update: {
+              $set: setObj,
+              $setOnInsert: setOnInsertObj,
+            },
+            upsert: true,
+          },
+        });
+      }
+    }
+
+    if (bulkOps.length > 0) {
+      await WeeklyAllocation.bulkWrite(bulkOps);
+    }
+
+    liveEvents.emit('weeklyAllocations:changed');
+    res.json({ success: true, weeksTouched: weekTouches.size, tasTouched: taIds.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -319,5 +404,6 @@ module.exports = {
   getGridForWeek,
   getGridBatch,
   updateCell,
-  autofillWeek
+  autofillWeek,
+  setLeaveBulk
 };

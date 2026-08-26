@@ -501,7 +501,7 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
               <span className="modal-summary-value">{position.pipelineStage}</span>
             </div>
             <div className="modal-summary-item">
-              <span className="modal-summary-label">LS / CV</span>
+              <span className="modal-summary-label">Internal / External Shortlist</span>
               <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
             </div>
           </div>
