@@ -9,6 +9,10 @@ const archiveSnapshotSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
+  positionCount: {
+    type: Number,
+    default: 0
+  },
   snapshot: [{
     positionId: {
       type: mongoose.Schema.Types.ObjectId,

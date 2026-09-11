@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { getArchiveSnapshots, getArchiveSnapshot } from '../api/archive';
+import { getArchiveSnapshots, getArchiveSnapshot, triggerSnapshot, triggerBackfill } from '../api/archive';
 import { getPositions, updatePosition } from '../api/positions';
 import './Archive.css';
 
@@ -256,22 +256,27 @@ function PositionHistoryTab() {
   );
 }
 
-// ---- Weekly Snapshots Tab (original, untouched logic) ----
+// ---- Weekly Snapshots Tab ----
 function WeeklySnapshotsTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [snapshots, setSnapshots] = useState([]);
   const [selectedSnapshot, setSelectedSnapshot] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionMessage, setActionMessage] = useState(null);
 
   useEffect(() => {
     fetchSnapshots();
   }, []);
 
-  const fetchSnapshots = async () => {
+  const fetchSnapshots = async (autoSelectLatest = false) => {
     try {
       const res = await getArchiveSnapshots();
       setSnapshots(res.data);
+      if (autoSelectLatest && res.data.length > 0) {
+        handleSnapshotClick(res.data[0]._id);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -291,73 +296,149 @@ function WeeklySnapshotsTab() {
     }
   };
 
+  const handleCaptureNow = async () => {
+    setActionLoading(true);
+    setActionMessage(null);
+    try {
+      const res = await triggerSnapshot();
+      setActionMessage({ type: 'success', text: `Captured snapshot for week of ${new Date(res.data.snapshot.weekStart).toLocaleDateString()} with ${res.data.snapshot.positionCount} positions.` });
+      await fetchSnapshots(true);
+    } catch (err) {
+      setActionMessage({ type: 'error', text: err.response?.data?.error || err.message || 'Failed to capture snapshot' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleBackfill = async () => {
+    if (!window.confirm('Reconstruct and backfill all missing weekly snapshots from historical change logs?')) return;
+    setActionLoading(true);
+    setActionMessage(null);
+    try {
+      const res = await triggerBackfill();
+      setActionMessage({ type: 'success', text: `Backfill complete! Created ${res.data.count} missing snapshots.` });
+      await fetchSnapshots();
+    } catch (err) {
+      setActionMessage({ type: 'error', text: err.response?.data?.error || err.message || 'Failed to run backfill' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   if (loading) return <div>Loading archive...</div>;
   if (error) return <div>Error: {error}</div>;
 
   return (
-    <div className="archive-grid">
-      <div className="snapshot-list">
-        {snapshots.length === 0 ? (
-          <p style={{ padding: '16px' }}>No snapshots yet</p>
-        ) : (
-          <ul className="snapshot-items">
-            {snapshots.map(s => (
-              <li
-                key={s._id}
-                className={`snapshot-item ${selectedSnapshot?._id === s._id ? 'active' : ''}`}
-                onClick={() => handleSnapshotClick(s._id)}
-              >
-                <div className="snapshot-info">
-                  <span className="snapshot-week">
-                    {new Date(s.weekStart).toLocaleDateString()} — {new Date(s.weekEnd).toLocaleDateString()}
-                  </span>
-                  <span className="snapshot-count">{s.snapshot?.length || 0} positions</span>
-                </div>
-                <span className="snapshot-date">{new Date(s.createdAt).toLocaleDateString()}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+    <div className="snapshot-container">
+      {/* Action Toolbar */}
+      <div className="snapshot-toolbar">
+        <div className="snapshot-toolbar-title">
+          <span>Weekly Snapshots Archive</span>
+          <span className="snapshot-badge">{snapshots.length} recorded</span>
+        </div>
+        <div className="snapshot-toolbar-actions">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={handleBackfill}
+            disabled={actionLoading}
+            style={{ fontSize: '13px', padding: '6px 14px' }}
+          >
+            {actionLoading ? 'Working...' : 'Backfill Missing Weeks'}
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleCaptureNow}
+            disabled={actionLoading}
+            style={{ fontSize: '13px', padding: '6px 14px' }}
+          >
+            {actionLoading ? 'Capturing...' : 'Capture Snapshot Now'}
+          </button>
+        </div>
       </div>
 
-      <div className="snapshot-detail">
-        {detailLoading ? (
-          <div>Loading snapshot...</div>
-        ) : selectedSnapshot ? (
-          <>
-            <div className="detail-header">
-              <h2>Week of {new Date(selectedSnapshot.weekStart).toLocaleDateString()} — {new Date(selectedSnapshot.weekEnd).toLocaleDateString()}</h2>
-              <button className="btn-secondary" onClick={() => setSelectedSnapshot(null)}>Close</button>
-            </div>
-            <div className="detail-table-wrapper">
-              {selectedSnapshot.snapshot?.length === 0 ? (
-                <p>No positions in this snapshot</p>
-              ) : (
-                <table className="detail-table">
-                  <thead>
-                    <tr>
-                      <th>TA</th><th>Position</th><th>Client</th><th>Level</th><th>Status</th><th>Focus</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedSnapshot.snapshot.map((item, idx) => (
-                      <tr key={idx}>
-                        <td>{item.taName || '—'}</td>
-                        <td>{item.position}</td>
-                        <td>{item.clientName}</td>
-                        <td>{item.pLevel}</td>
-                        <td>{item.status}</td>
-                        <td>{item.thisWeekFocus || '—'}</td>
+      {/* Action Message / Feedback */}
+      {actionMessage && (
+        <div className={`snapshot-alert snapshot-alert--${actionMessage.type}`}>
+          <span>{actionMessage.text}</span>
+          <button
+            type="button"
+            onClick={() => setActionMessage(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', color: 'inherit' }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      <div className="archive-grid">
+        <div className="snapshot-list">
+          {snapshots.length === 0 ? (
+            <p style={{ padding: '16px' }}>No snapshots yet. Click &quot;Capture Snapshot Now&quot; or &quot;Backfill Missing Weeks&quot;.</p>
+          ) : (
+            <ul className="snapshot-items">
+              {snapshots.map(s => {
+                const count = s.positionCount ?? s.snapshot?.length ?? 0;
+                return (
+                  <li
+                    key={s._id}
+                    className={`snapshot-item ${selectedSnapshot?._id === s._id ? 'active' : ''}`}
+                    onClick={() => handleSnapshotClick(s._id)}
+                  >
+                    <div className="snapshot-info">
+                      <span className="snapshot-week">
+                        {new Date(s.weekStart).toLocaleDateString()} — {new Date(s.weekEnd).toLocaleDateString()}
+                      </span>
+                      <span className="snapshot-count">{count} positions</span>
+                    </div>
+                    <span className="snapshot-date">{new Date(s.createdAt).toLocaleDateString()}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="snapshot-detail">
+          {detailLoading ? (
+            <div>Loading snapshot...</div>
+          ) : selectedSnapshot ? (
+            <>
+              <div className="detail-header">
+                <h2>Week of {new Date(selectedSnapshot.weekStart).toLocaleDateString()} — {new Date(selectedSnapshot.weekEnd).toLocaleDateString()}</h2>
+                <button className="btn-secondary" onClick={() => setSelectedSnapshot(null)}>Close</button>
+              </div>
+              <div className="detail-table-wrapper">
+                {selectedSnapshot.snapshot?.length === 0 ? (
+                  <p>No positions in this snapshot</p>
+                ) : (
+                  <table className="detail-table">
+                    <thead>
+                      <tr>
+                        <th>TA</th><th>Position</th><th>Client</th><th>Level</th><th>Status</th><th>Focus</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="empty-detail">Select a snapshot to view details</div>
-        )}
+                    </thead>
+                    <tbody>
+                      {selectedSnapshot.snapshot.map((item, idx) => (
+                        <tr key={idx}>
+                          <td>{item.taName || '—'}</td>
+                          <td>{item.position}</td>
+                          <td>{item.clientName}</td>
+                          <td>{item.pLevel}</td>
+                          <td>{item.status}</td>
+                          <td>{item.thisWeekFocus || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="empty-detail">Select a snapshot to view details</div>
+          )}
+        </div>
       </div>
     </div>
   );

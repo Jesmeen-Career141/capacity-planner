@@ -70,7 +70,7 @@ async function getGridForWeek(req, res) {
       .populate('ta', 'name status')
       .populate({
         path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
-        select: 'jobOrderId position pLevel lsCount cvCount client',
+        select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
         populate: {
           path: 'client',
           select: 'clientName'
@@ -155,7 +155,7 @@ async function getGridBatch(req, res) {
       .populate('ta', 'name status')
       .populate({
         path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
-        select: 'jobOrderId position pLevel lsCount cvCount client',
+        select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
         populate: { path: 'client', select: 'clientName' }
       });
 
@@ -215,7 +215,7 @@ async function updateCell(req, res) {
       .populate('ta', 'name status')
       .populate({
         path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
-        select: 'jobOrderId position pLevel lsCount cvCount client',
+        select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
         populate: {
           path: 'client',
           select: 'clientName'
@@ -302,7 +302,7 @@ async function autofillWeek(req, res) {
         .populate('ta', 'name status')
         .populate({
           path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
-          select: 'jobOrderId position pLevel lsCount cvCount client',
+          select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
           populate: {
             path: 'client',
             select: 'clientName'

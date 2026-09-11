@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getPositions, deletePosition, updatePosition, assignPosition } from '../api/positions';
@@ -469,7 +469,7 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+      <div className="modal modal-lg pos-detail-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{position.jobOrderId}</h2>
           <button className="modal-close-btn" onClick={onClose}><CloseIcon /></button>
@@ -501,16 +501,16 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
               <span className="modal-summary-value">{position.pipelineStage}</span>
             </div>
             <div className="modal-summary-item">
-              <span className="modal-summary-label">Internal / External Shortlist</span>
+              <span className="modal-summary-label">Shortlist (Int/Ext)</span>
               <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
             </div>
           </div>
           <div className="modal-editable">
-            <div className="modal-field modal-field--full">
+            <div className="modal-field">
               <label>This Week Focus</label>
               <input type="text" value={editData.thisWeekFocus} onChange={e => handleChange('thisWeekFocus', e.target.value)} className="modal-input" placeholder="e.g., Schedule interviews, Review CVs..." />
             </div>
-            <div className="modal-field modal-field--full">
+            <div className="modal-field">
               <label>Remarks</label>
               <textarea value={editData.remarks} onChange={e => handleChange('remarks', e.target.value)} className="modal-textarea" rows="4" placeholder="Add any notes or remarks about this position..." />
             </div>
@@ -520,16 +520,26 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
             {historyRounds.length === 0 ? (
               <p className="modal-history-empty">No allocation history yet</p>
             ) : (
-              <div className="modal-history-list">
-                {historyRounds.map((round, idx) => (
-                  <div key={idx} className="modal-history-item">
-                    <span className="modal-history-round">Round {round.roundNumber}</span>
-                    <span className="modal-history-ta">{round.taAssigned?.name || '—'}</span>
-                    <span className="modal-history-date">{round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}</span>
-                    <span className="modal-history-reason">{round.reason || '—'}</span>
-                  </div>
-                ))}
-              </div>
+              <table className="modal-history-table">
+                <thead>
+                  <tr>
+                    <th>Round</th>
+                    <th>Value</th>
+                    <th>Date</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyRounds.map((round, idx) => (
+                    <tr key={idx}>
+                      <td className="col-round">Round {round.roundNumber}</td>
+                      <td className="col-value">{round.taAssigned?.name || '—'}</td>
+                      <td className="col-date">{round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}</td>
+                      <td className="col-notes">{round.reason || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
             {historyRounds.length === 5 && (editData.allocationRounds?.length || 0) > 5 && (
               <p className="modal-history-more">+ {(editData.allocationRounds?.length || 0) - 5} more rounds</p>

@@ -280,7 +280,7 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
       exit={{ opacity: 0 }}
     >
       <motion.div
-        className="modal modal-lg"
+        className="modal modal-lg pos-detail-modal"
         onClick={e => e.stopPropagation()}
         initial={{ scale: 0.85, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -321,13 +321,13 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
               <span className="modal-summary-value">{position.pipelineStage}</span>
             </div>
             <div className="modal-summary-item">
-              <span className="modal-summary-label">LS / CV</span>
+              <span className="modal-summary-label">Shortlist (Int/Ext)</span>
               <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
             </div>
           </div>
 
           <div className="modal-editable">
-            <div className="modal-field modal-field--full">
+            <div className="modal-field">
               <label>This Week Focus</label>
               <input
                 type="text"
@@ -337,7 +337,7 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
                 placeholder="e.g., Schedule interviews, Review CVs..."
               />
             </div>
-            <div className="modal-field modal-field--full">
+            <div className="modal-field">
               <label>Remarks</label>
               <textarea
                 value={editData.remarks}
@@ -354,18 +354,28 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
             {historyRounds.length === 0 ? (
               <p className="modal-history-empty">No allocation history yet</p>
             ) : (
-              <div className="modal-history-list">
-                {historyRounds.map((round, idx) => (
-                  <div key={idx} className="modal-history-item">
-                    <span className="modal-history-round">Round {round.roundNumber}</span>
-                    <span className="modal-history-ta">{round.taAssigned?.name || '—'}</span>
-                    <span className="modal-history-date">
-                      {round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}
-                    </span>
-                    <span className="modal-history-reason">{round.reason || '—'}</span>
-                  </div>
-                ))}
-              </div>
+              <table className="modal-history-table">
+                <thead>
+                  <tr>
+                    <th>Round</th>
+                    <th>Value</th>
+                    <th>Date</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyRounds.map((round, idx) => (
+                    <tr key={idx}>
+                      <td className="col-round">Round {round.roundNumber}</td>
+                      <td className="col-value">{round.taAssigned?.name || '—'}</td>
+                      <td className="col-date">
+                        {round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="col-notes">{round.reason || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
             {historyRounds.length === 5 && (editData.allocationRounds?.length || 0) > 5 && (
               <p className="modal-history-more">
@@ -586,41 +596,85 @@ function PositionPool({ positions, navigate, onPositionClick }) {
   );
 }
 
-// ---- AssignmentTooltip (hover-gated) ----
-function AssignmentTooltip({ position }) {
-  const recent = useMemo(() => {
-    if (!position?.allocationRounds) return [];
-    return [...position.allocationRounds]
-      .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
-      .slice(0, 3);
-  }, [position]);
+// ---- PackageTooltip (portal-based, hover + focus, auto-flip) ----
+function PackageTooltip({ anchorRef, visible, packageRange }) {
+  const [style, setStyle] = useState(null);
+  const [placement, setPlacement] = useState('top');
+  const tooltipRef = useRef(null);
 
-  if (recent.length === 0) return null;
+  useLayoutEffect(() => {
+    if (!visible || !anchorRef.current) { setStyle(null); return; }
+    const rect = anchorRef.current.getBoundingClientRect();
+    const TOOLTIP_HEIGHT = 44;
+    const ARROW_SIZE = 7;
+    const GAP = 6;
+    const spaceAbove = rect.top;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const placeAbove = spaceAbove >= TOOLTIP_HEIGHT + ARROW_SIZE + GAP || spaceAbove > spaceBelow;
 
-  return (
-    <div className="assignment-tooltip assignment-tooltip--top-left">
-      {recent.map((r, idx) => (
-        <div key={idx} className="assignment-tooltip-row">
-          <span className="assignment-tooltip-name">{r.taAssigned?.name || '—'}</span>
-          <span className="assignment-tooltip-date">
-            {r.dateAssigned
-              ? new Date(r.dateAssigned).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-              : '—'}
-          </span>
-        </div>
-      ))}
-    </div>
+    // Horizontal centering, clamped to viewport
+    const centreX = rect.left + rect.width / 2;
+    const TOOLTIP_W = 200;
+    let left = centreX - TOOLTIP_W / 2;
+    const MARGIN = 8;
+    if (left < MARGIN) left = MARGIN;
+    if (left + TOOLTIP_W > window.innerWidth - MARGIN) left = window.innerWidth - TOOLTIP_W - MARGIN;
+
+    // Arrow offset relative to tooltip
+    const arrowLeft = Math.max(12, Math.min(centreX - left - 6, TOOLTIP_W - 24));
+
+    setPlacement(placeAbove ? 'top' : 'bottom');
+    setStyle({
+      position: 'fixed',
+      left,
+      width: TOOLTIP_W,
+      '--pkg-arrow-left': `${arrowLeft}px`,
+      ...(placeAbove
+        ? { top: rect.top - GAP - ARROW_SIZE }
+        : { top: rect.bottom + GAP + ARROW_SIZE }),
+    });
+  }, [visible, anchorRef]);
+
+  if (!visible || !style) return null;
+
+  const label = packageRange && packageRange.trim() ? packageRange.trim() : 'Package: Not specified';
+
+  return createPortal(
+    <div
+      ref={tooltipRef}
+      className={`pkg-tooltip pkg-tooltip--${placement}`}
+      style={style}
+      role="tooltip"
+    >
+      <span className="pkg-tooltip-label">Package</span>
+      <span className="pkg-tooltip-value">{label}</span>
+    </div>,
+    document.body
   );
 }
 
 // ---- GridCell (with hover state + leave/holiday support) ----
 function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, weekStart, taId, day }) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [showTooltip, setShowTooltip] = useState(false);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
   const triggerRef = useRef(null);
+  const tooltipTimerRef = useRef(null);
 
   const position = dayCell?.position || null;
   const leave = dayCell?.leave?.type ? dayCell.leave : null;
+
+  const showTooltip = useCallback(() => {
+    clearTimeout(tooltipTimerRef.current);
+    tooltipTimerRef.current = setTimeout(() => setTooltipVisible(true), 220);
+  }, []);
+
+  const hideTooltip = useCallback(() => {
+    clearTimeout(tooltipTimerRef.current);
+    setTooltipVisible(false);
+  }, []);
+
+  // Clean up timer on unmount
+  useEffect(() => () => clearTimeout(tooltipTimerRef.current), []);
 
   const filtered = positions.filter(p => {
     const term = searchTerm.toLowerCase();
@@ -663,16 +717,28 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, 
   }
 
   return (
-    <div
-      className="grid-cell-wrap"
-      onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
-    >
+    <div className="grid-cell-wrap">
       {position ? (
-        <button ref={triggerRef} className="grid-pill" style={roleChipStyle(position.position)} onClick={onToggle}>
-          {position.client?.clientName || '—'} — {position.position}
-          {showTooltip && <AssignmentTooltip position={position} />}
-        </button>
+        <>
+          <button
+            ref={triggerRef}
+            className="grid-pill"
+            style={roleChipStyle(position.position)}
+            onClick={onToggle}
+            onMouseEnter={showTooltip}
+            onMouseLeave={hideTooltip}
+            onFocus={showTooltip}
+            onBlur={hideTooltip}
+            aria-describedby="pkg-tooltip"
+          >
+            {position.client?.clientName || '—'} — {position.position}
+          </button>
+          <PackageTooltip
+            anchorRef={triggerRef}
+            visible={tooltipVisible && !isOpen}
+            packageRange={position.packageRange}
+          />
+        </>
       ) : (
         <button ref={triggerRef} className="grid-pill grid-pill-empty" onClick={() => { onToggle(); }}>
           + Assign
