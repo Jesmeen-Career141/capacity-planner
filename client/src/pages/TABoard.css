@@ -1217,28 +1217,32 @@
 
 /* ==========================================================
    Package Tooltip (portal-based, hover + focus, auto-flip)
+   Shows Client / Position / Package. Wraps long titles.
 ========================================================== */
 .pkg-tooltip {
   position: fixed;
   z-index: 9999;
   pointer-events: none;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
   background: #1e2330;
   color: #f1f5f9;
-  padding: 7px 11px;
-  border-radius: 7px;
+  padding: 10px 12px;
+  border-radius: 8px;
   font-size: 12px;
   line-height: 1.4;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.32), 0 1px 4px rgba(0, 0, 0, 0.16);
-  white-space: nowrap;
+  white-space: normal;        /* was nowrap: lets long titles wrap */
+  word-break: break-word;
   animation: pkg-tooltip-in 0.12s ease;
 }
 
+/* opacity only, so it doesn't fight the translateY(-100%) placement */
 @keyframes pkg-tooltip-in {
-  from { opacity: 0; transform: translateY(3px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* arrow shared base */
@@ -1270,6 +1274,12 @@
   border-bottom: 7px solid #1e2330;
 }
 
+.pkg-tooltip-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .pkg-tooltip-label {
   font-size: 10px;
   font-weight: 600;
@@ -1277,9 +1287,11 @@
   letter-spacing: 0.06em;
   color: #94a3b8;
 }
+
 .pkg-tooltip-value {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1.35;
   color: #f1f5f9;
 }
 
@@ -1356,4 +1368,114 @@
 }
 .modal-field-row .modal-field {
   flex: 1;
+}
+/* ---- Weekend rows (Sat / Sun): blue label + blue "+ Assign" border ---- */
+.ta-grid-row--weekend .ta-day-col {
+  color: var(--role-blue, #3b82f6);
+}
+
+.ta-grid-row.ta-grid-row--weekend .ta-grid-cell .grid-pill-empty {
+  border-color: var(--role-blue, #3b82f6);
+}
+
+/* ==========================================================
+   Split Grid Pill (two positions in one day cell)
+========================================================== */
+.grid-pill-split {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+
+.grid-pill-split .grid-pill {
+  padding: 5px 8px;
+  font-size: 10.5px;
+  border-radius: 6px;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Current-week highlight border for split container */
+.ta-grid-cell--active .grid-pill-split .grid-pill {
+  border: 1px solid var(--color-primary);
+}
+
+/* Slot tabs in popover */
+.slot-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.slot-tab {
+  flex: 1;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.slot-tab--active {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.slot-tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+
+/* ---- Keep the page inside the viewport; scroll the board, not the page ---- */
+.taboard-page,
+.taboard-body,
+.board-main {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.taboard-controls {
+  flex-wrap: wrap;
+}
+
+.action-board-wrap {
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+  max-height: calc(100vh - 260px);
+}
+
+.action-board {
+  width: max-content;
+  min-width: 100%;
+}
+
+.ab-label-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-surface);
+}
+
+.ab-header-row {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--color-surface);
+}
+
+.ab-header-row .ab-label-col {
+  z-index: 4;
 }

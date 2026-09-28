@@ -12,7 +12,7 @@ import { useLiveRefresh } from '../hooks/useLiveRefresh';
 
 // ---- CONSTANTS ----
 const PLEVEL_ORDER = ['P1', 'P2', 'P3', 'P4', 'P5'];
-const CARD_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri'];
+const CARD_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
 
 const FLAG_META = {
@@ -597,7 +597,7 @@ function PositionPool({ positions, navigate, onPositionClick }) {
 }
 
 // ---- PackageTooltip (portal-based, hover + focus, auto-flip) ----
-function PackageTooltip({ anchorRef, visible, packageRange }) {
+function PackageTooltip({ anchorRef, visible, packageRange, clientName, positionTitle }) {
   const [style, setStyle] = useState(null);
   const [placement, setPlacement] = useState('top');
   const tooltipRef = useRef(null);
@@ -605,7 +605,7 @@ function PackageTooltip({ anchorRef, visible, packageRange }) {
   useLayoutEffect(() => {
     if (!visible || !anchorRef.current) { setStyle(null); return; }
     const rect = anchorRef.current.getBoundingClientRect();
-    const TOOLTIP_HEIGHT = 44;
+    const TOOLTIP_HEIGHT = 120; // 3 rows, allows for some wrapping
     const ARROW_SIZE = 7;
     const GAP = 6;
     const spaceAbove = rect.top;
@@ -614,7 +614,7 @@ function PackageTooltip({ anchorRef, visible, packageRange }) {
 
     // Horizontal centering, clamped to viewport
     const centreX = rect.left + rect.width / 2;
-    const TOOLTIP_W = 200;
+    const TOOLTIP_W = 260;
     let left = centreX - TOOLTIP_W / 2;
     const MARGIN = 8;
     if (left < MARGIN) left = MARGIN;
@@ -630,14 +630,14 @@ function PackageTooltip({ anchorRef, visible, packageRange }) {
       width: TOOLTIP_W,
       '--pkg-arrow-left': `${arrowLeft}px`,
       ...(placeAbove
-        ? { top: rect.top - GAP - ARROW_SIZE }
+        ? { top: rect.top - GAP - ARROW_SIZE }      // CSS translateY(-100%) lifts it above
         : { top: rect.bottom + GAP + ARROW_SIZE }),
     });
   }, [visible, anchorRef]);
 
   if (!visible || !style) return null;
 
-  const label = packageRange && packageRange.trim() ? packageRange.trim() : 'Package: Not specified';
+  const pkg = packageRange && packageRange.trim() ? packageRange.trim() : 'Not specified';
 
   return createPortal(
     <div
@@ -646,51 +646,101 @@ function PackageTooltip({ anchorRef, visible, packageRange }) {
       style={style}
       role="tooltip"
     >
-      <span className="pkg-tooltip-label">Package</span>
-      <span className="pkg-tooltip-value">{label}</span>
+      <div className="pkg-tooltip-row">
+        <span className="pkg-tooltip-label">Client</span>
+        <span className="pkg-tooltip-value">{clientName || '—'}</span>
+      </div>
+      <div className="pkg-tooltip-row">
+        <span className="pkg-tooltip-label">Position</span>
+        <span className="pkg-tooltip-value">{positionTitle || '—'}</span>
+      </div>
+      <div className="pkg-tooltip-row">
+        <span className="pkg-tooltip-label">Package</span>
+        <span className="pkg-tooltip-value">{pkg}</span>
+      </div>
     </div>,
     document.body
   );
 }
 
-// ---- GridCell (with hover state + leave/holiday support) ----
+// ---- GridCell (with hover state + leave/holiday + dual position slot support) ----
 function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, weekStart, taId, day }) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [tooltipVisible, setTooltipVisible] = useState(false);
+  const [activeSlot, setActiveSlot] = useState(1);
+  const [tooltip1Visible, setTooltip1Visible] = useState(false);
+  const [tooltip2Visible, setTooltip2Visible] = useState(false);
   const triggerRef = useRef(null);
-  const tooltipTimerRef = useRef(null);
+  const half1Ref = useRef(null);
+  const half2Ref = useRef(null);
+  const tooltip1TimerRef = useRef(null);
+  const tooltip2TimerRef = useRef(null);
 
   const position = dayCell?.position || null;
+  const position2 = dayCell?.position2 || null;
   const leave = dayCell?.leave?.type ? dayCell.leave : null;
 
-  const showTooltip = useCallback(() => {
-    clearTimeout(tooltipTimerRef.current);
-    tooltipTimerRef.current = setTimeout(() => setTooltipVisible(true), 220);
+  // Reset activeSlot & search when popover closes or when position 1 becomes empty
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveSlot(1);
+      setSearchTerm('');
+    } else {
+      if (!position) {
+        setActiveSlot(1);
+      }
+    }
+  }, [isOpen, position]);
+
+  const showTooltip1 = useCallback(() => {
+    clearTimeout(tooltip1TimerRef.current);
+    tooltip1TimerRef.current = setTimeout(() => setTooltip1Visible(true), 220);
   }, []);
 
-  const hideTooltip = useCallback(() => {
-    clearTimeout(tooltipTimerRef.current);
-    setTooltipVisible(false);
+  const hideTooltip1 = useCallback(() => {
+    clearTimeout(tooltip1TimerRef.current);
+    setTooltip1Visible(false);
   }, []);
 
-  // Clean up timer on unmount
-  useEffect(() => () => clearTimeout(tooltipTimerRef.current), []);
+  const showTooltip2 = useCallback(() => {
+    clearTimeout(tooltip2TimerRef.current);
+    tooltip2TimerRef.current = setTimeout(() => setTooltip2Visible(true), 220);
+  }, []);
 
-  const filtered = positions.filter(p => {
+  const hideTooltip2 = useCallback(() => {
+    clearTimeout(tooltip2TimerRef.current);
+    setTooltip2Visible(false);
+  }, []);
+
+  // Clean up timers on unmount
+  useEffect(() => () => {
+    clearTimeout(tooltip1TimerRef.current);
+    clearTimeout(tooltip2TimerRef.current);
+  }, []);
+
+  const otherSlotPos = activeSlot === 1 ? position2 : position;
+  const currentSlotPos = activeSlot === 1 ? position : position2;
+  const otherSlotPosId = otherSlotPos?._id;
+
+  const availablePositions = useMemo(() => {
+    if (!isOpen) return [];
+    return positions.filter(p => !otherSlotPosId || p._id !== otherSlotPosId);
+  }, [isOpen, positions, otherSlotPosId]);
+
+  const sorted = useMemo(() => {
+    if (!isOpen) return [];
     const term = searchTerm.toLowerCase();
-    return (
+    const filtered = availablePositions.filter(p =>
       p.position?.toLowerCase().includes(term) ||
       p.client?.clientName?.toLowerCase().includes(term) ||
       p.jobOrderId?.toLowerCase().includes(term)
     );
-  });
-
-  const sorted = filtered.slice().sort((a, b) => {
-    const clientA = (a.client?.clientName || '').toLowerCase();
-    const clientB = (b.client?.clientName || '').toLowerCase();
-    if (clientA !== clientB) return clientA.localeCompare(clientB);
-    return (a.position || '').localeCompare(b.position || '');
-  });
+    return filtered.slice().sort((a, b) => {
+      const clientA = (a.client?.clientName || '').toLowerCase();
+      const clientB = (b.client?.clientName || '').toLowerCase();
+      if (clientA !== clientB) return clientA.localeCompare(clientB);
+      return (a.position || '').localeCompare(b.position || '');
+    });
+  }, [isOpen, searchTerm, availablePositions]);
 
   // ---- On leave / holiday: show badge, no assignment allowed ----
   if (leave) {
@@ -703,40 +753,85 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, 
         >
           {leave.type === 'holiday' ? 'Holiday' : 'Leave'}
         </button>
-        <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggle} width={200}>
-          <p className="popover-heading">{leave.type === 'holiday' ? 'Holiday' : 'On leave'}</p>
-          <button
-            className="cell-popover-option cell-popover-option--simple cell-popover-danger"
-            onClick={() => { onSetLeave(null); onToggle(); }}
-          >
-            <span className="cpo-text">Clear {leave.type === 'holiday' ? 'holiday' : 'leave'}</span>
-          </button>
-        </Popover>
+        {isOpen && (
+          <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggle} width={200}>
+            <p className="popover-heading">{leave.type === 'holiday' ? 'Holiday' : 'On leave'}</p>
+            <button
+              className="cell-popover-option cell-popover-option--simple cell-popover-danger"
+              onClick={() => { onSetLeave(null); onToggle(); }}
+            >
+              <span className="cpo-text">Clear {leave.type === 'holiday' ? 'holiday' : 'leave'}</span>
+            </button>
+          </Popover>
+        )}
       </div>
     );
   }
 
   return (
     <div className="grid-cell-wrap">
-      {position ? (
+      {position && position2 ? (
+        <div className="grid-pill-split" ref={triggerRef}>
+          <button
+            ref={half1Ref}
+            className="grid-pill"
+            style={roleChipStyle(position.position)}
+            onClick={onToggle}
+            onMouseEnter={showTooltip1}
+            onMouseLeave={hideTooltip1}
+            onFocus={showTooltip1}
+            onBlur={hideTooltip1}
+          >
+            {position.client?.clientName || '—'} — {position.position}
+          </button>
+          <PackageTooltip
+            anchorRef={half1Ref}
+            visible={tooltip1Visible && !isOpen}
+            packageRange={position.packageRange}
+            clientName={position.client?.clientName}
+            positionTitle={position.position}
+          />
+          <button
+            ref={half2Ref}
+            className="grid-pill"
+            style={roleChipStyle(position2.position)}
+            onClick={onToggle}
+            onMouseEnter={showTooltip2}
+            onMouseLeave={hideTooltip2}
+            onFocus={showTooltip2}
+            onBlur={hideTooltip2}
+          >
+            {position2.client?.clientName || '—'} — {position2.position}
+          </button>
+          <PackageTooltip
+            anchorRef={half2Ref}
+            visible={tooltip2Visible && !isOpen}
+            packageRange={position2.packageRange}
+            clientName={position2.client?.clientName}
+            positionTitle={position2.position}
+          />
+        </div>
+      ) : position ? (
         <>
           <button
             ref={triggerRef}
             className="grid-pill"
             style={roleChipStyle(position.position)}
             onClick={onToggle}
-            onMouseEnter={showTooltip}
-            onMouseLeave={hideTooltip}
-            onFocus={showTooltip}
-            onBlur={hideTooltip}
+            onMouseEnter={showTooltip1}
+            onMouseLeave={hideTooltip1}
+            onFocus={showTooltip1}
+            onBlur={hideTooltip1}
             aria-describedby="pkg-tooltip"
           >
             {position.client?.clientName || '—'} — {position.position}
           </button>
           <PackageTooltip
             anchorRef={triggerRef}
-            visible={tooltipVisible && !isOpen}
+            visible={tooltip1Visible && !isOpen}
             packageRange={position.packageRange}
+            clientName={position.client?.clientName}
+            positionTitle={position.position}
           />
         </>
       ) : (
@@ -744,51 +839,70 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, 
           + Assign
         </button>
       )}
-      <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggle}>
-        <div className="popover-search">
-          <input
-            type="text"
-            placeholder="Search positions..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            onClick={e => e.stopPropagation()}
-          />
-        </div>
-        <button
-          className={`cell-popover-option${!position ? ' cell-popover-option--selected' : ''}`}
-          onClick={() => onSelect(null)}
-        >
-          <span className="cpo-check">{!position && <CheckIcon />}</span>
-          <span className="cpo-text cpo-text--muted">— None —</span>
-        </button>
-        {sorted.map(p => {
-          const selected = position?._id === p._id;
-          return (
+      {isOpen && (
+        <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggle}>
+          <div className="slot-tabs">
             <button
-              className={`cell-popover-option${selected ? ' cell-popover-option--selected' : ''}`}
-              key={p._id}
-              onClick={() => onSelect(p._id)}
+              type="button"
+              className={`slot-tab${activeSlot === 1 ? ' slot-tab--active' : ''}`}
+              onClick={() => setActiveSlot(1)}
             >
-              <span className="cpo-check">{selected && <CheckIcon />}</span>
-              <span className={`cpo-level cpo-level--${p.pLevel}`}>{p.pLevel}</span>
-              <span className="cpo-text">
-                <span className="cpo-client">{p.client?.clientName || '—'}</span>
-                <span className="cpo-position">{p.position}</span>
-              </span>
+              Position 1
             </button>
-          );
-        })}
-        {sorted.length === 0 && (
-          <div className="popover-empty">No positions available</div>
-        )}
-        <div className="popover-divider" />
-        <button className="cell-popover-option cell-popover-option--simple" onClick={() => onSetLeave('leave')}>
-          <span className="cpo-text">Mark as Leave</span>
-        </button>
-        <button className="cell-popover-option cell-popover-option--simple" onClick={() => onSetLeave('holiday')}>
-          <span className="cpo-text">Mark as Holiday</span>
-        </button>
-      </Popover>
+            <button
+              type="button"
+              className={`slot-tab${activeSlot === 2 ? ' slot-tab--active' : ''}`}
+              onClick={() => setActiveSlot(2)}
+              disabled={!position}
+            >
+              Position 2
+            </button>
+          </div>
+          <div className="popover-search">
+            <input
+              type="text"
+              placeholder="Search positions..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+          <button
+            className={`cell-popover-option${!currentSlotPos ? ' cell-popover-option--selected' : ''}`}
+            onClick={() => onSelect(null, activeSlot)}
+          >
+            <span className="cpo-check">{!currentSlotPos && <CheckIcon />}</span>
+            <span className="cpo-text cpo-text--muted">— None —</span>
+          </button>
+          {sorted.map(p => {
+            const selected = currentSlotPos?._id === p._id;
+            return (
+              <button
+                className={`cell-popover-option${selected ? ' cell-popover-option--selected' : ''}`}
+                key={p._id}
+                onClick={() => onSelect(p._id, activeSlot)}
+              >
+                <span className="cpo-check">{selected && <CheckIcon />}</span>
+                <span className={`cpo-level cpo-level--${p.pLevel}`}>{p.pLevel}</span>
+                <span className="cpo-text">
+                  <span className="cpo-client">{p.client?.clientName || '—'}</span>
+                  <span className="cpo-position">{p.position}</span>
+                </span>
+              </button>
+            );
+          })}
+          {sorted.length === 0 && (
+            <div className="popover-empty">No positions available</div>
+          )}
+          <div className="popover-divider" />
+          <button className="cell-popover-option cell-popover-option--simple" onClick={() => onSetLeave('leave')}>
+            <span className="cpo-text">Mark as Leave</span>
+          </button>
+          <button className="cell-popover-option cell-popover-option--simple" onClick={() => onSetLeave('holiday')}>
+            <span className="cpo-text">Mark as Holiday</span>
+          </button>
+        </Popover>
+      )}
     </div>
   );
 }
@@ -816,8 +930,12 @@ function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openC
             ))}
           </div>
 
-          {CARD_DAYS.map(day => (
-            <div className="ta-grid-row" key={day} style={{ gridTemplateColumns: `62px repeat(${displayWeeks.length}, minmax(165px, 1fr))` }}>
+                    {CARD_DAYS.map(day => (
+            <div
+              className={`ta-grid-row${day === 'sat' || day === 'sun' ? ' ta-grid-row--weekend' : ''}`}
+              key={day}
+              style={{ gridTemplateColumns: `62px repeat(${displayWeeks.length}, minmax(165px, 1fr))` }}
+            >
               <div className="ta-day-col">{DAY_LABELS[day].toUpperCase()}</div>
               {displayWeeks.map((w, idx) => {
                 const dayCell = getCell(ta._id, w.weekStart, day);
@@ -831,7 +949,7 @@ function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openC
                       positions={positions}
                       isOpen={openCellKey === cellKey}
                       onToggle={() => onCellToggle(cellKey)}
-                      onSelect={(newId) => onSelectCell(ta._id, w.weekStart, day, newId)}
+                      onSelect={(newId, slot) => onSelectCell(ta._id, w.weekStart, day, newId, slot)}
                       onSetLeave={(leaveType) => onSetCellLeave(ta._id, w.weekStart, day, leaveType)}
                       weekStart={w.weekStart}
                       taId={ta._id}
@@ -847,6 +965,7 @@ function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openC
     </section>
   );
 }
+
 
 // ---- Action Board subcomponents ----
 function isOnPosition(position, taId) {
@@ -1158,8 +1277,8 @@ function TABoard() {
 
   // ---- Mutations ----
   const updateCellMutation = useMutation({
-    mutationFn: ({ taId, weekStart, day, positionId, leaveType }) =>
-      updateWeeklyAllocationCell(taId, weekStart, { day, positionId, leaveType }),
+    mutationFn: ({ taId, weekStart, day, positionId, slot, leaveType }) =>
+      updateWeeklyAllocationCell(taId, weekStart, { day, positionId, slot, leaveType }),
     onSuccess: () => {
       queryClient.invalidateQueries(['weeklyAllocations', selectedMonthIdx]);
     },
@@ -1220,21 +1339,42 @@ function TABoard() {
   );
 
   // ---- Handlers ----
-  const handleCellSelect = async (taId, weekStart, day, newPositionId) => {
+  const handleCellSelect = async (taId, weekStart, day, newPositionId, slot = 1) => {
     const newPosObj = newPositionId ? byId[newPositionId] : null;
 
-    // Optimistic update – use the passed weekStart
-    queryClient.setQueryData(['weeklyAllocations', selectedMonthIdx], old => {
+    // Optimistic update – use matching query key for instant UI update
+    queryClient.setQueriesData({ queryKey: ['weeklyAllocations', selectedMonthIdx] }, old => {
       if (!old) return old;
       return old.map(week => {
         if (week.weekStart !== weekStart) return week;
         const updatedGrid = week.grid.map(row => {
           if (String(row.ta._id) !== String(taId)) return row;
+          const currentDayCell = row.days?.[day] || {};
+          let nextPosition = currentDayCell.position || null;
+          let nextPosition2 = currentDayCell.position2 || null;
+
+          if (slot === 2) {
+            nextPosition2 = newPosObj;
+          } else {
+            // slot 1
+            if (!newPosObj && nextPosition2) {
+              // promotion rule: clearing slot 1 promotes slot 2
+              nextPosition = nextPosition2;
+              nextPosition2 = null;
+            } else {
+              nextPosition = newPosObj;
+            }
+          }
+
           return {
             ...row,
             days: {
               ...row.days,
-              [day]: { ...row.days[day], position: newPosObj },
+              [day]: {
+                ...currentDayCell,
+                position: nextPosition,
+                position2: nextPosition2,
+              },
             },
           };
         });
@@ -1249,29 +1389,32 @@ function TABoard() {
         weekStart,
         day,
         positionId: newPositionId || null,
+        slot,
       });
     } catch (err) {
-      queryClient.invalidateQueries(['weeklyAllocations', selectedMonthIdx]);
+      queryClient.invalidateQueries(['weeklyAllocations']);
       alert(err.response?.data?.error || 'Failed to update cell');
     }
   };
 
   const handleCellSetLeave = async (taId, weekStart, day, leaveType) => {
     // Optimistic update
-    queryClient.setQueryData(['weeklyAllocations', selectedMonthIdx], old => {
+    queryClient.setQueriesData({ queryKey: ['weeklyAllocations', selectedMonthIdx] }, old => {
       if (!old) return old;
       return old.map(week => {
         if (week.weekStart !== weekStart) return week;
         const updatedGrid = week.grid.map(row => {
           if (String(row.ta._id) !== String(taId)) return row;
+          const currentDayCell = row.days?.[day] || {};
           return {
             ...row,
             days: {
               ...row.days,
               [day]: {
-                ...row.days[day],
+                ...currentDayCell,
                 leave: leaveType ? { type: leaveType } : null,
-                position: leaveType ? null : row.days[day].position,
+                position: leaveType ? null : currentDayCell.position,
+                position2: leaveType ? null : currentDayCell.position2,
               },
             },
           };
@@ -1284,7 +1427,7 @@ function TABoard() {
     try {
       await updateCellMutation.mutateAsync({ taId, weekStart, day, leaveType });
     } catch (err) {
-      queryClient.invalidateQueries(['weeklyAllocations', selectedMonthIdx]);
+      queryClient.invalidateQueries(['weeklyAllocations']);
       alert(err.response?.data?.error || 'Failed to update leave');
     }
   };
@@ -1381,11 +1524,13 @@ function TABoard() {
       </div>
 
       <div className="taboard-body">
-        <PositionPool
-          positions={positions}
-          navigate={navigate}
-          onPositionClick={setPoolModalPosition}
-        />
+        {activeView === 'grid' && (
+          <PositionPool
+            positions={positions}
+            navigate={navigate}
+            onPositionClick={setPoolModalPosition}
+          />
+        )}
 
         {activeView === 'grid' ? (
           <main className="board-main">

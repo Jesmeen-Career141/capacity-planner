@@ -16,6 +16,10 @@ const taSchema = new mongoose.Schema({
     type: String,
     enum: ['blue', 'yellow', 'purple', 'darkGreen', 'lightGreen', 'lightBlue', 'turquoise', 'pink', 'slate', 'maroon', null],
     default: null
+  },
+  isTransferTarget: {
+    type: Boolean,
+    default: false
   }
 }, { timestamps: true });
 

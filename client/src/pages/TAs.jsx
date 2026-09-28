@@ -1,7 +1,7 @@
 import { useState, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getTAs, createTA, updateTAStatus, deleteTA, updateTAColor } from '../api/tas';
+import { getTAs, createTA, updateTAStatus, deleteTA, updateTAColor, updateTAName, setTransferTarget } from '../api/tas';
 import { getPositions } from '../api/positions';
 import './TAs.css';
 
@@ -67,11 +67,33 @@ function TAs() {
     },
   });
 
+  const updateNameMutation = useMutation({
+    mutationFn: ({ id, name }) => updateTAName(id, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['tas']);
+      queryClient.invalidateQueries(['positions']);
+      queryClient.invalidateQueries(['activeTAs']);
+      queryClient.invalidateQueries(['weeklyAllocations']);
+    },
+  });
+
+  const setTransferTargetMutation = useMutation({
+    mutationFn: (id) => setTransferTarget(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['tas']);
+      queryClient.invalidateQueries(['positions']);
+      queryClient.invalidateQueries(['activeTAs']);
+      queryClient.invalidateQueries(['weeklyAllocations']);
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteTA(id),
     onSuccess: () => {
       queryClient.invalidateQueries(['tas']);
       queryClient.invalidateQueries(['positions']);
+      queryClient.invalidateQueries(['activeTAs']);
+      queryClient.invalidateQueries(['weeklyAllocations']);
     },
   });
 
@@ -88,6 +110,7 @@ function TAs() {
   const [formData, setFormData] = useState({ name: '' });
   const [saving, setSaving] = useState(false);
   const [updating, setUpdating] = useState(null);
+  const [settingReceiver, setSettingReceiver] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
 
@@ -195,9 +218,10 @@ function TAs() {
     setDeleteError(null);
     try {
       if (editing) {
-        alert('Editing name is not supported yet. Use status toggle instead.');
+        await updateNameMutation.mutateAsync({ id: editing, name: formData.name.trim() });
+        handleCloseModal();
       } else {
-        await createMutation.mutateAsync(formData.name);
+        await createMutation.mutateAsync(formData.name.trim());
         handleCloseModal();
       }
     } catch (err) {
@@ -207,7 +231,7 @@ function TAs() {
     }
   };
 
-  // ---- Status & delete handlers ----
+  // ---- Status, transfer receiver & delete handlers ----
   const handleToggleStatus = async (id, currentStatus) => {
     const newStatus = currentStatus === 'Active' ? 'Left' : 'Active';
     const assignedCount = countAssignedPositions(id);
@@ -227,13 +251,34 @@ function TAs() {
     }
   };
 
+  const handleSetTransferTarget = async (ta) => {
+    if (!window.confirm(`Make ${ta.name} the receiver for transferred positions?`)) return;
+    setSettingReceiver(ta._id);
+    try {
+      await setTransferTargetMutation.mutateAsync(ta._id);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to set transfer receiver');
+    } finally {
+      setSettingReceiver(null);
+    }
+  };
+
   const handleDelete = async (id, name) => {
     const assignedCount = countAssignedPositions(id);
+    const receiver = tas.find(t => t.isTransferTarget);
+
     if (assignedCount > 0) {
-      alert(`Cannot delete TA: assigned to ${assignedCount} position(s). Mark as Left instead.`);
-      return;
+      if (!receiver) {
+        alert('Set a transfer receiver first.');
+        return;
+      }
+      if (!window.confirm(`This TA has ${assignedCount} position(s). They will be moved to ${receiver.name}. Continue?`)) {
+        return;
+      }
+    } else {
+      if (!window.confirm(`Delete TA "${name}"?`)) return;
     }
-    if (!window.confirm(`Delete TA "${name}"?`)) return;
+
     setDeleting(id);
     setDeleteError(null);
     try {
@@ -282,7 +327,23 @@ function TAs() {
 
                 return (
                   <tr key={ta._id}>
-                    <td>{ta.name}</td>
+                    <td>
+                      {ta.name}
+                      {ta.isTransferTarget && (
+                        <span
+                          className="status-badge"
+                          style={{
+                            marginLeft: '8px',
+                            background: '#e0e7ff',
+                            color: '#3730a3',
+                            fontSize: '11px',
+                            fontWeight: 600
+                          }}
+                        >
+                          Receives transfers
+                        </span>
+                      )}
+                    </td>
                     <td className="ta-color-cell">
                       <div className="color-picker-wrap">
                         <button
@@ -305,16 +366,31 @@ function TAs() {
                     <td className="actions-cell">
                       <button
                         className="action-toggle"
+                        onClick={() => handleOpenModal(ta)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="action-toggle"
                         onClick={() => handleToggleStatus(ta._id, ta.status)}
                         disabled={updating === ta._id}
                       >
                         {updating === ta._id ? '...' : `Mark ${ta.status === 'Active' ? 'Left' : 'Active'}`}
                       </button>
+                      {ta.status === 'Active' && !ta.isTransferTarget && (
+                        <button
+                          className="action-toggle"
+                          onClick={() => handleSetTransferTarget(ta)}
+                          disabled={settingReceiver === ta._id}
+                        >
+                          {settingReceiver === ta._id ? '...' : 'Set as receiver'}
+                        </button>
+                      )}
                       <button
                         className="action-delete"
                         onClick={() => handleDelete(ta._id, ta.name)}
-                        disabled={deleting === ta._id || assignedCount > 0}
-                        title={assignedCount > 0 ? 'Cannot delete: assigned to positions' : ''}
+                        disabled={deleting === ta._id || ta.isTransferTarget}
+                        title={ta.isTransferTarget ? 'Transfer receiver cannot be deleted' : ''}
                       >
                         {deleting === ta._id ? '...' : 'Delete'}
                       </button>
@@ -377,7 +453,7 @@ function TAs() {
       {showModal && (
         <div className="modal-overlay" onClick={handleCloseModal}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>New TA</h3>
+            <h3>{editing ? 'Edit TA' : 'New TA'}</h3>
             <div className="modal-form">
               <label>TA Name</label>
               <input
@@ -389,7 +465,7 @@ function TAs() {
               <div className="modal-actions">
                 <button className="btn-secondary" onClick={handleCloseModal}>Cancel</button>
                 <button className="btn-primary" onClick={handleSave} disabled={saving}>
-                  {saving ? 'Saving...' : 'Create'}
+                  {saving ? 'Saving...' : (editing ? 'Save' : 'Create')}
                 </button>
               </div>
             </div>

@@ -50,6 +50,16 @@ async function updateTAStatus(req, res) {
       return res.status(400).json({ error: 'Status must be Active or Left' });
     }
 
+    if (status === 'Left') {
+      const existingTA = await TA.findById(id);
+      if (!existingTA) {
+        return res.status(404).json({ error: 'TA not found' });
+      }
+      if (existingTA.isTransferTarget) {
+        return res.status(400).json({ error: 'The transfer receiver cannot be marked as Left. Designate another TA first.' });
+      }
+    }
+
     const updatedTA = await TA.findByIdAndUpdate(
       id,
       { status },
@@ -73,6 +83,57 @@ async function updateTAStatus(req, res) {
     }
 
     res.json(updatedTA);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// PUT update a TA's name
+async function updateTAName(req, res) {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    const trimmedName = typeof name === 'string' ? name.trim() : '';
+    if (!trimmedName) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    const updatedTA = await TA.findByIdAndUpdate(
+      id,
+      { name: trimmedName },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedTA) {
+      return res.status(404).json({ error: 'TA not found' });
+    }
+
+    res.json(updatedTA);
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ error: 'A TA with this name already exists' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// PUT designate a TA as the transfer receiver
+async function setTransferTarget(req, res) {
+  try {
+    const { id } = req.params;
+    const ta = await TA.findById(id);
+    if (!ta) {
+      return res.status(404).json({ error: 'TA not found' });
+    }
+    if (ta.status !== 'Active') {
+      return res.status(400).json({ error: 'A TA who has left cannot be the transfer receiver.' });
+    }
+
+    await TA.updateMany({ _id: { $ne: id } }, { isTransferTarget: false });
+    ta.isTransferTarget = true;
+    await ta.save();
+
+    res.json(ta);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -105,25 +166,66 @@ async function updateTAColor(req, res) {
   }
 }
 
-// DELETE a TA (only allowed if not assigned to any position)
+// DELETE a TA (with position transfer to designated receiver if assigned to positions)
 async function deleteTA(req, res) {
   try {
     const { id } = req.params;
-    const Position = require('../models/Position');
 
-    const assignedCount = await Position.countDocuments({ assignee: id });
-    if (assignedCount > 0) {
-      return res.status(409).json({
-        error: `Cannot delete TA: currently assigned to ${assignedCount} position(s). Reassign or mark as Left instead.`
-      });
-    }
-
-    const deleted = await TA.findByIdAndDelete(id);
-    if (!deleted) {
+    const ta = await TA.findById(id);
+    if (!ta) {
       return res.status(404).json({ error: 'TA not found' });
     }
 
-    res.json({ message: 'TA deleted', deleted });
+    if (ta.isTransferTarget) {
+      return res.status(400).json({
+        error: 'This TA is the transfer receiver. Designate another TA as receiver before deleting.'
+      });
+    }
+
+    const assignedCount = await Position.countDocuments({ assignee: id });
+    const parallelCount = await Position.countDocuments({ parallelAssignees: id });
+    const hasPositions = assignedCount > 0 || parallelCount > 0;
+
+    let receiver = null;
+    let transferredCount = 0;
+
+    if (hasPositions) {
+      receiver = await TA.findOne({ isTransferTarget: true, status: 'Active' });
+      if (!receiver) {
+        return res.status(400).json({
+          error: 'No transfer receiver is set. Set one on the TAs page first.'
+        });
+      }
+
+      if (assignedCount > 0) {
+        const updateResult = await Position.updateMany(
+          { assignee: id },
+          { $set: { assignee: receiver._id } }
+        );
+        transferredCount = updateResult.modifiedCount !== undefined ? updateResult.modifiedCount : assignedCount;
+      }
+
+      if (parallelCount > 0) {
+        await Position.updateMany(
+          { parallelAssignees: id },
+          { $pull: { parallelAssignees: id } }
+        );
+      }
+
+      await Position.updateMany(
+        { assignee: receiver._id, parallelAssignees: receiver._id },
+        { $pull: { parallelAssignees: receiver._id } }
+      );
+    }
+
+    const deleted = await TA.findByIdAndDelete(id);
+
+    res.json({
+      message: 'TA deleted',
+      deleted,
+      transferredCount,
+      transferredTo: receiver ? receiver.name : null
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -134,6 +236,8 @@ module.exports = {
   getActiveTAs,
   createTA,
   updateTAStatus,
+  updateTAName,
+  setTransferTarget,
   updateTAColor,
   deleteTA
 };

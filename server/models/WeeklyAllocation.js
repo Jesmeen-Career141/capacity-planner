@@ -6,6 +6,11 @@ const dayAllocationSchema = new mongoose.Schema({
     ref: 'Position',
     default: null
   },
+  position2: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Position',
+    default: null
+  },
   isAutoFilled: {
     type: Boolean,
     default: false

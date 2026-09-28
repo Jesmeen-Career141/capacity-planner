@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getPositions, deletePosition, updatePosition, assignPosition } from '../api/positions';
@@ -630,27 +630,58 @@ function PositionGroup({ pLevel, positions, onView, onDelete, labelOverride }) {
   );
 }
 
+const STORAGE_KEY = 'positionsPageState';
+
+const DEFAULT_FILTERS = {
+  client: '',
+  assignee: '',
+  status: '',
+  pLevel: '',
+  highlightColor: '',
+  flag: '',
+  search: ''
+};
+
+const getStoredPositionsState = () => {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+};
+
 // ---- Main Positions Component ----
 function Positions() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   useLiveRefresh();
 
+  const rootRef = useRef(null);
+  const tableWrapperRef = useRef(null);
+  const isRestoredRef = useRef(false);
+  const scrollTimeoutRef = useRef(null);
+  const lastScrollTimeRef = useRef(0);
+
   const [loading, setLoading] = useState(true); // covers clients/tas/legend fetch only
   const [error, setError] = useState(null);
   const [clients, setClients] = useState([]);
   const [tas, setTAs] = useState([]);
   const [legend, setLegend] = useState(COLOR_KEYS.map(key => ({ key, label: '' })));
-  const [filters, setFilters] = useState({
-    client: '',
-    assignee: '',
-    status: '',
-    pLevel: '',
-    highlightColor: '',
-    flag: '',
-    search: ''
+  const [filters, setFilters] = useState(() => {
+    const stored = getStoredPositionsState();
+    return {
+      ...DEFAULT_FILTERS,
+      ...(stored?.filters || {})
+    };
   });
-  const [viewMode, setViewMode] = useState('table'); // 'table' | 'grid'
+  const [viewMode, setViewMode] = useState(() => {
+    const stored = getStoredPositionsState();
+    return stored?.viewMode === 'grid' || stored?.viewMode === 'table' ? stored.viewMode : 'table';
+  });
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -698,6 +729,97 @@ function Positions() {
     };
     fetchData();
   }, []);
+
+  // Persist filters and viewMode to sessionStorage
+  useEffect(() => {
+    try {
+      const existing = getStoredPositionsState() || {};
+      const nextState = {
+        ...existing,
+        filters,
+        viewMode
+      };
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+    } catch (e) {
+      // ignore
+    }
+  }, [filters, viewMode]);
+
+  const saveScrollState = (patch) => {
+    try {
+      const existing = getStoredPositionsState() || {};
+      const nextState = {
+        ...existing,
+        ...patch
+      };
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const throttledSaveScroll = (patch) => {
+    const now = Date.now();
+    const remaining = 150 - (now - lastScrollTimeRef.current);
+    if (remaining <= 0) {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = null;
+      }
+      lastScrollTimeRef.current = now;
+      saveScrollState(patch);
+    } else {
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = setTimeout(() => {
+        lastScrollTimeRef.current = Date.now();
+        saveScrollState(patch);
+      }, remaining);
+    }
+  };
+
+  // Track scroll on <main> container
+  useEffect(() => {
+    const mainEl = rootRef.current?.closest('main');
+    if (!mainEl) return;
+
+    const handleMainScroll = () => {
+      throttledSaveScroll({
+        mainScroll: { top: mainEl.scrollTop, left: mainEl.scrollLeft }
+      });
+    };
+
+    mainEl.addEventListener('scroll', handleMainScroll, { passive: true });
+    return () => {
+      mainEl.removeEventListener('scroll', handleMainScroll);
+    };
+  }, [loading, positionsLoading]);
+
+  // Restore scroll positions after data loads
+  useLayoutEffect(() => {
+    if (loading || positionsLoading) return;
+    if (isRestoredRef.current) return;
+    isRestoredRef.current = true;
+
+    const stored = getStoredPositionsState();
+    if (!stored) return;
+
+    requestAnimationFrame(() => {
+      const mainEl = rootRef.current?.closest('main');
+      if (mainEl && stored.mainScroll !== undefined) {
+        const top = typeof stored.mainScroll === 'object' ? stored.mainScroll.top : stored.mainScroll;
+        const left = typeof stored.mainScroll === 'object' ? stored.mainScroll.left : 0;
+        mainEl.scrollTop = top || 0;
+        if (left) mainEl.scrollLeft = left;
+      }
+
+      if (tableWrapperRef.current && stored.tableScroll !== undefined) {
+        const top = typeof stored.tableScroll === 'object' ? stored.tableScroll.top : stored.tableScroll;
+        const left = typeof stored.tableScroll === 'object' ? stored.tableScroll.left : 0;
+        tableWrapperRef.current.scrollTop = top || 0;
+        if (left) tableWrapperRef.current.scrollLeft = left;
+      }
+    });
+  }, [loading, positionsLoading]);
 
   const invalidatePositionsCache = () => {
     queryClient.invalidateQueries(['positions']);
@@ -1058,7 +1180,7 @@ function Positions() {
   const nonFenceByLevel = (pl) => filteredPositions.filter(p => p.pLevel === pl && p.status !== 'Fence');
 
   return (
-    <div className="positions">
+    <div ref={rootRef} className="positions">
       <div className="positions-header">
         <h1>Positions</h1>
         <div className="header-actions">
@@ -1116,7 +1238,15 @@ function Positions() {
       </div>
 
       {viewMode === 'table' ? (
-        <div className="table-wrapper">
+        <div
+          ref={tableWrapperRef}
+          className="table-wrapper"
+          onScroll={(e) => {
+            throttledSaveScroll({
+              tableScroll: { top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft }
+            });
+          }}
+        >
           <table className="positions-table">
             <colgroup>
               <col style={{ width: '7%' }} /><col style={{ width: '11%' }} /><col style={{ width: '16%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} /><col style={{ width: '10%' }} /><col style={{ width: '12%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} /><col style={{ width: '8%' }} /><col style={{ width: '10%' }} />

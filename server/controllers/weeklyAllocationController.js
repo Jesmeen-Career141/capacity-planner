@@ -4,16 +4,18 @@ const Position = require('../models/Position');
 const liveEvents = require('../utils/liveEvents');
 
 const defaultDays = {
-  mon: { position: null, isAutoFilled: false },
-  tue: { position: null, isAutoFilled: false },
-  wed: { position: null, isAutoFilled: false },
-  thu: { position: null, isAutoFilled: false },
-  fri: { position: null, isAutoFilled: false },
-  sat: { position: null, isAutoFilled: false },
-  sun: { position: null, isAutoFilled: false }
+  mon: { position: null, position2: null, isAutoFilled: false },
+  tue: { position: null, position2: null, isAutoFilled: false },
+  wed: { position: null, position2: null, isAutoFilled: false },
+  thu: { position: null, position2: null, isAutoFilled: false },
+  fri: { position: null, position2: null, isAutoFilled: false },
+  sat: { position: null, position2: null, isAutoFilled: false },
+  sun: { position: null, position2: null, isAutoFilled: false }
 };
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+const POPULATE_POSITION_PATHS = 'days.mon.position days.mon.position2 days.tue.position days.tue.position2 days.wed.position days.wed.position2 days.thu.position days.thu.position2 days.fri.position days.fri.position2 days.sat.position days.sat.position2 days.sun.position days.sun.position2';
 
 // ---- UTC‑based helpers ----
 function getMondayOfWeek(date) {
@@ -69,7 +71,7 @@ async function getGridForWeek(req, res) {
     const grid = await WeeklyAllocation.find({ weekStart: start, ta: { $in: taIds } })
       .populate('ta', 'name status')
       .populate({
-        path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
+        path: POPULATE_POSITION_PATHS,
         select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
         populate: {
           path: 'client',
@@ -130,13 +132,13 @@ async function getGridBatch(req, res) {
               weekStart: week.weekStart,
               weekEnd: week.weekEnd,
               days: {
-                mon: { position: null, isAutoFilled: false },
-                tue: { position: null, isAutoFilled: false },
-                wed: { position: null, isAutoFilled: false },
-                thu: { position: null, isAutoFilled: false },
-                fri: { position: null, isAutoFilled: false },
-                sat: { position: null, isAutoFilled: false },
-                sun: { position: null, isAutoFilled: false }
+                mon: { position: null, position2: null, isAutoFilled: false },
+                tue: { position: null, position2: null, isAutoFilled: false },
+                wed: { position: null, position2: null, isAutoFilled: false },
+                thu: { position: null, position2: null, isAutoFilled: false },
+                fri: { position: null, position2: null, isAutoFilled: false },
+                sat: { position: null, position2: null, isAutoFilled: false },
+                sun: { position: null, position2: null, isAutoFilled: false }
               }
             }
           }
@@ -154,7 +156,7 @@ async function getGridBatch(req, res) {
     })
       .populate('ta', 'name status')
       .populate({
-        path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
+        path: POPULATE_POSITION_PATHS,
         select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
         populate: { path: 'client', select: 'clientName' }
       });
@@ -179,11 +181,11 @@ async function getGridBatch(req, res) {
   }
 }
 
-// ---- updateCell: supports position assignment AND leave/holiday ----
+// ---- updateCell: supports slot 1 & slot 2 position assignment AND leave/holiday ----
 async function updateCell(req, res) {
   try {
     const { taId, weekStart } = req.params;
-    const { day, positionId, leaveType } = req.body;
+    const { day, positionId, leaveType, slot = 1 } = req.body;
 
     if (!day) {
       return res.status(400).json({ error: 'day is required in the body' });
@@ -198,13 +200,52 @@ async function updateCell(req, res) {
       return res.status(400).json({ error: `Invalid day. Must be one of: ${DAY_KEYS.join(', ')}` });
     }
 
+    const targetSlot = Number(slot) === 2 ? 2 : 1;
+
+    // Load document first to validate and handle promotion
+    const existingDoc = await WeeklyAllocation.findOne({ ta: taId, weekStart: start }).select(`days.${day}`);
+    if (!existingDoc) {
+      return res.status(404).json({ error: 'Weekly allocation not found for this TA and week.' });
+    }
+
+    const currentCell = existingDoc.days?.[day] || {};
+    const currentPos1 = currentCell.position ? currentCell.position.toString() : null;
+    const currentPos2 = currentCell.position2 ? currentCell.position2.toString() : null;
+    const targetPosId = positionId ? positionId.toString() : null;
+
     const updateObj = { [`days.${day}.isAutoFilled`]: false };
 
     if (leaveType !== undefined) {
-      updateObj[`days.${day}.leave`] = leaveType ? { type: leaveType, setAt: new Date() } : null;
-      updateObj[`days.${day}.position`] = leaveType ? null : (positionId || null);
+      if (leaveType) {
+        updateObj[`days.${day}.leave`] = { type: leaveType, setAt: new Date() };
+        updateObj[`days.${day}.position`] = null;
+        updateObj[`days.${day}.position2`] = null;
+      } else {
+        updateObj[`days.${day}.leave`] = null;
+      }
     } else {
-      updateObj[`days.${day}.position`] = positionId || null;
+      if (targetSlot === 2) {
+        if (!currentPos1) {
+          return res.status(400).json({ error: 'Assign the first position before adding a second one.' });
+        }
+        if (targetPosId && currentPos1 && targetPosId === currentPos1) {
+          return res.status(400).json({ error: 'This position is already assigned in this cell.' });
+        }
+        updateObj[`days.${day}.position2`] = positionId || null;
+      } else {
+        // Slot 1
+        if (targetPosId && currentPos2 && targetPosId === currentPos2) {
+          return res.status(400).json({ error: 'This position is already assigned in this cell.' });
+        }
+
+        if (!targetPosId && currentPos2) {
+          // Promote slot 2 to slot 1
+          updateObj[`days.${day}.position`] = currentCell.position2;
+          updateObj[`days.${day}.position2`] = null;
+        } else {
+          updateObj[`days.${day}.position`] = positionId || null;
+        }
+      }
     }
 
     const updated = await WeeklyAllocation.findOneAndUpdate(
@@ -214,7 +255,7 @@ async function updateCell(req, res) {
     )
       .populate('ta', 'name status')
       .populate({
-        path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
+        path: POPULATE_POSITION_PATHS,
         select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
         populate: {
           path: 'client',
@@ -301,7 +342,7 @@ async function autofillWeek(req, res) {
       return await WeeklyAllocation.findOne({ ta: ta._id, weekStart: start })
         .populate('ta', 'name status')
         .populate({
-          path: 'days.mon.position days.tue.position days.wed.position days.thu.position days.fri.position days.sat.position days.sun.position',
+          path: POPULATE_POSITION_PATHS,
           select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
           populate: {
             path: 'client',
@@ -370,9 +411,10 @@ async function setLeaveBulk(req, res) {
             setObj[`days.${d}.isAutoFilled`] = false;
             if (leaveType) {
               setObj[`days.${d}.position`] = null;
+              setObj[`days.${d}.position2`] = null;
             }
           } else {
-            setOnInsertObj[`days.${d}`] = { position: null, isAutoFilled: false };
+            setOnInsertObj[`days.${d}`] = { position: null, position2: null, isAutoFilled: false };
           }
         }
 

@@ -9,6 +9,20 @@ const POSITIVE_FLAG_LABELS = ['Healthy', 'Going Good'];
 
 const isAttentionFlag = (flag) => flag !== null && !POSITIVE_FLAG_LABELS.includes(flag.label);
 
+// Order of the "Positions Needing Attention" list (top to bottom)
+const FLAG_PRIORITY = ['reAssign', 'backup', 'followUp', 'addOn'];
+
+// A position's rank = the highest-priority attention flag it has (lower = higher up)
+const flagRank = (position) => {
+  const ranks = Object.entries(position.flags || {})
+    .filter(([, flag]) => isAttentionFlag(flag))
+    .map(([key]) => {
+      const i = FLAG_PRIORITY.indexOf(key);
+      return i === -1 ? FLAG_PRIORITY.length : i;
+    });
+  return ranks.length ? Math.min(...ranks) : FLAG_PRIORITY.length;
+};
+
 // Helper: parse package range string into { currency, amount }
 // amount is the average of the range, in whole currency units (or null if unparseable)
 function parsePackageRange(rangeStr) {
@@ -184,9 +198,9 @@ function Dashboard() {
 
   // Only positions with an actual problem flag (not "Healthy" / "Going Good")
   // belong in the attention list.
-  const flaggedPositions = positions.filter(
-    (p) => p.flags && Object.values(p.flags).some(isAttentionFlag)
-  );
+  const flaggedPositions = positions
+  .filter((p) => p.flags && Object.values(p.flags).some(isAttentionFlag))
+  .sort((a, b) => flagRank(a) - flagRank(b));
 
   // Positions with only positive flags (Healthy / Going Good), and no
   // problem flags, go in the "Going Well" list instead.
@@ -227,27 +241,31 @@ function Dashboard() {
           {flaggedPositions.length === 0 ? (
             <p className="text-sm text-forest-500">No flagged positions.</p>
           ) : (
-            <ul className="flex flex-col gap-2">
-              {flaggedPositions.map((p) => (
-                <li
-                  key={p._id}
-                  className="flex items-center justify-between rounded-xl border
-                             border-forest-200/60 bg-white/70 px-4 py-3 backdrop-blur-md
-                             shadow-sm"
-                >
-                  <span className="text-sm font-medium text-forest-800">
-                    {p.jobOrderId} - {p.position}
-                  </span>
-                  <div className="flex gap-1.5">
-                    {Object.values(p.flags)
-                      .filter(isAttentionFlag)
-                      .map((flag, idx) => (
-                        <FlagBadge key={idx} flag={flag} />
-                      ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
+<ul className="flex flex-col gap-2">
+  {flaggedPositions.map((p) => (
+    <li
+      key={p._id}
+      className="flex items-center justify-between gap-3 rounded-xl border
+                 border-forest-200/60 bg-white/70 px-4 py-3 backdrop-blur-md
+                 shadow-sm"
+    >
+      <span
+        className="text-sm font-medium uppercase text-forest-800"
+        title={p.jobOrderId}
+      >
+        {p.client?.clientName || '—'} — {p.position}
+      </span>
+      <div className="flex shrink-0 gap-1.5">
+        {Object.entries(p.flags)
+          .filter(([, flag]) => isAttentionFlag(flag))
+          .sort(([a], [b]) => FLAG_PRIORITY.indexOf(a) - FLAG_PRIORITY.indexOf(b))
+          .map(([key, flag]) => (
+            <FlagBadge key={key} flag={flag} />
+          ))}
+      </div>
+    </li>
+  ))}
+</ul>
           )}
         </div>
 
@@ -266,8 +284,11 @@ function Dashboard() {
                              border-forest-200/60 bg-white/70 px-4 py-3 backdrop-blur-md
                              shadow-sm"
                 >
-                  <span className="text-sm font-medium text-forest-800">
-                    {p.jobOrderId} - {p.position}
+                  <span
+                    className="min-w-0 truncate text-sm font-medium uppercase text-forest-800"
+                    title={p.jobOrderId}
+                  >
+                  {p.client?.clientName || '—'} — {p.position}
                   </span>
                   <div className="flex gap-1.5">
                     {Object.values(p.flags)

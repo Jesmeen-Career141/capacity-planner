@@ -8,9 +8,9 @@ export const getGrid = (weekStart, weekEnd) =>
 export const getWeeklyAllocationsBatch = (startDate, endDate, timestamp) =>
   api.get('/weekly-allocations/batch', { params: { startDate, endDate, _t: timestamp } });
 
-// UPDATED: now also accepts optional leaveType
-export const updateWeeklyAllocationCell = (taId, weekStart, { day, positionId, leaveType }) =>
-  api.put(`/weekly-allocations/${taId}/${weekStart}`, { day, positionId, leaveType });
+// UPDATED: accepts day, positionId, slot, leaveType
+export const updateWeeklyAllocationCell = (taId, weekStart, body) =>
+  api.put(`/weekly-allocations/${taId}/${weekStart}`, body);
 
 export const autofillWeek = (weekStart, weekEnd) =>
   api.post('/weekly-allocations/autofill', { weekStart, weekEnd });
