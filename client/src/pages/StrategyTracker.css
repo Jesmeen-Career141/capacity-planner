@@ -1,0 +1,478 @@
+/* ===================================================================
+   StrategyTracker.css
+   Same look as Positions.css – reuses shared CSS variables and
+   patterns (white cards, var(--color-*), table styling).
+   The table wrapper scrolls inside its own box so the page never
+   grows wider than the viewport.
+=================================================================== */
+
+/* ---- Page container ---- */
+.st-page {
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* ---- Header ---- */
+.st-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.st-header h1 {
+  margin: 0;
+}
+.st-header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ---- Checkbox labels ---- */
+.st-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.st-checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+/* ---- Filters bar (mirrors Positions) ---- */
+.st-filters-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 18px rgba(15, 61, 36, 0.06);
+  align-items: center;
+  position: relative;
+  z-index: 50;
+}
+.st-filter-search {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  border: 1px solid rgba(6, 95, 70, 0.15);
+  border-radius: var(--radius);
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.55);
+  font-family: inherit;
+}
+.st-filter-search:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+.st-filters-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.st-filter-select {
+  padding: 6px 12px;
+  border: 1px solid rgba(6, 95, 70, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  appearance: auto;
+}
+.st-filter-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* ---- Table wrapper – scrolls internally, no page overflow ---- */
+.st-table-wrapper {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 75vh;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 18px rgba(15, 61, 36, 0.1);
+}
+
+/* ---- Main list table ---- */
+.st-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  color: var(--color-text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+.st-table th,
+.st-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(6, 95, 70, 0.12);
+  vertical-align: middle;
+}
+.st-table thead th {
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.95);
+  z-index: 10;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1.5px solid rgba(6, 95, 70, 0.18);
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+.st-th-expand {
+  width: 28px;
+}
+
+/* ---- List rows ---- */
+.st-row {
+  transition: background-color 0.15s;
+}
+.st-row:hover td {
+  background-color: rgba(255, 255, 255, 0.4);
+}
+.st-row--expanded td {
+  background-color: rgba(6, 95, 70, 0.04);
+}
+.st-td-expand {
+  color: var(--color-text-muted);
+  text-align: center;
+  width: 28px;
+}
+.st-td-client,
+.st-td-position {
+  font-weight: 600;
+}
+.st-uppercase {
+  text-transform: uppercase;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+}
+.st-td-date,
+.st-td-assignee {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ---- Progress ---- */
+.st-td-progress {
+  min-width: 140px;
+}
+.st-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.st-progress-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  min-width: 40px;
+}
+.st-progress-bar-track {
+  flex: 1;
+  height: 5px;
+  background: rgba(6, 95, 70, 0.12);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.st-progress-bar-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+/* ---- Empty / loading states ---- */
+.st-empty {
+  text-align: center;
+  padding: 40px !important;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+.st-page-loading,
+.st-page-error,
+.st-loading,
+.st-error {
+  padding: 24px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+.st-page-error,
+.st-error {
+  color: #dc2626;
+}
+
+/* ---- Checklist row that expands below the position row ---- */
+.st-checklist-row {
+  background: rgba(248, 250, 248, 0.95);
+}
+.st-checklist-td {
+  padding: 0 !important;
+  border-bottom: 2px solid rgba(6, 95, 70, 0.18) !important;
+}
+.st-checklist-inner {
+  padding: 12px 20px 16px;
+  overflow-x: auto;
+}
+
+/* ---- Inner checklist table ---- */
+.st-checklist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.st-checklist-table th {
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1.5px solid rgba(6, 95, 70, 0.15);
+  white-space: nowrap;
+}
+.st-checklist-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(6, 95, 70, 0.08);
+  vertical-align: middle;
+}
+
+/* Column widths in checklist */
+.st-col-check { width: 32px; text-align: center; }
+.st-col-name  { min-width: 220px; }
+.st-col-assignees { min-width: 200px; }
+.st-col-date  { min-width: 120px; }
+.st-col-note  { min-width: 180px; }
+.st-col-na    { width: 50px; text-align: center; }
+
+/* ---- Strategy rows ---- */
+.st-strategy-row {
+  transition: background 0.15s;
+}
+.st-strategy-row:hover td {
+  background: rgba(255, 255, 255, 0.5);
+}
+.st-strategy-row--done td {
+  background: rgba(34, 197, 94, 0.07);
+}
+.st-strategy-row--na td {
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--color-text-muted);
+}
+.st-name-na {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+
+/* ---- Checkbox button ---- */
+.st-checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(6, 95, 70, 0.35);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  padding: 0;
+  margin: 0 auto;
+  transition: background 0.15s, border-color 0.15s;
+}
+.st-checkbox:hover:not(:disabled) {
+  border-color: var(--color-primary);
+}
+.st-checkbox--checked {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+.st-checkbox:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ---- TA chips ---- */
+.st-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.st-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: #e5e7eb;
+  color: #374151;
+}
+.st-chip-remove {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 13px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.65;
+  line-height: 1;
+}
+.st-chip-remove:hover {
+  opacity: 1;
+}
+
+/* ---- Add assignee button & dropdown ---- */
+.st-assignee-picker {
+  position: relative;
+  display: inline-flex;
+}
+.st-add-btn {
+  padding: 2px 8px;
+  border: 1px dashed rgba(6, 95, 70, 0.35);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.st-add-btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.st-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.st-assignee-list {
+  position: absolute;
+  left: 0;
+  min-width: 170px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid rgba(6, 95, 70, 0.18);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 200;
+  padding: 6px 0;
+}
+.st-assignee-list--down { top: calc(100% + 4px); }
+.st-assignee-list--up  { bottom: calc(100% + 4px); }
+.st-assignee-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.st-assignee-option:hover {
+  background: rgba(6, 95, 70, 0.06);
+}
+
+/* ---- Date inputs ---- */
+.st-date-input {
+  padding: 3px 6px;
+  border: 1px solid rgba(6, 95, 70, 0.18);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--color-text);
+  width: 130px;
+}
+.st-date-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+.st-date-input:disabled {
+  opacity: 0.35;
+}
+
+/* ---- Note input ---- */
+.st-note-input {
+  width: 100%;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-family: inherit;
+  background: transparent;
+  color: var(--color-text);
+  transition: border-color 0.15s;
+}
+.st-note-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: #fff;
+}
+.st-note-input:hover:not(:disabled) {
+  border-color: rgba(6, 95, 70, 0.2);
+}
+.st-note-input:disabled {
+  opacity: 0.35;
+}
+
+/* ---- N/A button ---- */
+.st-na-btn {
+  padding: 2px 8px;
+  border: 1px solid rgba(6, 95, 70, 0.2);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: background 0.15s, border-color 0.15s;
+}
+.st-na-btn:hover {
+  border-color: #6b7280;
+  background: rgba(107, 114, 128, 0.1);
+}
+.st-na-btn--active {
+  background: rgba(107, 114, 128, 0.15);
+  border-color: #6b7280;
+  color: #374151;
+}
+
+/* ---- Popover backdrop (shared pattern) ---- */
+.popover-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+}

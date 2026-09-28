@@ -11,12 +11,14 @@ import {
   Settings,
   HelpCircle,
   LogOut,
+  ListChecks,
 } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/ta-board", label: "TA Board", icon: ClipboardList },
   { to: "/positions", label: "Positions", icon: Briefcase },
+  { to: "/strategies", label: "Strategies", icon: ListChecks },
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/tas", label: "TAs", icon: UserCheck },
   { to: "/archive", label: "Archive", icon: Archive },

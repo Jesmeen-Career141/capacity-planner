@@ -9,6 +9,7 @@ import NewPosition from './pages/NewPosition';
 import Clients from './pages/Clients';
 import TAs from './pages/TAs';
 import Archive from './pages/Archive';
+import StrategyTracker from './pages/StrategyTracker';
 
 // Create a client with default options
 const queryClient = new QueryClient({
@@ -33,6 +34,7 @@ function App() {
           <Route path="clients" element={<Clients />} />
           <Route path="tas" element={<TAs />} />
           <Route path="archive" element={<Archive />} />
+          <Route path="strategies" element={<StrategyTracker />} />
         </Route>
       </Routes>
     </QueryClientProvider>
