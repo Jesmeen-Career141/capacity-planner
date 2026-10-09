@@ -2,6 +2,7 @@ const Position = require('../models/Position');
 const PositionHistory = require('../models/PositionHistory');
 const { computeFlags } = require('../utils/flagLogic');
 const liveEvents = require('../utils/liveEvents');
+const { formatSalary, validateSalary } = require('../utils/salaryFormatter');
 // GET all positions
 async function getAllPositions(req, res) {
   try {
@@ -62,6 +63,7 @@ async function createPosition(req, res) {
       interviewedCount,
       secondInterviewCount,
       packageRange,
+      salary,
       extShortlistCount,
       tags,
       remarks
@@ -71,6 +73,20 @@ async function createPosition(req, res) {
       return res.status(400).json({
         error: 'jobOrderId, client, position, and pLevel are required'
       });
+    }
+
+    let finalSalary = null;
+    let finalPackageRange = packageRange || '';
+
+    // Synchronize salary: when structured salary data is explicitly supplied
+    if (salary !== undefined && salary !== null) {
+      const { valid, errors, sanitized } = validateSalary(salary);
+      if (!valid) {
+        return res.status(400).json({ error: `Salary validation error: ${errors.join('; ')}` });
+      }
+      finalSalary = sanitized;
+      // Regenerate packageRange from structured values
+      finalPackageRange = formatSalary(sanitized, packageRange || '');
     }
 
     const newPosition = await Position.create({
@@ -89,7 +105,8 @@ async function createPosition(req, res) {
       targetCvCount,
       interviewedCount,
       secondInterviewCount,
-      packageRange,
+      packageRange: finalPackageRange,
+      salary: finalSalary,
       extShortlistCount,
       tags,
       remarks
@@ -105,12 +122,30 @@ async function createPosition(req, res) {
 async function updatePosition(req, res) {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    const updates = { ...req.body };
 
     const existing = await Position.findById(id).lean();
     if (!existing) {
       return res.status(404).json({ error: 'Position not found' });
     }
+
+    // Synchronize salary data on updates:
+    // 1. When structured salary is explicitly provided
+    if (updates.salary !== undefined) {
+      if (updates.salary === null) {
+        updates.salary = null;
+      } else {
+        const { valid, errors, sanitized } = validateSalary(updates.salary);
+        if (!valid) {
+          return res.status(400).json({ error: `Salary validation error: ${errors.join('; ')}` });
+        }
+        updates.salary = sanitized;
+        // Regenerate packageRange from structured values
+        updates.packageRange = formatSalary(sanitized, updates.packageRange || existing.packageRange || '');
+      }
+    }
+    // 2. When legacy client submits only packageRange without salary:
+    // We intentionally avoid overwriting or erasing existing.salary
 
     const skipFields = ['_id', '__v', 'createdAt', 'updatedAt', 'allocationRounds'];
 
@@ -122,8 +157,8 @@ async function updatePosition(req, res) {
       const oldValue = existing[field];
       const newValue = updates[field];
 
-      const oldStr = oldValue === null || oldValue === undefined ? '' : String(oldValue);
-      const newStr = newValue === null || newValue === undefined ? '' : String(newValue);
+      const oldStr = oldValue === null || oldValue === undefined ? '' : typeof oldValue === 'object' ? JSON.stringify(oldValue) : String(oldValue);
+      const newStr = newValue === null || newValue === undefined ? '' : typeof newValue === 'object' ? JSON.stringify(newValue) : String(newValue);
 
       if (oldStr !== newStr) {
         historyEntries.push({

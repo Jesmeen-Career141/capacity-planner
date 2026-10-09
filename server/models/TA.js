@@ -20,9 +20,14 @@ const taSchema = new mongoose.Schema({
   isTransferTarget: {
     type: Boolean,
     default: false
+  },
+  order: {
+    type: Number,
+    default: null
   }
 }, { timestamps: true });
 
 taSchema.index({ status: 1 });
+taSchema.index({ order: 1 });
 
 module.exports = mongoose.model('TA', taSchema);

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { createPosition, getPositions } from '../api/positions';
 import { getClients } from '../api/clients';
 import { getActiveTAs } from '../api/tas';
+import SalaryPackagePicker from '../components/SalaryPackagePicker';
 import './NewPosition.css';
 
 function NewPosition() {
@@ -21,6 +22,8 @@ function NewPosition() {
     assignee: '',
     transferParallel: 'New',
     expectedCloseDate: '',
+    packageRange: '',
+    salary: null,
     lsCount: '',
     cvCount: '',
     thisWeekFocus: '',
@@ -86,6 +89,8 @@ function NewPosition() {
     try {
       const payload = {
         ...formData,
+        salary: formData.salary || null,
+        packageRange: formData.packageRange || '',
         lsCount: formData.lsCount ? Number(formData.lsCount) : null,
         cvCount: formData.cvCount ? Number(formData.cvCount) : null,
         expectedCloseDate: formData.expectedCloseDate || null,
@@ -212,6 +217,23 @@ function NewPosition() {
           {/* Completion % removed */}
           <div className="form-group">
             {/* empty placeholder to keep layout */}
+          </div>
+        </div>
+
+        <div className="form-row">
+          <div className="form-group form-group--full" style={{ width: '100%' }}>
+            <label>Salary Package</label>
+            <SalaryPackagePicker
+              value={formData.salary}
+              legacyText={formData.packageRange}
+              onChange={(updatedSalary, formattedString) => {
+                setFormData(prev => ({
+                  ...prev,
+                  salary: updatedSalary,
+                  packageRange: formattedString
+                }));
+              }}
+            />
           </div>
         </div>
 

@@ -7,6 +7,9 @@ import { getActiveTAs } from '../api/tas';
 import { getColorLegend, updateColorLegend } from '../api/colorLegend';
 import FlagBadge from '../components/FlagBadge';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
+import { SlidersHorizontal, RotateCcw } from 'lucide-react';
+import { formatSalary } from '../utils/salaryFormatter';
+import SalaryPackagePicker from '../components/SalaryPackagePicker';
 import './Positions.css';
 
 // ---- Constants ----
@@ -632,6 +635,98 @@ function PositionGroup({ pLevel, positions, onView, onDelete, labelOverride }) {
 
 const STORAGE_KEY = 'positionsPageState';
 
+// ---- Column Configuration for Excel-Style Table ----
+const COLUMN_CONFIG = [
+  { id: 'jobOrderId', label: 'JO ID', defaultWidth: 105, minWidth: 85, maxWidth: 160, mandatory: true },
+  { id: 'client', label: 'Client', defaultWidth: 170, minWidth: 120, maxWidth: 280, mandatory: false },
+  { id: 'position', label: 'Position', defaultWidth: 230, minWidth: 160, maxWidth: 380, mandatory: true },
+  { id: 'packageRange', label: 'Package Range', defaultWidth: 160, minWidth: 130, maxWidth: 280, mandatory: false },
+  { id: 'pLevel', label: 'Level', defaultWidth: 90, minWidth: 70, maxWidth: 130, mandatory: false },
+  { id: 'status', label: 'Status', defaultWidth: 140, minWidth: 110, maxWidth: 200, mandatory: false },
+  { id: 'assignee', label: 'Assignees', defaultWidth: 190, minWidth: 140, maxWidth: 300, mandatory: false },
+  { id: 'flag', label: 'Flags', defaultWidth: 155, minWidth: 120, maxWidth: 260, mandatory: false },
+  { id: 'cvCount', label: 'Int Shortlist', defaultWidth: 100, minWidth: 75, maxWidth: 140, mandatory: false },
+  { id: 'extShortlistCount', label: 'Ext Shortlist', defaultWidth: 120, minWidth: 85, maxWidth: 160, mandatory: false },
+  { id: 'actions', label: 'Actions', defaultWidth: 135, minWidth: 115, maxWidth: 180, mandatory: true }
+];
+
+const DEFAULT_COL_WIDTHS = Object.fromEntries(COLUMN_CONFIG.map(col => [col.id, col.defaultWidth]));
+const DEFAULT_COL_VISIBILITY = Object.fromEntries(COLUMN_CONFIG.map(col => [col.id, true]));
+
+function ColumnVisibilityDropdown({ columns, visibility, onToggleVisibility, onResetLayout }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const visibleCount = columns.filter(col => visibility[col.id] !== false).length;
+
+  return (
+    <div className="col-visibility-wrap" ref={containerRef}>
+      <button
+        type="button"
+        className="col-visibility-btn"
+        onClick={() => setIsOpen(!isOpen)}
+        title="Show or hide columns"
+        aria-label="Customize columns"
+      >
+        <SlidersHorizontal size={13} />
+        <span>Columns ({visibleCount}/{columns.length})</span>
+        <span className="col-visibility-arrow">▾</span>
+      </button>
+
+      {isOpen && (
+        <div className="col-visibility-dropdown">
+          <div className="col-visibility-header">
+            <span className="col-visibility-title">Toggle Columns</span>
+            <button
+              type="button"
+              className="col-visibility-reset-btn"
+              onClick={() => {
+                onResetLayout();
+                setIsOpen(false);
+              }}
+              title="Reset column widths and visibility to defaults"
+            >
+              <RotateCcw size={12} />
+              <span>Reset</span>
+            </button>
+          </div>
+          <div className="col-visibility-list">
+            {columns.map(col => {
+              const isChecked = visibility[col.id] !== false;
+              return (
+                <label
+                  key={col.id}
+                  className={`col-visibility-item ${col.mandatory ? 'col-visibility-item--disabled' : ''}`}
+                  title={col.mandatory ? `${col.label} is mandatory and cannot be hidden` : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    disabled={col.mandatory}
+                    onChange={() => onToggleVisibility(col.id)}
+                  />
+                  <span className="col-visibility-label">{col.label}</span>
+                  {col.mandatory && <span className="col-visibility-badge">Locked</span>}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const DEFAULT_FILTERS = {
   client: '',
   assignee: '',
@@ -682,6 +777,77 @@ function Positions() {
     const stored = getStoredPositionsState();
     return stored?.viewMode === 'grid' || stored?.viewMode === 'table' ? stored.viewMode : 'table';
   });
+
+  // Column width & visibility state for Excel-style table
+  const [colWidths, setColWidths] = useState(() => {
+    const stored = getStoredPositionsState();
+    return {
+      ...DEFAULT_COL_WIDTHS,
+      ...(stored?.colWidths || {})
+    };
+  });
+
+  const [colVisibility, setColVisibility] = useState(() => {
+    const stored = getStoredPositionsState();
+    return {
+      ...DEFAULT_COL_VISIBILITY,
+      ...(stored?.colVisibility || {})
+    };
+  });
+
+  // Column resizing state ref
+  const resizingColRef = useRef(null);
+
+  const handleStartResize = (e, colId) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = colWidths[colId] || DEFAULT_COL_WIDTHS[colId] || 120;
+    const colConfig = COLUMN_CONFIG.find(c => c.id === colId) || { minWidth: 70, maxWidth: 450 };
+
+    resizingColRef.current = { colId, startX, startWidth, minWidth: colConfig.minWidth, maxWidth: colConfig.maxWidth };
+    document.body.classList.add('table-resizing-active');
+
+    const handleMouseMove = (moveEvent) => {
+      if (!resizingColRef.current) return;
+      const deltaX = moveEvent.clientX - resizingColRef.current.startX;
+      const nextWidth = Math.max(
+        resizingColRef.current.minWidth,
+        Math.min(resizingColRef.current.maxWidth, resizingColRef.current.startWidth + deltaX)
+      );
+      setColWidths(prev => ({
+        ...prev,
+        [resizingColRef.current.colId]: nextWidth
+      }));
+    };
+
+    const handleMouseUp = () => {
+      resizingColRef.current = null;
+      document.body.classList.remove('table-resizing-active');
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleToggleColumnVisibility = (colId) => {
+    const col = COLUMN_CONFIG.find(c => c.id === colId);
+    if (col?.mandatory) return; // cannot hide mandatory columns
+
+    setColVisibility(prev => ({
+      ...prev,
+      [colId]: prev[colId] === false ? true : false
+    }));
+  };
+
+  const handleResetLayout = () => {
+    setColWidths({ ...DEFAULT_COL_WIDTHS });
+    setColVisibility({ ...DEFAULT_COL_VISIBILITY });
+  };
+
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -693,6 +859,9 @@ function Positions() {
   const [flagPopoverId, setFlagPopoverId] = useState(null);
   const [selectedPosition, setSelectedPosition] = useState(null);
   const [flagPopoverDirection, setFlagPopoverDirection] = useState({});
+  const [salaryModalPosition, setSalaryModalPosition] = useState(null);
+  const [tempSalaryModalData, setTempSalaryModalData] = useState(null);
+  const [savingSalaryModal, setSavingSalaryModal] = useState(false);
 
   // ---- Positions now live in the shared TanStack Query cache instead of
   // local state. This is what lets useLiveRefresh() (SSE-driven) and every
@@ -730,20 +899,22 @@ function Positions() {
     fetchData();
   }, []);
 
-  // Persist filters and viewMode to sessionStorage
+  // Persist filters, viewMode, colWidths, and colVisibility to sessionStorage
   useEffect(() => {
     try {
       const existing = getStoredPositionsState() || {};
       const nextState = {
         ...existing,
         filters,
-        viewMode
+        viewMode,
+        colWidths,
+        colVisibility
       };
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
     } catch (e) {
       // ignore
     }
-  }, [filters, viewMode]);
+  }, [filters, viewMode, colWidths, colVisibility]);
 
   const saveScrollState = (patch) => {
     try {
@@ -1036,6 +1207,7 @@ function Positions() {
       position: pos.position,
       client: pos.client?._id || '',
       packageRange: pos.packageRange || '',
+      salary: pos.salary || null,
       cvCount: pos.cvCount ?? '',
       extShortlistCount: pos.extShortlistCount ?? '',
     });
@@ -1058,7 +1230,8 @@ function Positions() {
       const payload = {
         position: editForm.position.trim(),
         client: editForm.client || null,
-        packageRange: editForm.packageRange.trim(),
+        packageRange: editForm.packageRange ? editForm.packageRange.trim() : '',
+        salary: editForm.salary !== undefined ? editForm.salary : (pos.salary || null),
         cvCount: editForm.cvCount === '' ? null : Number(editForm.cvCount),
         extShortlistCount: editForm.extShortlistCount === ''
           ? null
@@ -1225,6 +1398,14 @@ function Positions() {
           <HeaderFilter options={filterStatusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" showLabel />
           <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" showLabel searchable />
           <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" showLabel />
+          {viewMode === 'table' && (
+            <ColumnVisibilityDropdown
+              columns={COLUMN_CONFIG}
+              visibility={colVisibility}
+              onToggleVisibility={handleToggleColumnVisibility}
+              onResetLayout={handleResetLayout}
+            />
+          )}
           {(filters.client || filters.pLevel || filters.status || filters.assignee || filters.flag || filters.highlightColor || filters.search) && (
             <button
               type="button"
@@ -1249,26 +1430,164 @@ function Positions() {
         >
           <table className="positions-table">
             <colgroup>
-              <col style={{ width: '7%' }} /><col style={{ width: '11%' }} /><col style={{ width: '16%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} /><col style={{ width: '10%' }} /><col style={{ width: '12%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} /><col style={{ width: '8%' }} /><col style={{ width: '10%' }} />
+              {COLUMN_CONFIG.map(col => {
+                if (colVisibility[col.id] === false) return null;
+                const width = colWidths[col.id] || col.defaultWidth;
+                return <col key={col.id} style={{ width: `${width}px` }} />;
+              })}
             </colgroup>
             <thead>
               <tr>
-                <th>JO ID</th>
-                <th className="th-with-filter">Client <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" /></th>
-                <th>Position</th>
-                <th>Package Range</th>
-                <th className="th-with-filter">Level <HeaderFilter options={levelOptions} value={filters.pLevel} onChange={(v) => handleFilterChange('pLevel', v)} allLabel="All" label="Level" /></th>
-                <th className="th-with-filter">Status <HeaderFilter options={filterStatusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" /></th>
-                <th className="th-with-filter">Assignees <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" /></th>
-                <th className="th-with-filter">Flags <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" /></th>
-                <th>Int Shortlist</th>
-                <th>Ext Shortlist</th>
-                <th className="th-with-filter">Actions <HeaderFilter options={colorOptions} value={filters.highlightColor} onChange={(v) => handleFilterChange('highlightColor', v)} allLabel="All" label="Color" /></th>
+                {colVisibility.jobOrderId !== false && (
+                  <th className="th-sticky-1">
+                    <span className="th-content">JO ID</span>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'jobOrderId')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
+
+                {colVisibility.client !== false && (
+                  <th className="th-with-filter">
+                    <div className="th-content">
+                      <span>Client</span>
+                      <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" />
+                    </div>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'client')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
+
+                {colVisibility.position !== false && (
+                  <th
+                    className="th-sticky-2"
+                    style={{ left: `${colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 105) : 0}px` }}
+                  >
+                    <span className="th-content">Position</span>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'position')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
+
+                {colVisibility.packageRange !== false && (
+                  <th>
+                    <span className="th-content">Package Range</span>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'packageRange')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
+
+                {colVisibility.pLevel !== false && (
+                  <th className="th-with-filter">
+                    <div className="th-content">
+                      <span>Level</span>
+                      <HeaderFilter options={levelOptions} value={filters.pLevel} onChange={(v) => handleFilterChange('pLevel', v)} allLabel="All" label="Level" />
+                    </div>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'pLevel')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
+
+                {colVisibility.status !== false && (
+                  <th className="th-with-filter">
+                    <div className="th-content">
+                      <span>Status</span>
+                      <HeaderFilter options={filterStatusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" />
+                    </div>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'status')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
+
+                {colVisibility.assignee !== false && (
+                  <th className="th-with-filter">
+                    <div className="th-content">
+                      <span>Assignees</span>
+                      <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" />
+                    </div>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'assignee')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
+
+                {colVisibility.flag !== false && (
+                  <th className="th-with-filter">
+                    <div className="th-content">
+                      <span>Flags</span>
+                      <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" />
+                    </div>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'flag')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
+
+                {colVisibility.cvCount !== false && (
+                  <th>
+                    <span className="th-content">Int Shortlist</span>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'cvCount')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
+
+                {colVisibility.extShortlistCount !== false && (
+                  <th>
+                    <span className="th-content">Ext Shortlist</span>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'extShortlistCount')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
+
+                {colVisibility.actions !== false && (
+                  <th className="th-with-filter">
+                    <div className="th-content">
+                      <span>Actions</span>
+                      <HeaderFilter options={colorOptions} value={filters.highlightColor} onChange={(v) => handleFilterChange('highlightColor', v)} allLabel="All" label="Color" />
+                    </div>
+                    <div
+                      className="col-resizer"
+                      onMouseDown={(e) => handleStartResize(e, 'actions')}
+                      title="Drag to resize"
+                    />
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
               {filteredPositions.length === 0 ? (
-                <tr><td colSpan="11" className="no-rows">No positions found</td></tr>
+                <tr>
+                  <td colSpan={COLUMN_CONFIG.filter(c => colVisibility[c.id] !== false).length} className="no-rows">
+                    No positions found
+                  </td>
+                </tr>
               ) : (
                 filteredPositions.map(pos => {
                   const flagEntries = pos.flags ? Object.entries(pos.flags).filter(([, f]) => f !== null) : [];
@@ -1288,198 +1607,266 @@ function Positions() {
                     ? { backgroundColor: TA_COLORS[primaryTA.color].bg, color: TA_COLORS[primaryTA.color].text, borderColor: 'transparent' }
                     : undefined;
 
+                  const stickyCol1Width = colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 105) : 0;
+
                   return (
                     <tr key={pos._id} className={rowClassName}>
-                      <td><Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link></td>
-                      <td>
-                        {isEditing ? (
-                          <select className="inline-edit-input" name="client" value={editForm.client} onChange={handleEditFormChange}>
-                            <option value="">— Select client —</option>
-                            {clientOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                          </select>
-                        ) : (
-                          <span className="text-ellipsis">{pos.client?.clientName || '—'}</span>
-                        )}
-                      </td>
-                      <td>
-                        {isEditing ? (
-                          <input className="inline-edit-input" name="position" value={editForm.position} onChange={handleEditFormChange} placeholder="Position title" />
-                        ) : (
-                          <span className="text-ellipsis">{pos.position}</span>
-                        )}
-                      </td>
-                      <td>
-                        {isEditing ? (
-                          <input className="inline-edit-input inline-edit-input--range" name="packageRange" value={editForm.packageRange} onChange={handleEditFormChange} placeholder="e.g. £40-50k" />
-                        ) : (
-                          <span className="package-range-value">{pos.packageRange || '—'}</span>
-                        )}
-                      </td>
-                      <td className="td-dropdown">
-                        <InlineDropdown value={pos.pLevel} options={rowLevelOptions} onChange={(v) => handleDirectUpdate(pos, 'pLevel', v)} disabled={isUpdating} shape="circle" />
-                      </td>
-                      <td className="td-dropdown">
-                        <InlineDropdown value={pos.status} options={rowStatusOptions} onChange={(v) => handleDirectUpdate(pos, 'status', v)} disabled={isUpdating} shape="pill" />
-                      </td>
-                      <td className="td-dropdown">
-                        <div className="assignee-cell">
-                          <SingleInlineDropdown
-                            value={currentAssigneeId}
-                            options={assigneeOptions.map(opt => ({ ...opt, value: opt.value === 'unassigned' ? null : opt.value }))}
-                            onChange={(newId) => handleDirectUpdate(pos, 'assignee', newId)}
-                            disabled={isUpdating}
-                            placeholder="Assign TA"
-                            triggerStyle={triggerStyle}   // <-- pass style
-                          />
-                          <ParallelAssigneesPicker
-                            values={currentParallelIds}
-                            options={parallelOptions}
-                            onChange={(newIds) => handleParallelAssign(pos, newIds)}
-                            disabled={isUpdating}
-                          />
-                          {currentParallelIds.length > 0 && (
-                            <div className="parallel-chips">
-                              {currentParallelIds.map(id => {
-                                const ta = tas.find(t => t._id === id);
-                                const chipStyle = ta?.color
-                                  ? { backgroundColor: TA_COLORS[ta.color].bg, color: TA_COLORS[ta.color].text }
-                                  : undefined;
-                                return ta ? (
-                                  <span key={id} className="parallel-chip" style={chipStyle}>
-                                    {ta.name}
-                                    <button className="parallel-chip-remove" onClick={() => {
-                                      const newIds = currentParallelIds.filter(i => i !== id);
-                                      handleParallelAssign(pos, newIds);
-                                    }} disabled={isUpdating}>×</button>
-                                  </span>
-                                ) : null;
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="td-dropdown">
-                        <div className="flags-cell">
-                          {flagEntries.map(([flagKey, flag]) => {
-                            const popoverKey = `${pos._id}:${flagKey}`;
-                            const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
-                            const isOpen = flagPopoverId === popoverKey;
-                            const direction = flagPopoverDirection[popoverKey] || 'up';
-                            return (
-                              <div className="flag-badge-wrap" key={flagKey}>
-                                <button type="button" className="flag-badge-btn" onClick={(e) => {
-                                  if (flagPopoverId === popoverKey) setFlagPopoverId(null);
-                                  else {
-                                    const dir = computeFlagPopoverDirection(e.currentTarget);
-                                    setFlagPopoverDirection(prev => ({ ...prev, [popoverKey]: dir }));
-                                    setFlagPopoverId(popoverKey);
-                                  }
-                                }} title={`${flag.label} — click to change`}>
-                                  <FlagBadge flag={flag} />
-                                </button>
-                                {isOpen && (
-                                  <>
-                                    <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
-                                    <div className={`flag-popover flag-popover--${direction}`}>
-                                      <div className="flag-popover-title">{flag.label}</div>
-                                      {['auto', 'on', 'off'].map(mode => (
-                                        <button key={mode} className={`flag-popover-option ${currentMode === mode ? 'selected' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
-                                          {mode === 'auto' ? 'Auto (default)' : mode === 'on' ? 'Force On' : 'Turn Off'}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            );
-                          })}
-                          <div className="flag-badge-wrap">
-                            <button type="button" className="flag-add-btn" onClick={(e) => {
-                              const manageKey = `${pos._id}:manage`;
-                              if (flagPopoverId === manageKey) setFlagPopoverId(null);
-                              else {
-                                const dir = computeFlagPopoverDirection(e.currentTarget);
-                                setFlagPopoverDirection(prev => ({ ...prev, [manageKey]: dir }));
-                                setFlagPopoverId(manageKey);
-                              }
-                            }} title="Manage all flags">+</button>
-                            {flagPopoverId === `${pos._id}:manage` && (
-                              <>
-                                <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
-                                <div className={`flag-popover flag-popover--manage flag-popover--${flagPopoverDirection[`${pos._id}:manage`] || 'up'}`}>
-                                  <div className="flag-popover-title">Manage Flags</div>
-                                  {FLAG_OPTIONS.map(({ value: flagKey, label }) => {
-                                    const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
-                                    return (
-                                      <div className="flag-manage-row" key={flagKey}>
-                                        <span className="flag-manage-label">{label}</span>
-                                        <div className="flag-manage-btns">
-                                          {['auto', 'on', 'off'].map(mode => (
-                                            <button key={mode} className={`flag-mode-btn ${currentMode === mode ? 'active' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
-                                              {mode === 'auto' ? 'Auto' : mode === 'on' ? 'On' : 'Off'}
-                                            </button>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        {isEditing ? (
-                          <input type="number" min="0" className="inline-edit-input inline-edit-input--num" name="cvCount" value={editForm.cvCount} onChange={handleEditFormChange} />
-                        ) : (pos.cvCount ?? '—')}
-                      </td>
-                      <td>
-                        {isEditing ? (
-                          <div className="ext-shortlist-edit">
-                            <input type="text" inputMode="numeric" className="inline-edit-input inline-edit-input--num" name="extShortlistCount" value={editForm.extShortlistCount === 'Client Review' ? '' : editForm.extShortlistCount} onChange={handleEditFormChange} placeholder="Number" disabled={editForm.extShortlistCount === 'Client Review'} />
-                            <select className="ext-shortlist-select" value={editForm.extShortlistCount === 'Client Review' ? 'clientReview' : ''} onChange={(e) => {
-                              if (e.target.value === 'clientReview') setEditForm(prev => ({ ...prev, extShortlistCount: 'Client Review' }));
-                              else setEditForm(prev => ({ ...prev, extShortlistCount: '' }));
-                            }} title="Or mark as Client Review instead of a number">
-                              <option value="">#</option>
-                              <option value="clientReview">Client Review</option>
-                            </select>
-                          </div>
-                        ) : pos.extShortlistCount === 'Client Review' ? (
-                          <span className="ext-shortlist-badge ext-shortlist-badge--review">Client Review</span>
-                        ) : (pos.extShortlistCount ?? '—')}
-                      </td>
-                      <td className="td-dropdown">
-                        <div className="actions-cell">
-                          <div className="color-picker-wrap">
-                            <button className="color-swatch-btn" style={{ background: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : '#e5e7eb', border: pos.highlightColor ? '2px solid rgba(0,0,0,0.15)' : '2px dashed #d1d5db' }} onClick={() => setColorPopoverId(colorPopoverId === pos._id ? null : pos._id)} title="Set highlight color" />
-                            {colorPopoverId === pos._id && (
-                              <>
-                                <div className="popover-backdrop" onClick={() => setColorPopoverId(null)} />
-                                <div className="color-popover">
-                                  <button className="color-popover-option" onClick={() => handleColorChange(pos, null)}><span className="color-swatch-dot color-swatch-dot--none" />None</button>
-                                  {COLOR_KEYS.map(key => (
-                                    <button key={key} className="color-popover-option" onClick={() => handleColorChange(pos, key)}><span className="color-swatch-dot" style={{ background: COLOR_HEX[key] }} />{legendLabel(key) || key}</button>
-                                  ))}
-                                </div>
-                              </>
-                            )}
-                          </div>
+                      {colVisibility.jobOrderId !== false && (
+                        <td className="td-sticky-1">
+                          <Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link>
+                        </td>
+                      )}
+
+                      {colVisibility.client !== false && (
+                        <td>
                           {isEditing ? (
-                            <>
-                              <button className="action-save" onClick={() => saveEdit(pos)} disabled={savingEdit}>Save</button>
-                              <button className="action-cancel" onClick={cancelEdit} disabled={savingEdit}>Cancel</button>
-                            </>
+                            <select className="inline-edit-input" name="client" value={editForm.client} onChange={handleEditFormChange}>
+                              <option value="">— Select client —</option>
+                              {clientOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                            </select>
                           ) : (
-                            <>
-                              <button className="action-edit" onClick={() => startEdit(pos)} title="Edit row"><EditIcon /></button>
-                              <button className="action-link" onClick={() => setSelectedPosition(pos)} title="View details"><ViewIcon /></button>
-                              <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position"><DeleteIcon /></button>
-                            </>
+                            <span className="text-ellipsis">{pos.client?.clientName || '—'}</span>
                           )}
-                        </div>
-                      </td>
+                        </td>
+                      )}
+
+                      {colVisibility.position !== false && (
+                        <td className="td-sticky-2" style={{ left: `${stickyCol1Width}px` }}>
+                          {isEditing ? (
+                            <input className="inline-edit-input" name="position" value={editForm.position} onChange={handleEditFormChange} placeholder="Position title" />
+                          ) : (
+                            <span className="text-ellipsis" title={pos.position}>{pos.position}</span>
+                          )}
+                        </td>
+                      )}
+
+                      {colVisibility.packageRange !== false && (
+                        <td className="td-dropdown">
+                          {isEditing ? (
+                            <div className="salary-inline-cell">
+                              <button
+                                type="button"
+                                className="salary-inline-btn"
+                                onClick={() => {
+                                  setTempSalaryModalData({
+                                    salary: editForm.salary !== undefined ? editForm.salary : pos.salary,
+                                    packageRange: editForm.packageRange !== undefined ? editForm.packageRange : pos.packageRange
+                                  });
+                                  setSalaryModalPosition(pos);
+                                }}
+                                title="Click to configure structured salary package"
+                              >
+                                <span className="text-ellipsis">
+                                  {formatSalary(editForm.salary, editForm.packageRange) || 'Configure'}
+                                </span>
+                                <span className="salary-inline-btn-badge">⚙️</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="salary-cell-view-btn"
+                              onClick={() => {
+                                setTempSalaryModalData({
+                                  salary: pos.salary,
+                                  packageRange: pos.packageRange
+                                });
+                                setSalaryModalPosition(pos);
+                              }}
+                              title="Click to view or edit salary package"
+                            >
+                              <span className="package-range-value">{formatSalary(pos.salary, pos.packageRange) || '—'}</span>
+                              <span className="salary-cell-hover-icon">✏️</span>
+                            </button>
+                          )}
+                        </td>
+                      )}
+
+                      {colVisibility.pLevel !== false && (
+                        <td className="td-dropdown">
+                          <InlineDropdown value={pos.pLevel} options={rowLevelOptions} onChange={(v) => handleDirectUpdate(pos, 'pLevel', v)} disabled={isUpdating} shape="circle" />
+                        </td>
+                      )}
+
+                      {colVisibility.status !== false && (
+                        <td className="td-dropdown">
+                          <InlineDropdown value={pos.status} options={rowStatusOptions} onChange={(v) => handleDirectUpdate(pos, 'status', v)} disabled={isUpdating} shape="pill" />
+                        </td>
+                      )}
+
+                      {colVisibility.assignee !== false && (
+                        <td className="td-dropdown">
+                          <div className="assignee-cell">
+                            <SingleInlineDropdown
+                              value={currentAssigneeId}
+                              options={assigneeOptions.map(opt => ({ ...opt, value: opt.value === 'unassigned' ? null : opt.value }))}
+                              onChange={(newId) => handleDirectUpdate(pos, 'assignee', newId)}
+                              disabled={isUpdating}
+                              placeholder="Assign TA"
+                              triggerStyle={triggerStyle}
+                            />
+                            <ParallelAssigneesPicker
+                              values={currentParallelIds}
+                              options={parallelOptions}
+                              onChange={(newIds) => handleParallelAssign(pos, newIds)}
+                              disabled={isUpdating}
+                            />
+                            {currentParallelIds.length > 0 && (
+                              <div className="parallel-chips">
+                                {currentParallelIds.map(id => {
+                                  const ta = tas.find(t => t._id === id);
+                                  const chipStyle = ta?.color
+                                    ? { backgroundColor: TA_COLORS[ta.color].bg, color: TA_COLORS[ta.color].text }
+                                    : undefined;
+                                  return ta ? (
+                                    <span key={id} className="parallel-chip" style={chipStyle}>
+                                      {ta.name}
+                                      <button className="parallel-chip-remove" onClick={() => {
+                                        const newIds = currentParallelIds.filter(i => i !== id);
+                                        handleParallelAssign(pos, newIds);
+                                      }} disabled={isUpdating}>×</button>
+                                    </span>
+                                  ) : null;
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      )}
+
+                      {colVisibility.flag !== false && (
+                        <td className="td-dropdown">
+                          <div className="flags-cell">
+                            {flagEntries.map(([flagKey, flag]) => {
+                              const popoverKey = `${pos._id}:${flagKey}`;
+                              const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
+                              const isOpen = flagPopoverId === popoverKey;
+                              const direction = flagPopoverDirection[popoverKey] || 'up';
+                              return (
+                                <div className="flag-badge-wrap" key={flagKey}>
+                                  <button type="button" className="flag-badge-btn" onClick={(e) => {
+                                    if (flagPopoverId === popoverKey) setFlagPopoverId(null);
+                                    else {
+                                      const dir = computeFlagPopoverDirection(e.currentTarget);
+                                      setFlagPopoverDirection(prev => ({ ...prev, [popoverKey]: dir }));
+                                      setFlagPopoverId(popoverKey);
+                                    }
+                                  }} title={`${flag.label} — click to change`}>
+                                    <FlagBadge flag={flag} />
+                                  </button>
+                                  {isOpen && (
+                                    <>
+                                      <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
+                                      <div className={`flag-popover flag-popover--${direction}`}>
+                                        <div className="flag-popover-title">{flag.label}</div>
+                                        {['auto', 'on', 'off'].map(mode => (
+                                          <button key={mode} className={`flag-popover-option ${currentMode === mode ? 'selected' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
+                                            {mode === 'auto' ? 'Auto (default)' : mode === 'on' ? 'Force On' : 'Turn Off'}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            <div className="flag-badge-wrap">
+                              <button type="button" className="flag-add-btn" onClick={(e) => {
+                                const manageKey = `${pos._id}:manage`;
+                                if (flagPopoverId === manageKey) setFlagPopoverId(null);
+                                else {
+                                  const dir = computeFlagPopoverDirection(e.currentTarget);
+                                  setFlagPopoverDirection(prev => ({ ...prev, [manageKey]: dir }));
+                                  setFlagPopoverId(manageKey);
+                                }
+                              }} title="Manage all flags">+</button>
+                              {flagPopoverId === `${pos._id}:manage` && (
+                                <>
+                                  <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
+                                  <div className={`flag-popover flag-popover--manage flag-popover--${flagPopoverDirection[`${pos._id}:manage`] || 'up'}`}>
+                                    <div className="flag-popover-title">Manage Flags</div>
+                                    {FLAG_OPTIONS.map(({ value: flagKey, label }) => {
+                                      const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
+                                      return (
+                                        <div className="flag-manage-row" key={flagKey}>
+                                          <span className="flag-manage-label">{label}</span>
+                                          <div className="flag-manage-btns">
+                                            {['auto', 'on', 'off'].map(mode => (
+                                              <button key={mode} className={`flag-mode-btn ${currentMode === mode ? 'active' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
+                                                {mode === 'auto' ? 'Auto' : mode === 'on' ? 'On' : 'Off'}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      )}
+
+                      {colVisibility.cvCount !== false && (
+                        <td>
+                          {isEditing ? (
+                            <input type="number" min="0" className="inline-edit-input inline-edit-input--num" name="cvCount" value={editForm.cvCount} onChange={handleEditFormChange} />
+                          ) : (pos.cvCount ?? '—')}
+                        </td>
+                      )}
+
+                      {colVisibility.extShortlistCount !== false && (
+                        <td>
+                          {isEditing ? (
+                            <div className="ext-shortlist-edit">
+                              <input type="text" inputMode="numeric" className="inline-edit-input inline-edit-input--num" name="extShortlistCount" value={editForm.extShortlistCount === 'Client Review' ? '' : editForm.extShortlistCount} onChange={handleEditFormChange} placeholder="Number" disabled={editForm.extShortlistCount === 'Client Review'} />
+                              <select className="ext-shortlist-select" value={editForm.extShortlistCount === 'Client Review' ? 'clientReview' : ''} onChange={(e) => {
+                                if (e.target.value === 'clientReview') setEditForm(prev => ({ ...prev, extShortlistCount: 'Client Review' }));
+                                else setEditForm(prev => ({ ...prev, extShortlistCount: '' }));
+                              }} title="Or mark as Client Review instead of a number">
+                                <option value="">#</option>
+                                <option value="clientReview">Client Review</option>
+                              </select>
+                            </div>
+                          ) : pos.extShortlistCount === 'Client Review' ? (
+                            <span className="ext-shortlist-badge ext-shortlist-badge--review">Client Review</span>
+                          ) : (pos.extShortlistCount ?? '—')}
+                        </td>
+                      )}
+
+                      {colVisibility.actions !== false && (
+                        <td className="td-dropdown">
+                          <div className="actions-cell">
+                            <div className="color-picker-wrap">
+                              <button className="color-swatch-btn" style={{ background: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : '#e5e7eb', border: pos.highlightColor ? '2px solid rgba(0,0,0,0.15)' : '2px dashed #d1d5db' }} onClick={() => setColorPopoverId(colorPopoverId === pos._id ? null : pos._id)} title="Set highlight color" />
+                              {colorPopoverId === pos._id && (
+                                <>
+                                  <div className="popover-backdrop" onClick={() => setColorPopoverId(null)} />
+                                  <div className="color-popover">
+                                    <button className="color-popover-option" onClick={() => handleColorChange(pos, null)}><span className="color-swatch-dot color-swatch-dot--none" />None</button>
+                                    {COLOR_KEYS.map(key => (
+                                      <button key={key} className="color-popover-option" onClick={() => handleColorChange(pos, key)}><span className="color-swatch-dot" style={{ background: COLOR_HEX[key] }} />{legendLabel(key) || key}</button>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                            {isEditing ? (
+                              <>
+                                <button className="action-save" onClick={() => saveEdit(pos)} disabled={savingEdit}>Save</button>
+                                <button className="action-cancel" onClick={cancelEdit} disabled={savingEdit}>Cancel</button>
+                              </>
+                            ) : (
+                              <>
+                                <button className="action-edit" onClick={() => startEdit(pos)} title="Edit row"><EditIcon /></button>
+                                <button className="action-link" onClick={() => setSelectedPosition(pos)} title="View details"><ViewIcon /></button>
+                                <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position"><DeleteIcon /></button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })
@@ -1529,6 +1916,95 @@ function Positions() {
 
       {selectedPosition && (
         <PositionDetailModal position={selectedPosition} onClose={() => setSelectedPosition(null)} onUpdate={refreshList} tas={tas} />
+      )}
+
+      {salaryModalPosition && (
+        <div className="modal-overlay" onClick={() => { setSalaryModalPosition(null); setTempSalaryModalData(null); }}>
+          <div className="modal modal-md salary-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Salary Package — {salaryModalPosition.jobOrderId}</h2>
+              <button className="modal-close-btn" onClick={() => { setSalaryModalPosition(null); setTempSalaryModalData(null); }}>
+                <CloseIcon />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="salary-modal-subtitle">{salaryModalPosition.position} ({salaryModalPosition.client?.clientName || '—'})</p>
+              <SalaryPackagePicker
+                value={
+                  editingId === salaryModalPosition._id
+                    ? (editForm.salary !== undefined ? editForm.salary : salaryModalPosition.salary)
+                    : (tempSalaryModalData?.salary !== undefined ? tempSalaryModalData.salary : salaryModalPosition.salary)
+                }
+                legacyText={
+                  editingId === salaryModalPosition._id
+                    ? (editForm.packageRange !== undefined ? editForm.packageRange : salaryModalPosition.packageRange)
+                    : (tempSalaryModalData?.packageRange !== undefined ? tempSalaryModalData.packageRange : salaryModalPosition.packageRange)
+                }
+                onChange={(updatedSalary, formattedString) => {
+                  if (editingId === salaryModalPosition._id) {
+                    setEditForm(prev => ({
+                      ...prev,
+                      salary: updatedSalary,
+                      packageRange: formattedString
+                    }));
+                  }
+                  setTempSalaryModalData({
+                    salary: updatedSalary,
+                    packageRange: formattedString
+                  });
+                }}
+              />
+            </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setSalaryModalPosition(null);
+                  setTempSalaryModalData(null);
+                }}
+              >
+                {editingId === salaryModalPosition._id ? 'Done' : 'Cancel'}
+              </button>
+              {editingId !== salaryModalPosition._id && (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={savingSalaryModal}
+                  onClick={async () => {
+                    if (tempSalaryModalData) {
+                      setSavingSalaryModal(true);
+                      try {
+                        const payload = {
+                          salary: tempSalaryModalData.salary || null,
+                          packageRange: tempSalaryModalData.packageRange || ''
+                        };
+                        const res = await updatePosition(salaryModalPosition._id, payload);
+                        queryClient.setQueryData(['positions'], prev =>
+                          (prev || []).map(p => {
+                            if (p._id !== salaryModalPosition._id) return p;
+                            return { ...p, ...res.data };
+                          })
+                        );
+                        invalidatePositionsCache();
+                        setSalaryModalPosition(null);
+                        setTempSalaryModalData(null);
+                      } catch (err) {
+                        alert(err.response?.data?.error || 'Failed to update salary');
+                      } finally {
+                        setSavingSalaryModal(false);
+                      }
+                    } else {
+                      setSalaryModalPosition(null);
+                    }
+                  }}
+                >
+                  {savingSalaryModal ? 'Saving...' : 'Save Salary'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

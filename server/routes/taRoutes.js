@@ -8,12 +8,14 @@ const {
   updateTAName,
   setTransferTarget,
   updateTAColor,   // <-- new import
-  deleteTA
+  deleteTA,
+  reorderTAs
 } = require('../controllers/taController');
 
 router.get('/', getAllTAs);
 router.get('/active', getActiveTAs);
 router.post('/', createTA);
+router.put('/reorder', reorderTAs);
 router.put('/:id/status', updateTAStatus);
 router.put('/:id/name', updateTAName);
 router.put('/:id/transfer-target', setTransferTarget);

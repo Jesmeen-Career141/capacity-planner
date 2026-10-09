@@ -3,12 +3,14 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ChevronUp, ChevronDown, GripVertical } from 'lucide-react';
 import { getPositions, assignPosition, setFlagOverride, updatePosition } from '../api/positions';
 import { getArchiveSnapshots, getArchiveSnapshot } from '../api/archive';
-import { getActiveTAs } from '../api/tas';
+import { getActiveTAs, reorderTAs } from '../api/tas';
 import { getWeeklyAllocationsBatch, updateWeeklyAllocationCell, setLeaveBulk } from '../api/weeklyAllocations';
 import './TABoard.css';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
+import { formatSalary } from '../utils/salaryFormatter';
 
 // ---- CONSTANTS ----
 const PLEVEL_ORDER = ['P1', 'P2', 'P3', 'P4', 'P5'];
@@ -597,7 +599,7 @@ function PositionPool({ positions, navigate, onPositionClick }) {
 }
 
 // ---- PackageTooltip (portal-based, hover + focus, auto-flip) ----
-function PackageTooltip({ anchorRef, visible, packageRange, clientName, positionTitle }) {
+function PackageTooltip({ anchorRef, visible, salary, packageRange, clientName, positionTitle }) {
   const [style, setStyle] = useState(null);
   const [placement, setPlacement] = useState('top');
   const tooltipRef = useRef(null);
@@ -637,7 +639,8 @@ function PackageTooltip({ anchorRef, visible, packageRange, clientName, position
 
   if (!visible || !style) return null;
 
-  const pkg = packageRange && packageRange.trim() ? packageRange.trim() : 'Not specified';
+  const formatted = formatSalary(salary, packageRange);
+  const pkg = formatted && formatted.trim() ? formatted.trim() : 'Not specified';
 
   return createPortal(
     <div
@@ -787,6 +790,7 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, 
           <PackageTooltip
             anchorRef={half1Ref}
             visible={tooltip1Visible && !isOpen}
+            salary={position.salary}
             packageRange={position.packageRange}
             clientName={position.client?.clientName}
             positionTitle={position.position}
@@ -806,6 +810,7 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, 
           <PackageTooltip
             anchorRef={half2Ref}
             visible={tooltip2Visible && !isOpen}
+            salary={position2.salary}
             packageRange={position2.packageRange}
             clientName={position2.client?.clientName}
             positionTitle={position2.position}
@@ -829,6 +834,7 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, 
           <PackageTooltip
             anchorRef={triggerRef}
             visible={tooltip1Visible && !isOpen}
+            salary={position.salary}
             packageRange={position.packageRange}
             clientName={position.client?.clientName}
             positionTitle={position.position}
@@ -908,11 +914,87 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, 
 }
 
 // ---- TACard (passes weekStart, dayCell, onSetLeave) ----
-function TACard({ ta, displayWeeks, activeColumnIndex, getCell, positions, openCellKey, onCellToggle, onSelectCell, onSetCellLeave, navigate, workloadCount }) {
+function TACard({
+  ta,
+  displayWeeks,
+  activeColumnIndex,
+  getCell,
+  positions,
+  openCellKey,
+  onCellToggle,
+  onSelectCell,
+  onSetCellLeave,
+  navigate,
+  workloadCount,
+  onMoveUp,
+  onMoveDown,
+  isFirst,
+  isLast,
+  isReorderPending,
+  isDragging,
+  isDropTarget,
+  dropPosition,
+  onDragStart,
+  onDragOver,
+  onDragEnter,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+  cardRef
+}) {
   const initials = ta.name?.[0]?.toUpperCase() || '?';
+  const cardClassName = [
+    'ta-card',
+    isDragging ? 'ta-card--dragging' : '',
+    isDropTarget && dropPosition === 'before' ? 'ta-card--drop-before' : '',
+    isDropTarget && dropPosition === 'after' ? 'ta-card--drop-after' : '',
+  ].filter(Boolean).join(' ');
+
   return (
-    <section className="ta-card">
+    <section
+      ref={cardRef}
+      className={cardClassName}
+      data-ta-id={String(ta._id)}
+      onDragOver={onDragOver}
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <header className="ta-card-header">
+        <div
+          className={`ta-drag-handle ${isReorderPending ? 'ta-drag-handle--disabled' : ''}`}
+          draggable={!isReorderPending}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          title={isReorderPending ? 'Reordering in progress...' : `Drag to reorder ${ta.name}'s board`}
+          aria-label={`Drag to reorder ${ta.name}'s board`}
+          tabIndex={isReorderPending ? -1 : 0}
+          role="button"
+        >
+          <GripVertical size={16} />
+        </div>
+        <div className="ta-card-reorder-actions" aria-label={`Reorder ${ta.name}'s board`}>
+          <button
+            type="button"
+            className="ta-reorder-btn"
+            onClick={onMoveUp}
+            disabled={isFirst || isReorderPending}
+            title={isFirst ? 'Already at the top' : `Move ${ta.name} up`}
+            aria-label={`Move ${ta.name} up`}
+          >
+            <ChevronUp size={15} />
+          </button>
+          <button
+            type="button"
+            className="ta-reorder-btn"
+            onClick={onMoveDown}
+            disabled={isLast || isReorderPending}
+            title={isLast ? 'Already at the bottom' : `Move ${ta.name} down`}
+            aria-label={`Move ${ta.name} down`}
+          >
+            <ChevronDown size={15} />
+          </button>
+        </div>
         <div className="ta-avatar">{initials}</div>
         <p className="ta-name">{ta.name}</p>
         <span className="ta-workload-badge" title="Currently assigned open positions">
@@ -1448,11 +1530,264 @@ function TABoard() {
     queryClient.invalidateQueries(['positions']);
   };
 
+  const reorderTAMutation = useMutation({
+    mutationFn: (taIds) => reorderTAs(taIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['weeklyAllocations']);
+      queryClient.invalidateQueries(['tas']);
+      queryClient.invalidateQueries(['activeTAs']);
+    },
+  });
+
   const taList = useMemo(() => {
     const source =
       displayWeeks.map(w => gridsByWeek[w.weekStart]).find(g => g && g.length > 0) || [];
     return source.map(row => row.ta);
   }, [displayWeeks, gridsByWeek]);
+
+  // Drag and drop state for reordering
+  const [draggedTaId, setDraggedTaId] = useState(null);
+  const [dropTargetId, setDropTargetId] = useState(null);
+  const [dropPosition, setDropPosition] = useState(null); // 'before' | 'after'
+  const cardRefs = useRef(new Map());
+  const boardPageRef = useRef(null);
+  const scrollAnimRef = useRef(null);
+  const scrollSpeedRef = useRef(0);
+
+  // Helper to find the scrollable container (<main> from Layout)
+  const getScrollContainer = useCallback(() => {
+    return boardPageRef.current?.closest('main') || document.querySelector('main') || window;
+  }, []);
+
+  const stopAutoScroll = useCallback(() => {
+    scrollSpeedRef.current = 0;
+    if (scrollAnimRef.current) {
+      cancelAnimationFrame(scrollAnimRef.current);
+      scrollAnimRef.current = null;
+    }
+  }, []);
+
+  const startAutoScroll = useCallback(() => {
+    if (scrollAnimRef.current) return;
+
+    const step = () => {
+      const speed = scrollSpeedRef.current;
+      if (speed !== 0) {
+        const container = getScrollContainer();
+        if (container === window) {
+          window.scrollBy({ top: speed, behavior: 'auto' });
+        } else if (container && typeof container.scrollBy === 'function') {
+          container.scrollBy({ top: speed, behavior: 'auto' });
+        }
+        scrollAnimRef.current = requestAnimationFrame(step);
+      } else {
+        scrollAnimRef.current = null;
+      }
+    };
+
+    scrollAnimRef.current = requestAnimationFrame(step);
+  }, [getScrollContainer]);
+
+  const updateAutoScrollSpeed = useCallback((clientY) => {
+    const container = getScrollContainer();
+    let top = 0;
+    let bottom = window.innerHeight;
+
+    if (container && container !== window && typeof container.getBoundingClientRect === 'function') {
+      const rect = container.getBoundingClientRect();
+      top = rect.top;
+      bottom = rect.bottom;
+    }
+
+    const EDGE_THRESHOLD = 110; // Start scrolling within 110px of edge
+    const MAX_SPEED = 22; // Maximum px per frame
+
+    let speed = 0;
+
+    if (clientY < top + EDGE_THRESHOLD) {
+      // Near top edge: scroll up (negative speed)
+      const distance = Math.max(0, clientY - top);
+      const intensity = 1 - Math.min(1, distance / EDGE_THRESHOLD);
+      speed = -Math.round(4 + intensity * (MAX_SPEED - 4));
+    } else if (clientY > bottom - EDGE_THRESHOLD) {
+      // Near bottom edge: scroll down (positive speed)
+      const distance = Math.max(0, bottom - clientY);
+      const intensity = 1 - Math.min(1, distance / EDGE_THRESHOLD);
+      speed = Math.round(4 + intensity * (MAX_SPEED - 4));
+    }
+
+    scrollSpeedRef.current = speed;
+
+    if (speed !== 0) {
+      startAutoScroll();
+    } else {
+      stopAutoScroll();
+    }
+  }, [getScrollContainer, startAutoScroll, stopAutoScroll]);
+
+  // Window-level dragover to ensure auto-scroll continues smoothly everywhere
+  useEffect(() => {
+    if (!draggedTaId) return;
+
+    const handleWindowDragOver = (e) => {
+      e.preventDefault();
+      updateAutoScrollSpeed(e.clientY);
+    };
+
+    const handleWindowDragEnd = () => {
+      stopAutoScroll();
+      setDraggedTaId(null);
+      setDropTargetId(null);
+      setDropPosition(null);
+    };
+
+    window.addEventListener('dragover', handleWindowDragOver);
+    window.addEventListener('dragend', handleWindowDragEnd);
+    window.addEventListener('drop', handleWindowDragEnd);
+
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver);
+      window.removeEventListener('dragend', handleWindowDragEnd);
+      window.removeEventListener('drop', handleWindowDragEnd);
+      stopAutoScroll();
+    };
+  }, [draggedTaId, updateAutoScrollSpeed, stopAutoScroll]);
+
+  const persistReorder = async (reorderedIds) => {
+    // Optimistic cache update across all weeklyAllocations queries so UI shifts instantly
+    queryClient.setQueriesData({ queryKey: ['weeklyAllocations'] }, (old) => {
+      if (!Array.isArray(old)) return old;
+      return old.map(week => {
+        if (!Array.isArray(week.grid)) return week;
+        const gridMap = new Map();
+        week.grid.forEach(row => {
+          if (row?.ta?._id) gridMap.set(String(row.ta._id), row);
+        });
+        const sortedGrid = [];
+        reorderedIds.forEach(id => {
+          if (gridMap.has(id)) {
+            sortedGrid.push(gridMap.get(id));
+            gridMap.delete(id);
+          }
+        });
+        // Append any remaining rows safely
+        gridMap.forEach(row => sortedGrid.push(row));
+        return { ...week, grid: sortedGrid };
+      });
+    });
+
+    try {
+      await reorderTAMutation.mutateAsync(reorderedIds);
+    } catch (err) {
+      queryClient.invalidateQueries(['weeklyAllocations']);
+      alert(err.response?.data?.error || 'Failed to update board order');
+    }
+  };
+
+  const handleMoveTA = async (index, direction) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= taList.length) return;
+
+    const reordered = [...taList];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    const reorderedIds = reordered.map(t => String(t._id));
+    await persistReorder(reorderedIds);
+  };
+
+  const handleDragStart = (e, taId) => {
+    if (reorderTAMutation.isPending) {
+      e.preventDefault();
+      return;
+    }
+    setDraggedTaId(String(taId));
+    setDropTargetId(null);
+    setDropPosition(null);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(taId));
+  };
+
+  const handleDragOver = (e, targetTaId) => {
+    e.preventDefault();
+    if (!draggedTaId || draggedTaId === String(targetTaId)) {
+      e.dataTransfer.dropEffect = 'none';
+      return;
+    }
+    e.dataTransfer.dropEffect = 'move';
+
+    // Update auto-scroll speed based on pointer Y
+    updateAutoScrollSpeed(e.clientY);
+
+    const cardEl = cardRefs.current.get(String(targetTaId));
+    if (cardEl) {
+      const rect = cardEl.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const position = e.clientY < midY ? 'before' : 'after';
+      if (dropTargetId !== String(targetTaId) || dropPosition !== position) {
+        setDropTargetId(String(targetTaId));
+        setDropPosition(position);
+      }
+    }
+  };
+
+  const handleDragLeave = (e, targetTaId) => {
+    // Only reset if leaving the actual card element
+    const cardEl = cardRefs.current.get(String(targetTaId));
+    if (cardEl && !cardEl.contains(e.relatedTarget)) {
+      if (dropTargetId === String(targetTaId)) {
+        setDropTargetId(null);
+        setDropPosition(null);
+      }
+    }
+  };
+
+  const handleDrop = async (e, targetTaId) => {
+    e.preventDefault();
+    stopAutoScroll();
+
+    if (!draggedTaId || draggedTaId === String(targetTaId)) {
+      setDraggedTaId(null);
+      setDropTargetId(null);
+      setDropPosition(null);
+      return;
+    }
+
+    const fromIndex = taList.findIndex(t => String(t._id) === String(draggedTaId));
+    const targetIdx = taList.findIndex(t => String(t._id) === String(targetTaId));
+
+    if (fromIndex === -1 || targetIdx === -1) {
+      setDraggedTaId(null);
+      setDropTargetId(null);
+      setDropPosition(null);
+      return;
+    }
+
+    const reordered = [...taList];
+    const [moved] = reordered.splice(fromIndex, 1);
+
+    // Calculate insertion index based on whether drop was before or after target
+    let toIndex = reordered.findIndex(t => String(t._id) === String(targetTaId));
+    if (dropPosition === 'after') {
+      toIndex += 1;
+    }
+    reordered.splice(toIndex, 0, moved);
+
+    const reorderedIds = reordered.map(t => String(t._id));
+
+    setDraggedTaId(null);
+    setDropTargetId(null);
+    setDropPosition(null);
+
+    await persistReorder(reorderedIds);
+  };
+
+  const handleDragEnd = () => {
+    stopAutoScroll();
+    setDraggedTaId(null);
+    setDropTargetId(null);
+    setDropPosition(null);
+  };
 
   // ---- Loading / error ----
   const loading = positionsLoading || snapshotsLoading || tasLoading;
@@ -1470,7 +1805,16 @@ function TABoard() {
 
   // ---- Render ----
   return (
-    <div className="taboard-page">
+    <div
+      ref={boardPageRef}
+      className="taboard-page"
+      onDragOver={(e) => {
+        if (draggedTaId) {
+          e.preventDefault();
+          updateAutoScrollSpeed(e.clientY);
+        }
+      }}
+    >
       <div className="taboard-header">
         <h1>TA Board</h1>
         <div className="taboard-controls">
@@ -1540,7 +1884,7 @@ function TABoard() {
               <div className="grid-no-data">No active TAs found</div>
             ) : (
               <div className="weekly-grid-list">
-                {taList.map(ta => (
+                {taList.map((ta, index) => (
                   <TACard
                     key={String(ta._id)}
                     ta={ta}
@@ -1556,6 +1900,23 @@ function TABoard() {
                     onSetCellLeave={handleCellSetLeave}
                     navigate={navigate}
                     workloadCount={workloadByTA[ta._id] ?? 0}
+                    onMoveUp={() => handleMoveTA(index, -1)}
+                    onMoveDown={() => handleMoveTA(index, 1)}
+                    isFirst={index === 0}
+                    isLast={index === taList.length - 1}
+                    isReorderPending={reorderTAMutation.isPending}
+                    isDragging={draggedTaId === String(ta._id)}
+                    isDropTarget={dropTargetId === String(ta._id)}
+                    dropPosition={dropTargetId === String(ta._id) ? dropPosition : null}
+                    onDragStart={e => handleDragStart(e, ta._id)}
+                    onDragOver={e => handleDragOver(e, ta._id)}
+                    onDragLeave={e => handleDragLeave(e, ta._id)}
+                    onDrop={e => handleDrop(e, ta._id)}
+                    onDragEnd={handleDragEnd}
+                    cardRef={el => {
+                      if (el) cardRefs.current.set(String(ta._id), el);
+                      else cardRefs.current.delete(String(ta._id));
+                    }}
                   />
                 ))}
               </div>

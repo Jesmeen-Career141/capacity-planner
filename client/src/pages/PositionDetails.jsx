@@ -4,6 +4,8 @@
   import { getActiveTAs } from '../api/tas';
   import { getPositionHistory } from '../api/positionHistory';
   import FlagBadge from '../components/FlagBadge';
+  import SalaryPackagePicker from '../components/SalaryPackagePicker';
+  import { formatSalary } from '../utils/salaryFormatter';
   import './Positions.css';
   import './PositionDetails.css';
 
@@ -301,7 +303,8 @@
           position: formData.position,
           pLevel: formData.pLevel,
           status: formData.status,
-          packageRange: formData.packageRange || '',
+          packageRange: formData.packageRange !== undefined ? formData.packageRange : (position.packageRange || ''),
+          salary: formData.salary !== undefined ? formData.salary : (position.salary || null),
           extShortlistCount: formData.extShortlistCount,
           lsCount: formData.lsCount,
           cvCount: formData.cvCount,
@@ -569,8 +572,18 @@
                   {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
 
-                <label>Package Range</label>
-                <input name="packageRange" value={formData.packageRange || ''} onChange={handleFormChange} placeholder="e.g. £40-50k" />
+                <label>Salary Package</label>
+                <SalaryPackagePicker
+                  value={formData.salary !== undefined ? formData.salary : position.salary}
+                  legacyText={formData.packageRange !== undefined ? formData.packageRange : position.packageRange}
+                  onChange={(updatedSalary, formattedString) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      salary: updatedSalary,
+                      packageRange: formattedString
+                    }));
+                  }}
+                />
 
                 <label>LS Count</label>
                 <input name="lsCount" type="number" value={formData.lsCount || ''} onChange={handleFormChange} />
@@ -655,7 +668,7 @@
                 </div>
                 <div className="detail-row">
                   <span>Package Range</span>
-                  <span>{position.packageRange || '—'}</span>
+                  <span>{formatSalary(position.salary, position.packageRange) || '—'}</span>
                 </div>
                 <div className="detail-row">
                   <span>Assignee</span>

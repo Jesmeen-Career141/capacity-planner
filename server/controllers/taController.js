@@ -231,6 +231,55 @@ async function deleteTA(req, res) {
   }
 }
 
+// PUT /api/tas/reorder - reorder TAs by saving explicit order values
+async function reorderTAs(req, res) {
+  try {
+    const { taIds } = req.body;
+
+    if (!Array.isArray(taIds) || taIds.length === 0) {
+      return res.status(400).json({ error: 'taIds must be a non-empty array of TA IDs' });
+    }
+
+    // Verify all IDs are valid non-empty strings/ObjectIds and unique
+    const uniqueIds = Array.from(new Set(taIds.map(id => String(id).trim()))).filter(Boolean);
+    if (uniqueIds.length !== taIds.length) {
+      return res.status(400).json({ error: 'taIds must contain unique, valid IDs without duplicates' });
+    }
+
+    // Load all currently active TAs
+    const activeTAs = await TA.find({ status: 'Active' }).select('_id');
+    const activeIdSet = new Set(activeTAs.map(t => String(t._id)));
+
+    // Verify submitted count matches active count exactly
+    if (uniqueIds.length !== activeIdSet.size) {
+      return res.status(400).json({
+        error: `Submitted IDs count (${uniqueIds.length}) does not match the active TAs count (${activeIdSet.size}). All active TAs must be provided.`
+      });
+    }
+
+    // Verify that every submitted ID is an active TA
+    const hasInvalidOrInactive = uniqueIds.some(id => !activeIdSet.has(id));
+    if (hasInvalidOrInactive) {
+      return res.status(400).json({
+        error: 'One or more submitted TA IDs are either invalid, unknown, or inactive.'
+      });
+    }
+
+    const bulkOps = uniqueIds.map((id, index) => ({
+      updateOne: {
+        filter: { _id: id },
+        update: { $set: { order: index + 1 } }
+      }
+    }));
+
+    await TA.bulkWrite(bulkOps);
+
+    res.json({ success: true, count: uniqueIds.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   getAllTAs,
   getActiveTAs,
@@ -239,5 +288,6 @@ module.exports = {
   updateTAName,
   setTransferTarget,
   updateTAColor,
-  deleteTA
+  deleteTA,
+  reorderTAs
 };

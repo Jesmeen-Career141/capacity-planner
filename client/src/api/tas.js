@@ -8,3 +8,4 @@ export const deleteTA = (id) => api.delete(`/tas/${id}`);
 export const updateTAColor = (id, color) => api.put(`/tas/${id}/color`, { color });
 export const updateTAName = (id, name) => api.put(`/tas/${id}/name`, { name });
 export const setTransferTarget = (id) => api.put(`/tas/${id}/transfer-target`);
+export const reorderTAs = (taIds) => api.put('/tas/reorder', { taIds });

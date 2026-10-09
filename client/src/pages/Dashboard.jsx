@@ -67,6 +67,18 @@ function parsePackageRange(rangeStr) {
   return { currency, amount: average * multiplier };
 }
 
+function getPositionSalaryMetrics(p) {
+  if (p?.salary && (p.salary.minAmount != null || p.salary.maxAmount != null)) {
+    const min = p.salary.minAmount;
+    const max = p.salary.maxAmount;
+    let avg = null;
+    if (min != null && max != null) avg = (min + max) / 2;
+    else avg = min != null ? min : max;
+    return { currency: p.salary.currency || 'UNSPECIFIED', amount: avg };
+  }
+  return parsePackageRange(p?.packageRange);
+}
+
 // Currency-aware formatter
 function formatCurrency(value, currency) {
   if (currency === 'UNSPECIFIED') {
@@ -126,7 +138,7 @@ function Dashboard() {
       }
       acc.counts[status] += 1;
 
-      const { currency, amount } = parsePackageRange(p.packageRange);
+      const { currency, amount } = getPositionSalaryMetrics(p);
       if (amount === null) {
         acc.unspecified[status] += 1;
       } else {

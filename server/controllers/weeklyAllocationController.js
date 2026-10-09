@@ -34,6 +34,16 @@ function toISODate(date) {
   return date.toISOString().split('T')[0];
 }
 
+// Helper to sort active TAs by custom order ascending, falling back to name ascending and _id
+function sortTAsByCustomOrder(taA, taB) {
+  const orderA = typeof taA.order === 'number' ? taA.order : Infinity;
+  const orderB = typeof taB.order === 'number' ? taB.order : Infinity;
+  if (orderA !== orderB) return orderA - orderB;
+  const nameComp = (taA.name || '').localeCompare(taB.name || '');
+  if (nameComp !== 0) return nameComp;
+  return String(taA._id).localeCompare(String(taB._id));
+}
+
 // ---- Existing getGridForWeek (now uses UTC helpers) ----
 async function getGridForWeek(req, res) {
   try {
@@ -50,7 +60,8 @@ async function getGridForWeek(req, res) {
       return res.status(400).json({ error: 'Invalid Date format for weekStart or weekEnd' });
     }
 
-    const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
+    const rawActiveTAs = await TA.find({ status: 'Active' });
+    const activeTAs = rawActiveTAs.slice().sort(sortTAsByCustomOrder);
     const taIds = activeTAs.map(ta => ta._id);
 
     const existing = await WeeklyAllocation.find({ weekStart: start, ta: { $in: taIds } });
@@ -72,7 +83,7 @@ async function getGridForWeek(req, res) {
       .populate('ta', 'name status')
       .populate({
         path: POPULATE_POSITION_PATHS,
-        select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
+        select: 'jobOrderId position pLevel lsCount cvCount packageRange salary client',
         populate: {
           path: 'client',
           select: 'clientName'
@@ -103,7 +114,8 @@ async function getGridBatch(req, res) {
       return res.status(400).json({ error: 'Invalid date format' });
     }
 
-    const activeTAs = await TA.find({ status: 'Active' }).sort({ name: 1, _id: 1 });
+    const rawActiveTAs = await TA.find({ status: 'Active' });
+    const activeTAs = rawActiveTAs.slice().sort(sortTAsByCustomOrder);
     const taIds = activeTAs.map(ta => ta._id);
 
     const weeks = [];
@@ -157,7 +169,7 @@ async function getGridBatch(req, res) {
       .populate('ta', 'name status')
       .populate({
         path: POPULATE_POSITION_PATHS,
-        select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
+        select: 'jobOrderId position pLevel lsCount cvCount packageRange salary client',
         populate: { path: 'client', select: 'clientName' }
       });
 
@@ -256,7 +268,7 @@ async function updateCell(req, res) {
       .populate('ta', 'name status')
       .populate({
         path: POPULATE_POSITION_PATHS,
-        select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
+        select: 'jobOrderId position pLevel lsCount cvCount packageRange salary client',
         populate: {
           path: 'client',
           select: 'clientName'
@@ -343,7 +355,7 @@ async function autofillWeek(req, res) {
         .populate('ta', 'name status')
         .populate({
           path: POPULATE_POSITION_PATHS,
-          select: 'jobOrderId position pLevel lsCount cvCount packageRange client',
+          select: 'jobOrderId position pLevel lsCount cvCount packageRange salary client',
           populate: {
             path: 'client',
             select: 'clientName'

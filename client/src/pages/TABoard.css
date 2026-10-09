@@ -729,6 +729,42 @@
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   padding: 16px;
+  position: relative;
+  transition: opacity 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.ta-card--dragging {
+  opacity: 0.45;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border: 1px dashed var(--color-primary);
+}
+
+.ta-card--drop-before::before {
+  content: '';
+  position: absolute;
+  top: -9px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--color-primary);
+  border-radius: 4px;
+  box-shadow: 0 0 8px rgba(31, 92, 62, 0.4);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.ta-card--drop-after::after {
+  content: '';
+  position: absolute;
+  bottom: -9px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--color-primary);
+  border-radius: 4px;
+  box-shadow: 0 0 8px rgba(31, 92, 62, 0.4);
+  z-index: 5;
+  pointer-events: none;
 }
 
 .ta-card-header {
@@ -736,6 +772,75 @@
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+/* Dedicated drag handle */
+.ta-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 30px;
+  color: var(--color-text-muted);
+  cursor: grab;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+  user-select: none;
+  touch-action: none;
+}
+
+.ta-drag-handle:active {
+  cursor: grabbing;
+}
+
+.ta-drag-handle:hover:not(.ta-drag-handle--disabled) {
+  background: var(--color-bg);
+  color: var(--color-primary);
+}
+
+.ta-drag-handle--disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Reorder Up/Down buttons */
+.ta-card-reorder-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ta-reorder-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.ta-reorder-btn:hover:not(:disabled) {
+  background: var(--color-bg);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.ta-reorder-btn:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+  border-color: transparent;
+  background: transparent;
 }
 
 .ta-avatar {

@@ -79,6 +79,46 @@ const positionSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  salary: {
+    type: new mongoose.Schema({
+      currency: {
+        type: String,
+        enum: ['USD', 'LKR', 'SAR', 'BDT', 'AED', 'EUR', 'GBP', 'QAR', 'Other'],
+        default: 'USD'
+      },
+      salaryType: {
+        type: String,
+        enum: ['range', 'fixed', 'negotiable', 'confidential', 'tbc'],
+        default: 'range'
+      },
+      minAmount: {
+        type: Number,
+        min: [0, 'Minimum amount must be non-negative'],
+        default: null
+      },
+      maxAmount: {
+        type: Number,
+        min: [0, 'Maximum amount must be non-negative'],
+        default: null
+      },
+      period: {
+        type: String,
+        enum: ['monthly', 'annual', 'hourly', 'other'],
+        default: 'monthly'
+      },
+      basis: {
+        type: String,
+        enum: ['gross', 'net', 'basic', 'totalPackage', 'unspecified'],
+        default: 'unspecified'
+      },
+      notes: {
+        type: String,
+        trim: true,
+        default: ''
+      }
+    }, { _id: false }),
+    default: null
+  },
   extShortlistCount: {
     type: mongoose.Schema.Types.Mixed,
     default: null
@@ -116,6 +156,12 @@ const positionSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-
+positionSchema.pre('validate', function() {
+  if (this.salary && this.salary.minAmount != null && this.salary.maxAmount != null) {
+    if (this.salary.minAmount > this.salary.maxAmount) {
+      this.invalidate('salary.minAmount', 'Minimum salary amount cannot exceed maximum salary amount');
+    }
+  }
+});
 
 module.exports = mongoose.model('Position', positionSchema);
