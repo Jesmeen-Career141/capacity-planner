@@ -1,0 +1,11 @@
+# SPA Entrypoint and HTML: never cache stale HTML; always revalidate with the server
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+/
+  Cache-Control: public, max-age=0, must-revalidate
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Static Vite assets have unique content hashes (e.g., index-I7FECVTX.js): cache long-term immutable
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

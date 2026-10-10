@@ -1,5 +1,6 @@
 const TA = require('../models/TA');
 const Position = require('../models/Position');
+const liveEvents = require('../utils/liveEvents');
 
 // GET all TAs
 async function getAllTAs(req, res) {
@@ -273,6 +274,7 @@ async function reorderTAs(req, res) {
     }));
 
     await TA.bulkWrite(bulkOps);
+    liveEvents.emit('weeklyAllocations:changed');
 
     res.json({ success: true, count: uniqueIds.length });
   } catch (err) {

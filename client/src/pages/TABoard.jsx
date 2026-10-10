@@ -940,6 +940,7 @@ function TACard({
   onDragLeave,
   onDrop,
   onDragEnd,
+  onTouchStart,
   cardRef
 }) {
   const initials = ta.name?.[0]?.toUpperCase() || '?';
@@ -966,6 +967,7 @@ function TACard({
           draggable={!isReorderPending}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
+          onTouchStart={onTouchStart}
           title={isReorderPending ? 'Reordering in progress...' : `Drag to reorder ${ta.name}'s board`}
           aria-label={`Drag to reorder ${ta.name}'s board`}
           tabIndex={isReorderPending ? -1 : 0}
@@ -1742,44 +1744,45 @@ function TABoard() {
     }
   };
 
-  const handleDrop = async (e, targetTaId) => {
-    e.preventDefault();
-    stopAutoScroll();
+  const executeReorder = async (fromId, targetId, position) => {
+    if (!fromId || !targetId || String(fromId) === String(targetId)) return;
 
-    if (!draggedTaId || draggedTaId === String(targetTaId)) {
-      setDraggedTaId(null);
-      setDropTargetId(null);
-      setDropPosition(null);
-      return;
-    }
+    const fromIndex = taList.findIndex(t => String(t._id) === String(fromId));
+    const targetIdx = taList.findIndex(t => String(t._id) === String(targetId));
 
-    const fromIndex = taList.findIndex(t => String(t._id) === String(draggedTaId));
-    const targetIdx = taList.findIndex(t => String(t._id) === String(targetTaId));
-
-    if (fromIndex === -1 || targetIdx === -1) {
-      setDraggedTaId(null);
-      setDropTargetId(null);
-      setDropPosition(null);
-      return;
-    }
+    if (fromIndex === -1 || targetIdx === -1) return;
 
     const reordered = [...taList];
     const [moved] = reordered.splice(fromIndex, 1);
 
-    // Calculate insertion index based on whether drop was before or after target
-    let toIndex = reordered.findIndex(t => String(t._id) === String(targetTaId));
-    if (dropPosition === 'after') {
+    let toIndex = reordered.findIndex(t => String(t._id) === String(targetId));
+    if (position === 'after') {
       toIndex += 1;
     }
     reordered.splice(toIndex, 0, moved);
 
     const reorderedIds = reordered.map(t => String(t._id));
+    await persistReorder(reorderedIds);
+  };
+
+  const handleDrop = async (e, targetTaId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    stopAutoScroll();
+
+    const fromId = draggedTaId;
+    const targetId = targetTaId;
+    const pos = dropPosition;
 
     setDraggedTaId(null);
     setDropTargetId(null);
     setDropPosition(null);
 
-    await persistReorder(reorderedIds);
+    if (!fromId || !targetId || String(fromId) === String(targetId)) {
+      return;
+    }
+
+    await executeReorder(fromId, targetId, pos);
   };
 
   const handleDragEnd = () => {
@@ -1788,6 +1791,84 @@ function TABoard() {
     setDropTargetId(null);
     setDropPosition(null);
   };
+
+  // Touch drag-and-drop state & handlers for touch devices
+  const [touchDraggingTaId, setTouchDraggingTaId] = useState(null);
+  const touchStateRef = useRef({ targetId: null, position: null });
+
+  const handleTouchStart = (e, taId) => {
+    if (reorderTAMutation.isPending) return;
+    touchStateRef.current = { targetId: null, position: null };
+    setTouchDraggingTaId(String(taId));
+    setDraggedTaId(String(taId));
+    setDropTargetId(null);
+    setDropPosition(null);
+  };
+
+  useEffect(() => {
+    if (!touchDraggingTaId) return;
+
+    const handleWindowTouchMove = (e) => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      if (e.cancelable) e.preventDefault();
+
+      updateAutoScrollSpeed(touch.clientY);
+
+      let foundTargetId = null;
+      let foundPosition = null;
+
+      cardRefs.current.forEach((cardEl, id) => {
+        if (cardEl) {
+          const rect = cardEl.getBoundingClientRect();
+          if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+            foundTargetId = id;
+            const midY = rect.top + rect.height / 2;
+            foundPosition = touch.clientY < midY ? 'before' : 'after';
+          }
+        }
+      });
+
+      if (foundTargetId && foundTargetId !== touchDraggingTaId) {
+        touchStateRef.current.targetId = foundTargetId;
+        touchStateRef.current.position = foundPosition;
+        setDropTargetId(foundTargetId);
+        setDropPosition(foundPosition);
+      } else {
+        touchStateRef.current.targetId = null;
+        touchStateRef.current.position = null;
+        setDropTargetId(null);
+        setDropPosition(null);
+      }
+    };
+
+    const handleWindowTouchEnd = async () => {
+      stopAutoScroll();
+      const fromId = touchDraggingTaId;
+      const targetId = touchStateRef.current.targetId;
+      const pos = touchStateRef.current.position;
+
+      setTouchDraggingTaId(null);
+      setDraggedTaId(null);
+      setDropTargetId(null);
+      setDropPosition(null);
+
+      if (fromId && targetId && fromId !== targetId) {
+        await executeReorder(fromId, targetId, pos);
+      }
+    };
+
+    window.addEventListener('touchmove', handleWindowTouchMove, { passive: false });
+    window.addEventListener('touchend', handleWindowTouchEnd);
+    window.addEventListener('touchcancel', handleWindowTouchEnd);
+
+    return () => {
+      window.removeEventListener('touchmove', handleWindowTouchMove);
+      window.removeEventListener('touchend', handleWindowTouchEnd);
+      window.removeEventListener('touchcancel', handleWindowTouchEnd);
+      stopAutoScroll();
+    };
+  }, [touchDraggingTaId, updateAutoScrollSpeed, stopAutoScroll, taList]);
 
   // ---- Loading / error ----
   const loading = positionsLoading || snapshotsLoading || tasLoading;
@@ -1913,6 +1994,7 @@ function TABoard() {
                     onDragLeave={e => handleDragLeave(e, ta._id)}
                     onDrop={e => handleDrop(e, ta._id)}
                     onDragEnd={handleDragEnd}
+                    onTouchStart={e => handleTouchStart(e, ta._id)}
                     cardRef={el => {
                       if (el) cardRefs.current.set(String(ta._id), el);
                       else cardRefs.current.delete(String(ta._id));
