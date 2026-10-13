@@ -77,6 +77,16 @@
   transform: translateY(-4px);
 }
 
+.tb-stat-card--clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.tb-stat-card--clickable:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 /* soft radial glow beneath each card, like Dashboard's StatCard */
 .tb-stat-glow {
   pointer-events: none;

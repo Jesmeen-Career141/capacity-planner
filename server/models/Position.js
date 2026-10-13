@@ -54,6 +54,10 @@ const positionSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  placedAt: {
+    type: Date,
+    default: null
+  },
   completionPercent: {
     type: Number,
     enum: [0, 25, 50, 75, 100],

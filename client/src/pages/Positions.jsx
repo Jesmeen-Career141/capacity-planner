@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getPositions, deletePosition, updatePosition, assignPosition } from '../api/positions';
 import { getClients } from '../api/clients';
@@ -10,12 +10,23 @@ import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { formatSalary } from '../utils/salaryFormatter';
 import SalaryPackagePicker from '../components/SalaryPackagePicker';
+import CandidateCvSection from '../components/CandidateCvSection';
 import './Positions.css';
 
 // ---- Constants ----
 const STATUS_OPTIONS = ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost', 'Focus', 'Client Decision'];
 const PLEVEL_OPTIONS = ['P1', 'P2', 'P3', 'P4', 'P5'];
 const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'];
+
+const normalizeStatusParam = (status) => {
+  if (!status) return '';
+  const trimmed = status.trim();
+  if (trimmed.toLowerCase() === 'active' || trimmed === 'A&P' || trimmed === 'A & P') {
+    return 'A&P';
+  }
+  const match = STATUS_OPTIONS.find(s => s.toLowerCase() === trimmed.toLowerCase());
+  return match || trimmed;
+};
 
 const FLAG_OPTIONS = [
   { value: 'followUp', label: 'Follow Up' },
@@ -422,6 +433,7 @@ function ParallelAssigneesPicker({ values, options, onChange, disabled = false }
 
 // ---- PositionDetailModal ----
 function PositionDetailModal({ position, onClose, onUpdate, tas }) {
+  const [activeTab, setActiveTab] = useState('details');
   const [editData, setEditData] = useState({
     remarks: '',
     thisWeekFocus: '',
@@ -477,81 +489,109 @@ function PositionDetailModal({ position, onClose, onUpdate, tas }) {
           <h2>{position.jobOrderId}</h2>
           <button className="modal-close-btn" onClick={onClose}><CloseIcon /></button>
         </div>
+        <div className="pos-detail-tab-bar">
+          <button
+            type="button"
+            className={`pos-detail-tab ${activeTab === 'details' ? 'pos-detail-tab--active' : ''}`}
+            onClick={() => setActiveTab('details')}
+          >
+            Position Details
+          </button>
+          <button
+            type="button"
+            className={`pos-detail-tab ${activeTab === 'cvTracking' ? 'pos-detail-tab--active' : ''}`}
+            onClick={() => setActiveTab('cvTracking')}
+          >
+            CV Tracking
+          </button>
+        </div>
         <div className="modal-body">
-          <div className="modal-summary">
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Position</span>
-              <span className="modal-summary-value">{position.position}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Client</span>
-              <span className="modal-summary-value">{position.client?.clientName || '—'}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Status</span>
-              <span className="modal-summary-value">{position.status}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Assignee(s)</span>
-              <span className="modal-summary-value">{assigneeDisplay}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Level</span>
-              <span className="modal-summary-value">{position.pLevel}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Stage</span>
-              <span className="modal-summary-value">{position.pipelineStage}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Shortlist (Int/Ext)</span>
-              <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
-            </div>
-          </div>
-          <div className="modal-editable">
-            <div className="modal-field">
-              <label>This Week Focus</label>
-              <input type="text" value={editData.thisWeekFocus} onChange={e => handleChange('thisWeekFocus', e.target.value)} className="modal-input" placeholder="e.g., Schedule interviews, Review CVs..." />
-            </div>
-            <div className="modal-field">
-              <label>Remarks</label>
-              <textarea value={editData.remarks} onChange={e => handleChange('remarks', e.target.value)} className="modal-textarea" rows="4" placeholder="Add any notes or remarks about this position..." />
-            </div>
-          </div>
-          <div className="modal-history">
-            <h4>Allocation History</h4>
-            {historyRounds.length === 0 ? (
-              <p className="modal-history-empty">No allocation history yet</p>
-            ) : (
-              <table className="modal-history-table">
-                <thead>
-                  <tr>
-                    <th>Round</th>
-                    <th>Value</th>
-                    <th>Date</th>
-                    <th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historyRounds.map((round, idx) => (
-                    <tr key={idx}>
-                      <td className="col-round">Round {round.roundNumber}</td>
-                      <td className="col-value">{round.taAssigned?.name || '—'}</td>
-                      <td className="col-date">{round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}</td>
-                      <td className="col-notes">{round.reason || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            {historyRounds.length === 5 && (editData.allocationRounds?.length || 0) > 5 && (
-              <p className="modal-history-more">+ {(editData.allocationRounds?.length || 0) - 5} more rounds</p>
-            )}
-          </div>
+          {activeTab === 'details' ? (
+            <>
+              <div className="modal-summary">
+                <div className="modal-summary-item">
+                  <span className="modal-summary-label">Position</span>
+                  <span className="modal-summary-value">{position.position}</span>
+                </div>
+                <div className="modal-summary-item">
+                  <span className="modal-summary-label">Client</span>
+                  <span className="modal-summary-value">{position.client?.clientName || '—'}</span>
+                </div>
+                <div className="modal-summary-item">
+                  <span className="modal-summary-label">Status</span>
+                  <span className="modal-summary-value">{position.status}</span>
+                </div>
+                <div className="modal-summary-item">
+                  <span className="modal-summary-label">Assignee(s)</span>
+                  <span className="modal-summary-value">{assigneeDisplay}</span>
+                </div>
+                <div className="modal-summary-item">
+                  <span className="modal-summary-label">Level</span>
+                  <span className="modal-summary-value">{position.pLevel}</span>
+                </div>
+                <div className="modal-summary-item">
+                  <span className="modal-summary-label">Stage</span>
+                  <span className="modal-summary-value">{position.pipelineStage}</span>
+                </div>
+                <div className="modal-summary-item">
+                  <span className="modal-summary-label">Shortlist (Int/Ext)</span>
+                  <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
+                </div>
+              </div>
+              <div className="modal-editable">
+                <div className="modal-field">
+                  <label>This Week Focus</label>
+                  <input type="text" value={editData.thisWeekFocus} onChange={e => handleChange('thisWeekFocus', e.target.value)} className="modal-input" placeholder="e.g., Schedule interviews, Review CVs..." />
+                </div>
+                <div className="modal-field">
+                  <label>Remarks</label>
+                  <textarea value={editData.remarks} onChange={e => handleChange('remarks', e.target.value)} className="modal-textarea" rows="4" placeholder="Add any notes or remarks about this position..." />
+                </div>
+              </div>
+              <div className="modal-history">
+                <h4>Allocation History</h4>
+                {historyRounds.length === 0 ? (
+                  <p className="modal-history-empty">No allocation history yet</p>
+                ) : (
+                  <table className="modal-history-table">
+                    <thead>
+                      <tr>
+                        <th>Round</th>
+                        <th>Value</th>
+                        <th>Date</th>
+                        <th>Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyRounds.map((round, idx) => (
+                        <tr key={idx}>
+                          <td className="col-round">Round {round.roundNumber}</td>
+                          <td className="col-value">{round.taAssigned?.name || '—'}</td>
+                          <td className="col-date">{round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}</td>
+                          <td className="col-notes">{round.reason || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                {historyRounds.length === 5 && (editData.allocationRounds?.length || 0) > 5 && (
+                  <p className="modal-history-more">+ {(editData.allocationRounds?.length || 0) - 5} more rounds</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <CandidateCvSection position={position} tas={tas} />
+          )}
         </div>
         <div className="modal-footer">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
+          {activeTab === 'details' ? (
+            <>
+              <button className="btn-secondary" onClick={onClose}>Cancel</button>
+              <button className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
+            </>
+          ) : (
+            <button className="btn-secondary" onClick={onClose}>Close</button>
+          )}
         </div>
       </div>
     </div>
@@ -752,6 +792,7 @@ const getStoredPositionsState = () => {
 // ---- Main Positions Component ----
 function Positions() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   useLiveRefresh();
 
@@ -768,10 +809,15 @@ function Positions() {
   const [legend, setLegend] = useState(COLOR_KEYS.map(key => ({ key, label: '' })));
   const [filters, setFilters] = useState(() => {
     const stored = getStoredPositionsState();
-    return {
+    const initialFilters = {
       ...DEFAULT_FILTERS,
       ...(stored?.filters || {})
     };
+    const statusParam = searchParams.get('status');
+    if (statusParam !== null && statusParam !== '') {
+      initialFilters.status = normalizeStatusParam(statusParam);
+    }
+    return initialFilters;
   });
   const [viewMode, setViewMode] = useState(() => {
     const stored = getStoredPositionsState();
@@ -999,8 +1045,37 @@ function Positions() {
 
   const legendLabel = (key) => legend.find(e => e.key === key)?.label || '';
 
+  useEffect(() => {
+    const statusParam = searchParams.get('status');
+    if (statusParam !== null) {
+      const normalized = normalizeStatusParam(statusParam);
+      setFilters(prev => {
+        if (prev.status !== normalized) {
+          return { ...prev, status: normalized };
+        }
+        return prev;
+      });
+    }
+  }, [searchParams]);
+
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
+    if (field === 'status') {
+      const nextParams = new URLSearchParams(searchParams);
+      if (value) {
+        nextParams.set('status', value);
+      } else {
+        nextParams.delete('status');
+      }
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
+
+  const handleClearFilters = () => {
+    setFilters({ client: '', assignee: '', status: '', pLevel: '', highlightColor: '', flag: '', search: '' });
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('status');
+    setSearchParams(nextParams, { replace: true });
   };
 
   const computeFlagPopoverDirection = (triggerElement) => {
@@ -1019,8 +1094,8 @@ function Positions() {
 
   const filteredPositions = useMemo(() => {
     let filtered = positions.filter(pos => {
-      // Base exclusion: archived statuses never appear in main view
-      if (ARCHIVE_STATUSES.includes(pos.status)) return false;
+      // Base exclusion: archived statuses never appear in main view unless explicitly selected in the status filter
+      if (ARCHIVE_STATUSES.includes(pos.status) && filters.status !== pos.status) return false;
 
       const matchesClient = !filters.client || pos.client?._id === filters.client;
 
@@ -1328,10 +1403,12 @@ function Positions() {
   ];
   const flagOptions = FLAG_OPTIONS.map(f => ({ value: f.value, label: f.label }));
 
-  // Filter dropdown excludes archived statuses (they'd return 0 results)
-  const filterStatusOptions = STATUS_OPTIONS
-    .filter(s => !['Placed', 'Lost', 'Hold'].includes(s))
-    .map(s => ({ value: s, label: s }));
+  // Filter dropdown excludes archived statuses (unless one is currently selected)
+  const filterStatusOptions = (
+    ARCHIVE_STATUSES.includes(filters.status)
+      ? STATUS_OPTIONS
+      : STATUS_OPTIONS.filter(s => !ARCHIVE_STATUSES.includes(s))
+  ).map(s => ({ value: s, label: s }));
 
   // Inline row status dropdown keeps ALL statuses so users can archive from the row
   const rowStatusOptions = STATUS_OPTIONS.map(s => {
@@ -1410,7 +1487,7 @@ function Positions() {
             <button
               type="button"
               className="clear-filters-btn"
-              onClick={() => setFilters({ client: '', assignee: '', status: '', pLevel: '', highlightColor: '', flag: '', search: '' })}
+              onClick={handleClearFilters}
             >
               Clear filters
             </button>

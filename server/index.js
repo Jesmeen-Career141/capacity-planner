@@ -11,6 +11,7 @@ const positionHistoryRoutes = require('./routes/positionHistoryRoutes');
 const weeklyAllocationRoutes = require('./routes/weeklyAllocationRoutes');
 const eventRoutes = require('./routes/eventRoutes');              // ADD THIS LINE
 const strategyTrackerRoutes = require('./routes/strategyTrackerRoutes');
+const cvRoutes = require('./routes/cvRoutes');
 
 
 const app = express();
@@ -35,6 +36,7 @@ app.use('/api/weekly-allocations', weeklyAllocationRoutes);
 app.use('/api/events', eventRoutes);                              // ADD THIS LINE
 app.use('/api/color-legend', require('./routes/colorLegend'));
 app.use('/api/strategy-tracker', strategyTrackerRoutes);
+app.use('/api/cvs', cvRoutes);
 
 const PORT = process.env.PORT || 5000;
 

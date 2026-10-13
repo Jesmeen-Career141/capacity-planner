@@ -42,14 +42,31 @@ function GoldCorner() {
   );
 }
 
-function StatCard({ label, value, accent = 'leaf' }) {
+function StatCard({ label, value, accent = 'leaf', onClick }) {
   const isGold = accent === 'gold';
+  const isClickable = typeof onClick === 'function';
 
   return (
     <motion.div
-      whileHover={{ scale: 1.035, y: -6 }}
+      whileHover={isClickable ? { scale: 1.035, y: -6 } : { scale: 1.02, y: -4 }}
       transition={{ type: 'spring', stiffness: 320, damping: 22 }}
-      className="group relative w-full"
+      className={[
+        'group relative w-full',
+        isClickable ? 'cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 rounded-2xl' : '',
+      ].filter(Boolean).join(' ')}
+      onClick={onClick}
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onKeyDown={
+        isClickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick(e);
+              }
+            }
+          : undefined
+      }
     >
       {/* Glow */}
       <div

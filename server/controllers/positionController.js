@@ -43,6 +43,33 @@ async function getPositionById(req, res) {
   }
 }
 
+// Helper to parse and validate placedAt date inputs safely
+function parseAndValidatePlacedAt(value) {
+  if (value === undefined) {
+    return { provided: false, value: undefined };
+  }
+  if (value === null || value === '') {
+    return { provided: true, value: null };
+  }
+  if (typeof value === 'boolean') {
+    return { error: 'Invalid placedAt date' };
+  }
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) {
+      return { error: 'Invalid placedAt date' };
+    }
+    return { provided: true, value };
+  }
+  if (typeof value === 'string' || typeof value === 'number') {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) {
+      return { error: 'Invalid placedAt date' };
+    }
+    return { provided: true, value: d };
+  }
+  return { error: 'Invalid placedAt date' };
+}
+
 // POST create
 async function createPosition(req, res) {
   try {
@@ -66,13 +93,26 @@ async function createPosition(req, res) {
       salary,
       extShortlistCount,
       tags,
-      remarks
+      remarks,
+      placedAt
     } = req.body;
 
     if (!jobOrderId || !client || !position || !pLevel) {
       return res.status(400).json({
         error: 'jobOrderId, client, position, and pLevel are required'
       });
+    }
+
+    const placedAtParsed = parseAndValidatePlacedAt(placedAt);
+    if (placedAtParsed.error) {
+      return res.status(400).json({ error: placedAtParsed.error });
+    }
+
+    let finalPlacedAt = null;
+    if (status === 'Placed') {
+      finalPlacedAt = placedAtParsed.provided && placedAtParsed.value ? placedAtParsed.value : null;
+    } else {
+      finalPlacedAt = null;
     }
 
     let finalSalary = null;
@@ -100,6 +140,7 @@ async function createPosition(req, res) {
       transferParallel,
       dateAssigned,
       expectedCloseDate,
+      placedAt: finalPlacedAt,
       completionPercent,
       cvCount,
       targetCvCount,
@@ -127,6 +168,43 @@ async function updatePosition(req, res) {
     const existing = await Position.findById(id).lean();
     if (!existing) {
       return res.status(404).json({ error: 'Position not found' });
+    }
+
+    // Validate placedAt if provided
+    if (updates.placedAt !== undefined) {
+      const placedAtParsed = parseAndValidatePlacedAt(updates.placedAt);
+      if (placedAtParsed.error) {
+        return res.status(400).json({ error: placedAtParsed.error });
+      }
+      updates.placedAt = placedAtParsed.value;
+    }
+
+    const oldStatus = existing.status;
+    const isStatusProvided = updates.status !== undefined;
+    const newStatus = isStatusProvided ? updates.status : oldStatus;
+
+    if (oldStatus !== 'Placed' && newStatus === 'Placed') {
+      // Transition TO Placed:
+      // Set placedAt to explicit valid date if supplied, otherwise now
+      if (updates.placedAt === undefined || updates.placedAt === null) {
+        updates.placedAt = new Date();
+      }
+    } else if (oldStatus === 'Placed' && newStatus !== 'Placed') {
+      // Transition AWAY from Placed:
+      // Clear placedAt to null (PositionHistory will preserve prior placement event)
+      updates.placedAt = null;
+    } else if (oldStatus === 'Placed' && newStatus === 'Placed') {
+      // Position is already Placed:
+      // Preserve existing placedAt when unrelated fields are edited.
+      // Do not automatically refresh the timestamp.
+      if (updates.placedAt === undefined) {
+        delete updates.placedAt;
+      }
+    } else {
+      // Not Placed and remains not Placed:
+      if (updates.placedAt !== undefined) {
+        updates.placedAt = null;
+      }
     }
 
     // Synchronize salary data on updates:
@@ -157,8 +235,8 @@ async function updatePosition(req, res) {
       const oldValue = existing[field];
       const newValue = updates[field];
 
-      const oldStr = oldValue === null || oldValue === undefined ? '' : typeof oldValue === 'object' ? JSON.stringify(oldValue) : String(oldValue);
-      const newStr = newValue === null || newValue === undefined ? '' : typeof newValue === 'object' ? JSON.stringify(newValue) : String(newValue);
+      const oldStr = oldValue === null || oldValue === undefined ? '' : oldValue instanceof Date ? oldValue.toISOString() : typeof oldValue === 'object' ? JSON.stringify(oldValue) : String(oldValue);
+      const newStr = newValue === null || newValue === undefined ? '' : newValue instanceof Date ? newValue.toISOString() : typeof newValue === 'object' ? JSON.stringify(newValue) : String(newValue);
 
       if (oldStr !== newStr) {
         historyEntries.push({

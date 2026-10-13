@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getPositions } from '../api/positions';
 import FlagBadge from '../components/FlagBadge';
 import StatCard from '../components/StatCard';
@@ -8,6 +9,9 @@ import StatCard from '../components/StatCard';
 const POSITIVE_FLAG_LABELS = ['Healthy', 'Going Good'];
 
 const isAttentionFlag = (flag) => flag !== null && !POSITIVE_FLAG_LABELS.includes(flag.label);
+
+// Inactive/archived statuses that should never appear in active Dashboard lists
+const INACTIVE_STATUSES = ['Placed', 'Lost', 'Hold'];
 
 // Order of the "Positions Needing Attention" list (top to bottom)
 const FLAG_PRIORITY = ['reAssign', 'backup', 'followUp', 'addOn'];
@@ -92,6 +96,7 @@ function formatCurrency(value, currency) {
 }
 
 function Dashboard() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [positions, setPositions] = useState([]);
@@ -188,6 +193,18 @@ function Dashboard() {
     );
   };
 
+  const handleCardClick = (status) => {
+    if (status === 'Total') {
+      navigate('/positions');
+      return;
+    }
+    if (INACTIVE_STATUSES.includes(status)) {
+      navigate(`/archive?status=${encodeURIComponent(status)}`);
+      return;
+    }
+    navigate(`/positions?status=${encodeURIComponent(status)}`);
+  };
+
   const cards = orderedStatuses.map((status, index) => {
     let label, count, currMap, unspecifiedCount;
     if (status === 'Total') {
@@ -202,21 +219,24 @@ function Dashboard() {
       unspecifiedCount = unspecified[status] || 0;
     }
     return {
+      status,
       label,
       value: formatCardValue(status, count, currMap, unspecifiedCount),
       accent: index % 2 === 0 ? 'leaf' : 'gold',
+      onClick: () => handleCardClick(status),
     };
   });
 
-  // Only positions with an actual problem flag (not "Healthy" / "Going Good")
-  // belong in the attention list.
+  // Only active positions with an actual problem flag (not "Healthy" / "Going Good")
+  // belong in the attention list. Placed, Lost, and Hold are excluded.
   const flaggedPositions = positions
-  .filter((p) => p.flags && Object.values(p.flags).some(isAttentionFlag))
-  .sort((a, b) => flagRank(a) - flagRank(b));
+    .filter((p) => !INACTIVE_STATUSES.includes(p.status) && p.flags && Object.values(p.flags).some(isAttentionFlag))
+    .sort((a, b) => flagRank(a) - flagRank(b));
 
   // Positions with only positive flags (Healthy / Going Good), and no
-  // problem flags, go in the "Going Well" list instead.
+  // problem flags, go in the "Going Well" list instead. Placed, Lost, and Hold are excluded.
   const goingWellPositions = positions.filter((p) => {
+    if (INACTIVE_STATUSES.includes(p.status)) return false;
     if (!p.flags) return false;
     const values = Object.values(p.flags).filter((f) => f !== null);
     if (values.length === 0) return false;
@@ -241,6 +261,7 @@ function Dashboard() {
             label={c.label}
             value={c.value}
             accent={i % 2 === 0 ? 'leaf' : 'gold'}
+            onClick={c.onClick}
           />
         ))}
       </div>

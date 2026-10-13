@@ -71,9 +71,12 @@ async function updateTAStatus(req, res) {
       return res.status(404).json({ error: 'TA not found' });
     }
 
-    // ---- NEW: if TA is marked as Left, set reAssign override on all their positions ----
+    // ---- if TA is marked as Left, set reAssign override only on eligible positions ----
     if (status === 'Left') {
-      const positions = await Position.find({ assignee: id });
+      const positions = await Position.find({
+        assignee: id,
+        status: { $nin: ['Placed', 'Lost', 'Hold'] }
+      });
 
       for (const pos of positions) {
         // Ensure flagOverrides is a Map (if using Mongoose Map)

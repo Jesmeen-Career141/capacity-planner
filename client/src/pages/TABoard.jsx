@@ -127,9 +127,25 @@ function GoldCorner() {
   );
 }
 
-function StatCard({ label, value, accent, corner = 'leaf' }) {
+function StatCard({ label, value, accent, corner = 'leaf', onClick }) {
+  const isClickable = typeof onClick === 'function';
   return (
-    <div className={`tb-stat-card${accent ? ` tb-stat-card--${accent}` : ''} tb-stat-card--corner-${corner}`}>
+    <div
+      className={`tb-stat-card${accent ? ` tb-stat-card--${accent}` : ''} tb-stat-card--corner-${corner}${isClickable ? ' tb-stat-card--clickable' : ''}`}
+      onClick={onClick}
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onKeyDown={
+        isClickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick(e);
+              }
+            }
+          : undefined
+      }
+    >
       <div className="tb-stat-glow" />
       {corner === 'gold' ? <GoldCorner /> : <LeafCorner />}
       <span className="tb-stat-label">{label}</span>
@@ -1940,12 +1956,40 @@ function TABoard() {
       )}
 
       <div className="tb-stats-row">
-        <StatCard label="Total Roles" value={openPositions.length} corner="gold" />
+        <StatCard
+          label="Total Roles"
+          value={openPositions.length}
+          corner="gold"
+          onClick={() => navigate('/positions')}
+        />
         <StatCard label="Carried Forward" value={carriedForward} corner="leaf" />
-        <StatCard label="Active (A&P)" value={active} accent="green" corner="gold" />
-        <StatCard label="Yet to Activate" value={yetToActivate} corner="leaf" />
-        <StatCard label="Fence" value={fence} accent="purple" corner="gold" />
-        <StatCard label="Re-assign" value={reassign} accent="red" corner="leaf" />
+        <StatCard
+          label="Active (A&P)"
+          value={active}
+          accent="green"
+          corner="gold"
+          onClick={() => navigate('/positions?status=A%26P')}
+        />
+        <StatCard
+          label="Yet to Activate"
+          value={yetToActivate}
+          corner="leaf"
+          onClick={() => navigate('/positions?status=Yet%20to%20Activate')}
+        />
+        <StatCard
+          label="Fence"
+          value={fence}
+          accent="purple"
+          corner="gold"
+          onClick={() => navigate('/positions?status=Fence')}
+        />
+        <StatCard
+          label="Re-assign"
+          value={reassign}
+          accent="red"
+          corner="leaf"
+          onClick={() => navigate('/positions?flag=reAssign')}
+        />
       </div>
 
       <div className="taboard-body">

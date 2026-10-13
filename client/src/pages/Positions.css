@@ -1040,12 +1040,41 @@ body.table-resizing-active * {
 /* Position Detail Modal — scoped overrides.
    Two-class selector beats TABoard.css's single .modal-lg */
 .modal.pos-detail-modal {
-  width: 800px;
-  max-width: min(90vw, 800px);
+  width: min(94vw, 1050px);
+  max-width: min(94vw, 1050px);
   padding: 0;
   display: flex;
   flex-direction: column;
-  max-height: 90vh;
+  max-height: 92vh;
+}
+.pos-detail-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 28px;
+  background: #ffffff;
+  flex-shrink: 0;
+}
+.pos-detail-tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 12px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.pos-detail-tab:hover {
+  color: var(--color-text);
+}
+.pos-detail-tab--active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 700;
 }
 .pos-detail-modal .modal-header {
   display: flex;

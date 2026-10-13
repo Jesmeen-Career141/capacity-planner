@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { getArchiveSnapshots, getArchiveSnapshot, triggerSnapshot, triggerBackfill } from '../api/archive';
 import { getPositions, updatePosition } from '../api/positions';
 import './Archive.css';
@@ -122,6 +122,14 @@ function ArchiveCard({ pos }) {
 
 // ---- Position History Tab ----
 function PositionHistoryTab() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusParam = searchParams.get('status') || '';
+
+  // Case-insensitive match against ARCHIVE_STATUSES
+  const normalizedStatus = ARCHIVE_STATUSES.find(
+    s => s.toLowerCase() === statusParam.trim().toLowerCase()
+  ) || (ARCHIVE_STATUSES.includes(statusParam.trim()) ? statusParam.trim() : '');
+
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -172,13 +180,62 @@ function PositionHistoryTab() {
     }
   };
 
+  const handleStatusFilterChange = (newStatus) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (newStatus) {
+      nextParams.set('status', newStatus);
+      nextParams.set('tab', 'history');
+    } else {
+      nextParams.delete('status');
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const handleClearFilter = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('status');
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const displayedPositions = normalizedStatus
+    ? positions.filter(p => p.status.toLowerCase() === normalizedStatus.toLowerCase())
+    : positions;
+
   if (loading) return <div className="arch-loading">Loading position history...</div>;
   if (error) return <div className="arch-error">Error: {error}</div>;
 
   return (
     <div className="arch-history">
       <div className="arch-history-toolbar">
-        <span className="arch-history-count">{positions.length} positions archived</span>
+        <div className="arch-history-filters">
+          <span className="arch-history-count">
+            {displayedPositions.length}{normalizedStatus ? ` of ${positions.length}` : ''} positions archived
+          </span>
+          <div className="arch-filter-group">
+            <label htmlFor="arch-status-filter" className="arch-filter-label">Filter Status:</label>
+            <select
+              id="arch-status-filter"
+              className="arch-filter-select"
+              value={normalizedStatus}
+              onChange={(e) => handleStatusFilterChange(e.target.value)}
+            >
+              <option value="">All archived</option>
+              {ARCHIVE_STATUSES.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            {normalizedStatus && (
+              <button
+                type="button"
+                className="arch-clear-btn"
+                onClick={handleClearFilter}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="arch-view-toggle">
           <button
             type="button"
@@ -199,8 +256,12 @@ function PositionHistoryTab() {
         </div>
       </div>
 
-      {positions.length === 0 ? (
-        <div className="arch-empty">No archived positions (Placed, Lost, or Hold)</div>
+      {displayedPositions.length === 0 ? (
+        <div className="arch-empty">
+          {normalizedStatus
+            ? `No archived positions found with status "${normalizedStatus}"`
+            : 'No archived positions (Placed, Lost, or Hold)'}
+        </div>
       ) : viewMode === 'table' ? (
         <div className="arch-table-wrapper">
           <table className="arch-table">
@@ -216,7 +277,7 @@ function PositionHistoryTab() {
               </tr>
             </thead>
             <tbody>
-              {positions.map(pos => (
+              {displayedPositions.map(pos => (
                 <tr key={pos._id}>
                   <td><span className="arch-jo-id">{pos.jobOrderId}</span></td>
                   <td><span className="arch-text-ellipsis">{pos.client?.clientName || '—'}</span></td>
@@ -247,7 +308,7 @@ function PositionHistoryTab() {
         </div>
       ) : (
         <div className="arch-grid">
-          {positions.map(pos => (
+          {displayedPositions.map(pos => (
             <ArchiveCard key={pos._id} pos={pos} />
           ))}
         </div>
@@ -446,7 +507,36 @@ function WeeklySnapshotsTab() {
 
 // ---- Main Archive Component ----
 function Archive() {
-  const [activeTab, setActiveTab] = useState('snapshots');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusParam = searchParams.get('status');
+  const tabParam = searchParams.get('tab');
+
+  const [activeTab, setActiveTab] = useState(() => {
+    if (statusParam || tabParam === 'history') {
+      return 'history';
+    }
+    return 'snapshots';
+  });
+
+  useEffect(() => {
+    if (statusParam || tabParam === 'history') {
+      setActiveTab('history');
+    }
+  }, [statusParam, tabParam]);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    if (tab === 'snapshots') {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('status');
+      nextParams.delete('tab');
+      setSearchParams(nextParams, { replace: true });
+    } else {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set('tab', 'history');
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
 
   return (
     <div className="archive">
@@ -456,13 +546,13 @@ function Archive() {
       <div className="arch-tab-bar">
         <button
           className={`arch-tab ${activeTab === 'snapshots' ? 'arch-tab--active' : ''}`}
-          onClick={() => setActiveTab('snapshots')}
+          onClick={() => handleTabChange('snapshots')}
         >
           Weekly Snapshots
         </button>
         <button
           className={`arch-tab ${activeTab === 'history' ? 'arch-tab--active' : ''}`}
-          onClick={() => setActiveTab('history')}
+          onClick={() => handleTabChange('history')}
         >
           Position History
         </button>

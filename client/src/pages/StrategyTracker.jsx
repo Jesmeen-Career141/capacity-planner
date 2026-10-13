@@ -442,8 +442,8 @@ function StrategyTracker() {
 
   // Filtered positions
   const filteredPositions = sortedPositions.filter(pos => {
-    // Placed/Lost filter
-    if (!showPlacedLost && (pos.status === 'Placed' || pos.status === 'Lost')) return false;
+    // Inactive filter: Placed, Lost, and Hold are excluded unless showPlacedLost is checked
+    if (!showPlacedLost && ['Placed', 'Lost', 'Hold'].includes(pos.status)) return false;
 
     // Word-based search (client / position / JO id)
     const words = search.toLowerCase().split(/\s+/).filter(Boolean);
@@ -536,7 +536,7 @@ function StrategyTracker() {
               checked={showPlacedLost}
               onChange={e => setShowPlacedLost(e.target.checked)}
             />
-            Show Placed / Lost
+            Show Placed / Lost / Hold
           </label>
         </div>
       </div>
