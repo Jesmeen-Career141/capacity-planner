@@ -26,7 +26,8 @@ const {
   getR2Client,
   isR2Configured,
   getMissingR2ConfigKeys,
-  resolveStorageClient
+  resolveStorageClient,
+  getNormalizedR2Endpoint
 } = require('../utils/r2Storage');
 const { handleMulterUpload } = require('../middleware/cvUploadMiddleware');
 const cvController = require('../controllers/cvController');
@@ -1303,6 +1304,74 @@ async function runAllTests() {
     PositionAttempt.findOne = origFindOne;
     CandidateSubmission.findOne = origFindOneSub;
     CandidateSubmission.create = origCreateSub;
+  });
+
+  // --- 11. Endpoint Normalization & Validation Invariants ---
+  console.log('\n--- 11. Endpoint Normalization & Validation Invariants ---');
+
+  runTest('getNormalizedR2Endpoint preserves valid HTTPS endpoint origin', () => {
+    const valid = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com';
+    assert.strictEqual(getNormalizedR2Endpoint(valid, ''), valid);
+  });
+
+  runTest('getNormalizedR2Endpoint strips surrounding double and single quotation marks', () => {
+    const expected = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com';
+    assert.strictEqual(getNormalizedR2Endpoint(`"${expected}"`, ''), expected);
+    assert.strictEqual(getNormalizedR2Endpoint(`'${expected}'`, ''), expected);
+  });
+
+  runTest('getNormalizedR2Endpoint trims leading and trailing whitespace', () => {
+    const expected = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com';
+    assert.strictEqual(getNormalizedR2Endpoint(`   ${expected}   \n`, ''), expected);
+  });
+
+  runTest('getNormalizedR2Endpoint strips invisible Unicode characters (BOM, zero-width, non-breaking space)', () => {
+    const expected = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com';
+    const dirty = `\u200B\uFEFF\u00A0${expected}\u200B\uFEFF`;
+    assert.strictEqual(getNormalizedR2Endpoint(dirty, ''), expected);
+  });
+
+  runTest('getNormalizedR2Endpoint adds https:// if protocol is missing', () => {
+    const raw = '0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com';
+    const expected = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com';
+    assert.strictEqual(getNormalizedR2Endpoint(raw, ''), expected);
+  });
+
+  runTest('getNormalizedR2Endpoint extracts origin and removes accidental paths', () => {
+    const raw = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/career141-cv-storage/extra';
+    const expected = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com';
+    assert.strictEqual(getNormalizedR2Endpoint(raw, ''), expected);
+  });
+
+  runTest('getNormalizedR2Endpoint derives standard endpoint from R2_ACCOUNT_ID when R2_ENDPOINT is empty', () => {
+    const accountId = '0123456789abcdef0123456789abcdef';
+    const expected = `https://${accountId}.r2.cloudflarestorage.com`;
+    assert.strictEqual(getNormalizedR2Endpoint('', accountId), expected);
+    assert.strictEqual(getNormalizedR2Endpoint(null, `"${accountId}"`), expected);
+  });
+
+  runTest('getNormalizedR2Endpoint normalizes raw account ID passed directly as R2_ENDPOINT', () => {
+    const accountId = '0123456789abcdef0123456789abcdef';
+    const expected = `https://${accountId}.r2.cloudflarestorage.com`;
+    assert.strictEqual(getNormalizedR2Endpoint(accountId, ''), expected);
+  });
+
+  runTest('getNormalizedR2Endpoint throws clear configuration error on empty endpoints', () => {
+    assert.throws(
+      () => getNormalizedR2Endpoint('', ''),
+      /Cloudflare R2 endpoint is empty or missing/
+    );
+  });
+
+  runTest('getNormalizedR2Endpoint throws clear configuration error on malformed endpoints', () => {
+    assert.throws(
+      () => getNormalizedR2Endpoint('https://', ''),
+      /Invalid Cloudflare R2 endpoint URL format/
+    );
+    assert.throws(
+      () => getNormalizedR2Endpoint('https:// invalid host with space', ''),
+      /Invalid Cloudflare R2 endpoint URL format/
+    );
   });
 
   console.log('\n===============================================================');

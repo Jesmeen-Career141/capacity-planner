@@ -27,6 +27,62 @@ function isR2Configured() {
 }
 
 /**
+ * Normalizes and validates the Cloudflare R2 endpoint URL.
+ * Accepts optional parameters for unit testing.
+ * Trims whitespace, strips quotes and invisible unicode characters,
+ * prepends https:// if missing, extracts origin, and validates via new URL().
+ * Throws a clear configuration error if the resulting endpoint is invalid.
+ */
+function getNormalizedR2Endpoint(rawEndpoint = process.env.R2_ENDPOINT, rawAccountId = process.env.R2_ACCOUNT_ID) {
+  // Strip whitespace, zero-width characters (\u200B-\u200D), BOM (\uFEFF), non-breaking spaces (\u00A0), and quotes
+  let endpoint = (rawEndpoint || '')
+    .toString()
+    .trim()
+    .replace(/^[\u200B-\u200D\uFEFF\u00A0"']+|[\u200B-\u200D\uFEFF\u00A0"']+$/g, '')
+    .trim();
+
+  const accountId = (rawAccountId || '')
+    .toString()
+    .trim()
+    .replace(/^[\u200B-\u200D\uFEFF\u00A0"']+|[\u200B-\u200D\uFEFF\u00A0"']+$/g, '')
+    .trim();
+
+  // If R2_ENDPOINT is empty, construct standard Cloudflare R2 endpoint from R2_ACCOUNT_ID
+  if (!endpoint && accountId) {
+    endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+  } else if (endpoint && !endpoint.includes('.') && !endpoint.includes('/')) {
+    // If an account ID was entered directly into R2_ENDPOINT (no dots or slashes)
+    endpoint = `https://${endpoint}.r2.cloudflarestorage.com`;
+  }
+
+  if (!endpoint) {
+    throw new Error('Cloudflare R2 endpoint is empty or missing. Please configure R2_ENDPOINT or R2_ACCOUNT_ID.');
+  }
+
+  // Prepend https:// if protocol is missing
+  if (!/^https?:\/\//i.test(endpoint)) {
+    endpoint = `https://${endpoint}`;
+  }
+
+  // Clean any accidental whitespace after protocol (e.g. "https:// ")
+  endpoint = endpoint.replace(/^(https?:\/\/)\s+/, '$1');
+
+  // Validate and extract origin to eliminate accidental paths or trailing slashes
+  try {
+    const parsed = new URL(endpoint);
+    if (!parsed.hostname || parsed.hostname.includes(' ') || !parsed.protocol.startsWith('http')) {
+      throw new Error('Invalid URL hostname or protocol');
+    }
+    return parsed.origin;
+  } catch (err) {
+    throw new Error(
+      `Invalid Cloudflare R2 endpoint URL format: "${rawEndpoint}". ` +
+      `Expected a valid HTTPS URL such as https://<account_id>.r2.cloudflarestorage.com (${err.message})`
+    );
+  }
+}
+
+/**
  * Initializes and returns an AWS S3 client configured for Cloudflare R2.
  * Never logs or exposes credentials.
  * Throws a safe, informative error if required R2 keys are missing locally.
@@ -40,8 +96,7 @@ function getR2Client() {
     );
   }
 
-  const accountId = process.env.R2_ACCOUNT_ID;
-  const endpoint = process.env.R2_ENDPOINT || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : undefined);
+  const endpoint = getNormalizedR2Endpoint();
 
   return new S3Client({
     region: 'auto',
@@ -121,5 +176,6 @@ module.exports = {
   resolveStorageClient,
   uploadFileToR2,
   deleteFileFromR2,
-  generatePresignedDownloadUrl
+  generatePresignedDownloadUrl,
+  getNormalizedR2Endpoint
 };
