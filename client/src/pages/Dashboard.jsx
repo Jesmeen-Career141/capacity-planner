@@ -75,9 +75,7 @@ function getPositionSalaryMetrics(p) {
   if (p?.salary && (p.salary.minAmount != null || p.salary.maxAmount != null)) {
     const min = p.salary.minAmount;
     const max = p.salary.maxAmount;
-    let avg = null;
-    if (min != null && max != null) avg = (min + max) / 2;
-    else avg = min != null ? min : max;
+    const avg = min != null && max != null ? (min + max) / 2 : (min != null ? min : max);
     return { currency: p.salary.currency || 'UNSPECIFIED', amount: avg };
   }
   return parsePackageRange(p?.packageRange);
@@ -88,11 +86,18 @@ function formatCurrency(value, currency) {
   if (currency === 'UNSPECIFIED') {
     return `${new Intl.NumberFormat('en-US').format(value)} (currency unclear)`;
   }
-  return new Intl.NumberFormat('en-LK', {
-    style: 'currency',
-    currency: currency || 'LKR',
-    maximumFractionDigits: 0,
-  }).format(value);
+  if (currency === 'Other') {
+    return `${new Intl.NumberFormat('en-US').format(value)} (Other)`;
+  }
+  try {
+    return new Intl.NumberFormat('en-LK', {
+      style: 'currency',
+      currency: currency || 'LKR',
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `${new Intl.NumberFormat('en-US').format(value)} ${currency || ''}`.trim();
+  }
 }
 
 function Dashboard() {
