@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronUp, ChevronDown, GripVertical } from 'lucide-react';
+import { ChevronUp, ChevronDown, GripVertical, Pencil } from 'lucide-react';
 import { getPositions, assignPosition, setFlagOverride, updatePosition } from '../api/positions';
 import { getArchiveSnapshots, getArchiveSnapshot } from '../api/archive';
 import { getActiveTAs, reorderTAs } from '../api/tas';
@@ -11,6 +11,8 @@ import { getWeeklyAllocationsBatch, updateWeeklyAllocationCell, setLeaveBulk } f
 import './TABoard.css';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { formatSalary } from '../utils/salaryFormatter';
+import PositionDetailModal from '../components/PositionDetailModal';
+import CompactEditPopover from '../components/CompactEditPopover';
 
 // ---- CONSTANTS ----
 const PLEVEL_ORDER = ['P1', 'P2', 'P3', 'P4', 'P5'];
@@ -232,187 +234,7 @@ function Popover({ anchorRef, isOpen, onClose, children, width = 290 }) {
   );
 }
 
-// ---- Position Detail Modal (duplicated for now) ----
-function PositionDetailModal({ position, onClose, onUpdate, tas }) {
-  const [editData, setEditData] = useState({
-    remarks: '',
-    thisWeekFocus: '',
-    allocationRounds: [],
-  });
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (position) {
-      setEditData({
-        remarks: position.remarks || '',
-        thisWeekFocus: position.thisWeekFocus || '',
-        allocationRounds: position.allocationRounds || [],
-      });
-    }
-  }, [position]);
-
-  if (!position) return null;
-
-  const handleChange = (field, value) => {
-    setEditData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const payload = {
-        remarks: editData.remarks || '',
-        thisWeekFocus: editData.thisWeekFocus || '',
-      };
-      await updatePosition(position._id, payload);
-      await onUpdate();
-      onClose();
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save changes');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const historyRounds = [...(editData.allocationRounds || [])]
-    .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
-    .slice(0, 5);
-
-  const primaryName = position.assignee?.name || 'Unassigned';
-  const parallelNames = (position.parallelAssignees || []).map(ta => ta.name).join(', ');
-  const assigneeDisplay = parallelNames ? `${primaryName} (parallel: ${parallelNames})` : primaryName;
-
-  const CloseIcon = () => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-
-  return (
-    <motion.div
-      className="modal-overlay"
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.div
-        className="modal modal-lg pos-detail-modal"
-        onClick={e => e.stopPropagation()}
-        initial={{ scale: 0.85, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.85, opacity: 0 }}
-        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-      >
-        <div className="modal-header">
-          <h2>{position.jobOrderId}</h2>
-          <button className="modal-close-btn" onClick={onClose}>
-            <CloseIcon />
-          </button>
-        </div>
-
-        <div className="modal-body">
-          <div className="modal-summary">
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Position</span>
-              <span className="modal-summary-value">{position.position}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Client</span>
-              <span className="modal-summary-value">{position.client?.clientName || '—'}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Status</span>
-              <span className="modal-summary-value">{position.status}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Assignee(s)</span>
-              <span className="modal-summary-value">{assigneeDisplay}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Level</span>
-              <span className="modal-summary-value">{position.pLevel}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Stage</span>
-              <span className="modal-summary-value">{position.pipelineStage}</span>
-            </div>
-            <div className="modal-summary-item">
-              <span className="modal-summary-label">Shortlist (Int/Ext)</span>
-              <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
-            </div>
-          </div>
-
-          <div className="modal-editable">
-            <div className="modal-field">
-              <label>This Week Focus</label>
-              <input
-                type="text"
-                value={editData.thisWeekFocus}
-                onChange={e => handleChange('thisWeekFocus', e.target.value)}
-                className="modal-input"
-                placeholder="e.g., Schedule interviews, Review CVs..."
-              />
-            </div>
-            <div className="modal-field">
-              <label>Remarks</label>
-              <textarea
-                value={editData.remarks}
-                onChange={e => handleChange('remarks', e.target.value)}
-                className="modal-textarea"
-                rows="4"
-                placeholder="Add any notes or remarks about this position..."
-              />
-            </div>
-          </div>
-
-          <div className="modal-history">
-            <h4>Allocation History</h4>
-            {historyRounds.length === 0 ? (
-              <p className="modal-history-empty">No allocation history yet</p>
-            ) : (
-              <table className="modal-history-table">
-                <thead>
-                  <tr>
-                    <th>Round</th>
-                    <th>Value</th>
-                    <th>Date</th>
-                    <th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historyRounds.map((round, idx) => (
-                    <tr key={idx}>
-                      <td className="col-round">Round {round.roundNumber}</td>
-                      <td className="col-value">{round.taAssigned?.name || '—'}</td>
-                      <td className="col-date">
-                        {round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}
-                      </td>
-                      <td className="col-notes">{round.reason || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            {historyRounds.length === 5 && (editData.allocationRounds?.length || 0) > 5 && (
-              <p className="modal-history-more">
-                + {(editData.allocationRounds?.length || 0) - 5} more rounds
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="modal-footer">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
+// ---- PositionDetailModal is imported from ../components/PositionDetailModal ----
 
 // ---- Leave / Holiday Modal ----
 function LeaveModal({ tas, onClose, onSave, saving }) {
@@ -1067,212 +889,380 @@ function TACard({
 }
 
 
-// ---- Action Board subcomponents ----
+// ---- 4-Panel Action Board (Phase 3) ----
+const ARCHIVE_STATUSES = ['Placed', 'Lost', 'Hold'];
+
+const ACTION_FILTER_OPTIONS = [
+  { key: 'followUp', label: 'Follow Up', pillClass: 'ab-filter-pill--followUp' },
+  { key: 'addOn', label: 'Add-On', pillClass: 'ab-filter-pill--addOn' },
+  { key: 'backup', label: 'Backup', pillClass: 'ab-filter-pill--backup' },
+  { key: 'reAssign', label: 'Re-assign', pillClass: 'ab-filter-pill--reAssign' },
+  { key: 'goingGood', label: 'Going Good', pillClass: 'ab-filter-pill--goingGood' },
+];
+
+function isActionableFlag(key, flag) {
+  if (!flag) return false;
+  if (key === 'reAssign') return flag.label === 'Reassign';
+  return true;
+}
+
+function getPositionPriorityScore(pos) {
+  let score = 0;
+  if (pos.flags?.followUp) score = Math.max(score, 100);
+  if (pos.flags?.addOn) score = Math.max(score, 100);
+  if (pos.flags?.backup) score = Math.max(score, 70);
+  if (pos.flags?.reAssign && pos.flags.reAssign.label === 'Reassign') score = Math.max(score, 50);
+  if (pos.flags?.goingGood) score = Math.max(score, 30);
+  return score;
+}
+
+function sortPositionsByPriority(positionsList) {
+  return [...positionsList].sort((a, b) => {
+    const scoreDiff = getPositionPriorityScore(b) - getPositionPriorityScore(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    return (a.jobOrderId || '').localeCompare(b.jobOrderId || '');
+  });
+}
+
+function matchesFilters(pos, selectedFilterKeys) {
+  if (!selectedFilterKeys || selectedFilterKeys.size === 0) return true;
+  for (const key of selectedFilterKeys) {
+    if (isActionableFlag(key, pos.flags?.[key])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isOnPosition(position, taId) {
   return (
     position.assignee?._id === taId ||
-    (position.parallelAssignees || []).some(pa => pa._id === taId)
+    position.assignee === taId ||
+    (position.parallelAssignees || []).some(pa => pa._id === taId || pa === taId)
   );
 }
 
-function ReassignChip({ p, flagKey, ta, tas, onReassign, onToggleFlag, isOpen, onToggleOpen }) {
-  const triggerRef = useRef(null);
-  return (
-    <div className="ab-chip-wrap">
-      <button
-        ref={triggerRef}
-        className="ab-chip ab-chip-btn"
-        style={flagChipStyle(p.flags[flagKey])}
-        onClick={onToggleOpen}
-      >
-        {p.client?.clientName || '—'} — {p.position}
-        {p.flags[flagKey].manual && <span className="ab-manual-dot" title="Manually set" />}
-      </button>
-      <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggleOpen} width={220}>
-        <p className="popover-heading">Reassign to</p>
-        {tas.filter(t => t._id !== ta._id).map(t => (
-          <button
-            key={t._id}
-            className="cell-popover-option cell-popover-option--simple"
-            onClick={() => {
-              onReassign(p._id, t._id);
-              onToggleOpen();
-            }}
-          >
-            <span className="cpo-text">{t.name}</span>
-          </button>
-        ))}
-        <div className="popover-divider" />
-        <button
-          className="cell-popover-option cell-popover-option--simple cell-popover-danger"
-          onClick={() => {
-            onToggleFlag(p._id, flagKey, 'off');
-            onToggleOpen();
-          }}
-        >
-          <span className="cpo-text">Remove flag (manual off)</span>
-        </button>
-      </Popover>
-    </div>
-  );
-}
-
-function AddPositionButton({
-  ta,
-  flagKey,
-  candidates,
-  matchesCount,
-  onReassign,
-  onToggleFlag,
-  isOpen,
-  onToggleOpen,
-  searchTerm,
-  onSearchChange,
+function ActionPositionCard({
+  position,
+  onCardClick,
+  onCardDoubleClick,
+  onEditButtonClick,
+  onCardKeyDown,
 }) {
-  const triggerRef = useRef(null);
-  const filtered = candidates.filter(p => {
-    const term = searchTerm.toLowerCase();
-    return (
-      p.position?.toLowerCase().includes(term) ||
-      p.client?.clientName?.toLowerCase().includes(term) ||
-      p.jobOrderId?.toLowerCase().includes(term)
-    );
-  });
-
-  const sorted = filtered.slice().sort((a, b) => {
-    const clientA = (a.client?.clientName || '').toLowerCase();
-    const clientB = (b.client?.clientName || '').toLowerCase();
-    if (clientA !== clientB) return clientA.localeCompare(clientB);
-    return (a.position || '').localeCompare(b.position || '');
-  });
+  const cardRef = useRef(null);
+  const flags = position.flags || {};
+  const activeFlagKeys = ['followUp', 'addOn', 'backup', 'reAssign', 'goingGood'].filter(k =>
+    isActionableFlag(k, flags[k])
+  );
 
   return (
-    <div className="ab-add-wrap">
-      <button ref={triggerRef} className="ab-add-btn" onClick={onToggleOpen}>
-        {matchesCount === 0 ? '-' : '+'}
-      </button>
-      <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggleOpen}>
-        <p className="popover-heading">Add position to this flag/TA</p>
-        <div className="popover-search">
-          <input
-            type="text"
-            placeholder="Search positions..."
-            value={searchTerm}
-            onChange={e => onSearchChange(e.target.value)}
-            onClick={e => e.stopPropagation()}
-          />
+    <div
+      ref={cardRef}
+      className="ab-card"
+      tabIndex={0}
+      role="button"
+      aria-label={`Position ${position.jobOrderId} ${position.position}`}
+      onClick={(e) => onCardClick?.(e, position)}
+      onDoubleClick={(e) => onCardDoubleClick?.(e, position, cardRef.current)}
+      onKeyDown={(e) => onCardKeyDown?.(e, position)}
+    >
+      <div className="ab-card-top">
+        <div className="ab-card-meta">
+          <span className={`cpo-level cpo-level--${position.pLevel} ab-card-plevel`}>
+            {position.pLevel}
+          </span>
+          <span className="ab-card-jobid">{position.jobOrderId}</span>
         </div>
-        {sorted.slice(0, 30).map(p => (
+        <div className="ab-card-top-right">
+          <span className="ab-card-status">{position.status}</span>
           <button
-            key={p._id}
-            className="cell-popover-option"
-            onClick={() => {
-              // If the position is not already assigned to this TA, reassign it (primary)
-              if (!isOnPosition(p, ta._id)) {
-                onReassign(p._id, ta._id);
+            type="button"
+            className="ab-card-edit-btn"
+            title="Quick edit TA and flags"
+            aria-label={`Quick edit ${position.jobOrderId} ${position.position}`}
+            onClick={(e) => onEditButtonClick?.(e, position, cardRef.current)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.stopPropagation();
               }
-              // Then turn the flag on
-              onToggleFlag(p._id, flagKey, 'on');
-              onToggleOpen();
             }}
           >
-            <span className="cpo-check" />
-            <span className={`cpo-level cpo-level--${p.pLevel}`}>{p.pLevel}</span>
-            <span className="cpo-text">
-              <span className="cpo-client">{p.client?.clientName || '—'}</span>
-              <span className="cpo-position">{p.position}</span>
-            </span>
+            <Pencil size={12} />
           </button>
-        ))}
-        {sorted.length === 0 && <div className="popover-empty">No positions match</div>}
-      </Popover>
+        </div>
+      </div>
+
+      <h4 className="ab-card-title">{position.position}</h4>
+      <p className="ab-card-client">{position.client?.clientName || '—'}</p>
+
+      {activeFlagKeys.length > 0 && (
+        <div className="ab-card-flags">
+          {activeFlagKeys.map(k => (
+            <span key={k} className={`ab-flag-pill ab-flag-pill--${k}`}>
+              {flags[k].label}
+              {flags[k].manual && <span className="ab-flag-manual-dot" title="Manually set" />}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="ab-card-footer">
+        <span>CVs: {position.cvCount ?? 0} · Ext: {position.extShortlistCount ?? 0}</span>
+        {position.salary?.min ? (
+          <span>{formatSalary(position.salary)}</span>
+        ) : position.packageRange ? (
+          <span>{position.packageRange}</span>
+        ) : null}
+      </div>
     </div>
   );
 }
 
-function ActionBoard({ positions, tas, onToggleFlag, onReassign, workloadByTA }) {
-  const [openKey, setOpenKey] = useState(null);
-  const [searchTerms, setSearchTerms] = useState({});
+function TAPanel({
+  ta,
+  positions = [],
+  isUnassigned = false,
+  onCardClick,
+  onCardDoubleClick,
+  onEditButtonClick,
+  onCardKeyDown,
+}) {
+  const [selectedFilterKeys, setSelectedFilterKeys] = useState(new Set());
 
-  const handleSearchChange = (key, value) => {
-    setSearchTerms(prev => ({ ...prev, [key]: value }));
+  const handleToggleFilter = (key) => {
+    setSelectedFilterKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
   };
 
-  const isActionable = (flagKey, flag) => {
-    if (!flag) return false;
-    if (flagKey === 'reAssign') return flag.label === 'Reassign';
-    return true;
+  const handleClearFilters = () => {
+    setSelectedFilterKeys(new Set());
   };
+
+  const filteredPositions = useMemo(() => {
+    const matched = positions.filter(p => matchesFilters(p, selectedFilterKeys));
+    return sortPositionsByPriority(matched);
+  }, [positions, selectedFilterKeys]);
+
+  const isAllActive = selectedFilterKeys.size === 0;
+
+  return (
+    <div className={`ab-ta-panel ${isUnassigned ? 'ab-ta-panel--unassigned' : ''}`}>
+      <div className="ab-panel-header">
+        <div className="ab-panel-title-row">
+          <h3 className="ab-panel-title">{ta.name}</h3>
+          <span className="ab-panel-count">
+            {filteredPositions.length}
+            {filteredPositions.length !== positions.length && ` / ${positions.length}`}
+          </span>
+        </div>
+
+        <div className="ab-panel-filters" role="toolbar" aria-label={`Filter ${ta.name} roles`}>
+          <button
+            type="button"
+            className={`ab-filter-pill ${isAllActive ? 'ab-filter-pill--active' : ''}`}
+            onClick={handleClearFilters}
+            aria-pressed={isAllActive}
+          >
+            All active
+          </button>
+          {ACTION_FILTER_OPTIONS.map(({ key, label, pillClass }) => {
+            const isSelected = selectedFilterKeys.has(key);
+            return (
+              <button
+                key={key}
+                type="button"
+                className={`ab-filter-pill ${isSelected ? `ab-filter-pill--active ${pillClass}` : ''}`}
+                onClick={() => handleToggleFilter(key)}
+                aria-pressed={isSelected}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="ab-cards-stack">
+        {filteredPositions.length === 0 ? (
+          <div className="ab-cards-empty">
+            {positions.length === 0 ? 'No active positions assigned' : 'No positions match selected filters'}
+          </div>
+        ) : (
+          filteredPositions.map(pos => (
+            <ActionPositionCard
+              key={pos._id}
+              position={pos}
+              onCardClick={onCardClick}
+              onCardDoubleClick={onCardDoubleClick}
+              onEditButtonClick={onEditButtonClick}
+              onCardKeyDown={onCardKeyDown}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ActionBoard({
+  positions = [],
+  tas = [],
+  allTAs = [],
+  onOpenPositionModal,
+  onUpdatePosition,
+  // eslint-disable-next-line no-unused-vars
+  onToggleFlag,
+  // eslint-disable-next-line no-unused-vars
+  onReassign,
+}) {
+  const [editTarget, setEditTarget] = useState(null);
+  const clickTimeoutRef = useRef(null);
+
+  // Clear pending click timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+        clickTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleCardClick = useCallback((e, position) => {
+    // If double-click in progress (detail > 1), abort single-click timeout
+    if (e.detail > 1) {
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+        clickTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+    }
+
+    clickTimeoutRef.current = setTimeout(() => {
+      clickTimeoutRef.current = null;
+      setEditTarget(null);
+      if (onOpenPositionModal) {
+        onOpenPositionModal(position);
+      }
+    }, 230);
+  }, [onOpenPositionModal]);
+
+  const handleCardDoubleClick = useCallback((e, position, cardEl) => {
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+    }
+    setEditTarget({ position, anchorEl: cardEl || e.currentTarget });
+  }, []);
+
+  const handleEditButtonClick = useCallback((e, position, cardEl) => {
+    e.stopPropagation();
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+    }
+    setEditTarget(prev => {
+      if (prev?.position?._id === position._id) {
+        return null;
+      }
+      return { position, anchorEl: cardEl || e.currentTarget };
+    });
+  }, []);
+
+  const handleCardKeyDown = useCallback((e, position) => {
+    // Only trigger if the card itself received the key event, not child buttons
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+        clickTimeoutRef.current = null;
+      }
+      setEditTarget(null);
+      if (onOpenPositionModal) {
+        onOpenPositionModal(position);
+      }
+    }
+  }, [onOpenPositionModal]);
+
+  const activePositions = useMemo(() => {
+    return positions.filter(p => !ARCHIVE_STATUSES.includes(p.status));
+  }, [positions]);
+
+  const activeTaIds = useMemo(() => new Set(tas.map(t => String(t._id))), [tas]);
+
+  const unassignedPositions = useMemo(() => {
+    return activePositions.filter(p => {
+      if (!p.assignee) return true;
+      const id = String(p.assignee?._id || p.assignee);
+      if (p.assignee?.status === 'Left') return true;
+      return !activeTaIds.has(id);
+    });
+  }, [activePositions, activeTaIds]);
+
+  const currentEditPosition = useMemo(() => {
+    if (!editTarget?.position?._id) return null;
+    return positions.find(p => p._id === editTarget.position._id) || editTarget.position;
+  }, [positions, editTarget]);
 
   return (
     <div className="action-board-wrap">
-      <div className="action-board">
-        <div
-          className="ab-row ab-header-row"
-          style={{ gridTemplateColumns: `140px repeat(${tas.length}, minmax(140px, 1fr))` }}
-        >
-          <div className="ab-label-col" />
-          {tas.map(ta => (
-            <div className="ab-col-header" key={ta._id}>
-              {ta.name}
-              <span className="ab-col-count">{workloadByTA[ta._id] ?? 0}</span>
-            </div>
-          ))}
-        </div>
-
-        {ACTION_ORDER.map(flagKey => (
-          <div
-            className="ab-row"
-            key={flagKey}
-            style={{ gridTemplateColumns: `140px repeat(${tas.length}, minmax(140px, 1fr))` }}
-          >
-            <div className="ab-label-col">{FLAG_META[flagKey].label}</div>
-            {tas.map(ta => {
-              // Matches: positions where this TA is on the position (primary or parallel) AND has the flag
-              const matches = positions.filter(
-                p => isOnPosition(p, ta._id) && isActionable(flagKey, p.flags?.[flagKey])
-              );
-              const cellKey = `cell|${flagKey}|${ta._id}`;
-              // Candidates: positions not on this TA (so they can be assigned)
-              const candidates = positions.filter(p => !isOnPosition(p, ta._id));
-
-              return (
-                <div className="ab-cell" key={ta._id}>
-                  {matches.map(p => {
-                    const chipKey = `chip|${flagKey}|${p._id}`;
-                    return (
-                      <ReassignChip
-                        key={p._id}
-                        p={p}
-                        flagKey={flagKey}
-                        ta={ta}
-                        tas={tas}
-                        onReassign={onReassign}
-                        onToggleFlag={onToggleFlag}
-                        isOpen={openKey === chipKey}
-                        onToggleOpen={() => setOpenKey(openKey === chipKey ? null : chipKey)}
-                      />
-                    );
-                  })}
-
-                  <AddPositionButton
-                    ta={ta}
-                    flagKey={flagKey}
-                    candidates={candidates}
-                    matchesCount={matches.length}
-                    onReassign={onReassign}
-                    onToggleFlag={onToggleFlag}
-                    isOpen={openKey === cellKey}
-                    onToggleOpen={() => setOpenKey(openKey === cellKey ? null : cellKey)}
-                    searchTerm={searchTerms[cellKey] || ''}
-                    onSearchChange={(v) => handleSearchChange(cellKey, v)}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        ))}
+      <div className="ab-panels-container">
+        {tas.map(ta => {
+          const taPositions = activePositions.filter(p => isOnPosition(p, ta._id));
+          return (
+            <TAPanel
+              key={ta._id}
+              ta={ta}
+              positions={taPositions}
+              onCardClick={handleCardClick}
+              onCardDoubleClick={handleCardDoubleClick}
+              onEditButtonClick={handleEditButtonClick}
+              onCardKeyDown={handleCardKeyDown}
+            />
+          );
+        })}
       </div>
+
+      {unassignedPositions.length > 0 && (
+        <div className="ab-unassigned-section">
+          <TAPanel
+            key="unassigned"
+            ta={{ _id: 'unassigned', name: 'Unassigned / Needs Reassignment' }}
+            positions={unassignedPositions}
+            isUnassigned
+            onCardClick={handleCardClick}
+            onCardDoubleClick={handleCardDoubleClick}
+            onEditButtonClick={handleEditButtonClick}
+            onCardKeyDown={handleCardKeyDown}
+          />
+        </div>
+      )}
+
+      {editTarget && currentEditPosition && (
+        <CompactEditPopover
+          position={currentEditPosition}
+          anchorRef={editTarget.anchorEl}
+          isOpen={Boolean(editTarget)}
+          onClose={() => setEditTarget(null)}
+          tas={allTAs.length > 0 ? allTAs : tas}
+          onPositionUpdated={(updated) => {
+            if (onUpdatePosition) onUpdatePosition(updated);
+            setEditTarget(prev => prev ? { ...prev, position: updated } : null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2052,10 +2042,12 @@ function TABoard() {
           <main className="board-main">
             <ActionBoard
               positions={positions}
-              tas={tas}
+              tas={taList.length > 0 ? taList : tas}
+              allTAs={tas}
+              onOpenPositionModal={setPoolModalPosition}
+              onUpdatePosition={refreshPositions}
               onToggleFlag={handleToggleFlag}
               onReassign={handleReassign}
-              workloadByTA={workloadByTA}
             />
           </main>
         )}
@@ -2064,7 +2056,7 @@ function TABoard() {
       <AnimatePresence>
         {poolModalPosition && (
           <PositionDetailModal
-            position={poolModalPosition}
+            position={positions.find(p => p._id === poolModalPosition._id) || poolModalPosition}
             onClose={() => setPoolModalPosition(null)}
             onUpdate={refreshPositions}
             tas={tas}
