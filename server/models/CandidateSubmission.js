@@ -99,7 +99,7 @@ const candidateSubmissionSchema = new mongoose.Schema({
   // Workflow Event 4: Client Response
   clientShortlistStatus: {
     type: String,
-    enum: ['Pending', 'Shortlisted', 'Rejected', 'Client Review'],
+    enum: ['Pending', 'Shortlisted', 'Rejected', 'Client Review', 'Review'],
     default: 'Pending'
   },
   clientShortlistDate: {

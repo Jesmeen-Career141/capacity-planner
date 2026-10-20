@@ -6,10 +6,101 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .clients-header h1 {
   margin: 0;
+}
+
+/* ---- Search and Sort Controls ---- */
+.clients-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.clients-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+  max-width: 400px;
+}
+
+.clients-search-input {
+  width: 100%;
+  padding: 8px 32px 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  font-size: 14px;
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.clients-search-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(31, 92, 62, 0.15);
+}
+
+.clients-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+.clients-search-clear:hover {
+  color: var(--color-text);
+}
+
+.clients-sort-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clients-sort-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.clients-sort-select {
+  padding: 7px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.clients-sort-select:focus {
+  border-color: var(--color-primary);
+}
+
+.clients-delete-error {
+  padding: 10px 14px;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  border-radius: var(--radius);
+  font-size: 13px;
+  margin-bottom: 16px;
 }
 
 .clients-table {
@@ -34,6 +125,17 @@
 }
 .clients-table tr:hover {
   background: var(--color-bg);
+}
+
+.client-name-cell {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.client-date-cell {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .no-clients {

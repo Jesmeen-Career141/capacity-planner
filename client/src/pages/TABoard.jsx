@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronUp, ChevronDown, GripVertical, Pencil } from 'lucide-react';
-import { getPositions, assignPosition, setFlagOverride, updatePosition } from '../api/positions';
+import { getPositions, assignPosition, setFlagOverride } from '../api/positions';
 import { getArchiveSnapshots, getArchiveSnapshot } from '../api/archive';
 import { getActiveTAs, reorderTAs } from '../api/tas';
 import { getWeeklyAllocationsBatch, updateWeeklyAllocationCell, setLeaveBulk } from '../api/weeklyAllocations';
@@ -15,7 +15,6 @@ import PositionDetailModal from '../components/PositionDetailModal';
 import CompactEditPopover from '../components/CompactEditPopover';
 
 // ---- CONSTANTS ----
-const PLEVEL_ORDER = ['P1', 'P2', 'P3', 'P4', 'P5'];
 const CARD_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
 
@@ -26,14 +25,8 @@ const FLAG_META = {
   goingGood: { label: 'Going good' },
   reAssign: { label: 'Re-assign' },
 };
-const ACTION_ORDER = Object.keys(FLAG_META);
 
 // ---- HELPERS ----
-function flagChipStyle(flag) {
-  if (!flag) return { background: 'var(--color-bg)', color: 'var(--color-text-muted)' };
-  const c = `var(--flag-${flag.color})`;
-  return { background: `color-mix(in srgb, ${c} 14%, white)`, color: c };
-}
 
 const ROLE_PALETTE = ['--flag-red', '--flag-yellow', '--flag-green', '--flag-orange', '--flag-purple', '--role-blue', '--role-teal', '--role-neutral'];
 function roleChipStyle(title) {
@@ -96,10 +89,6 @@ const CURRENT_MONTH_IDX = 6;
 
 const TODAY = new Date();
 const TODAY_ISO = toISODate(TODAY);
-const CURRENT_REAL_WEEK = {
-  weekStart: toISODate(getMondayOfWeek(TODAY)),
-  weekEnd: toISODate(addDays(getMondayOfWeek(TODAY), 6)),
-};
 
 // ---- SUB-COMPONENTS ----
 
@@ -184,31 +173,18 @@ function Popover({ anchorRef, isOpen, onClose, children, width = 290 }) {
     if (left < margin) left = margin;
     if (left > maxLeft) left = maxLeft;
 
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-    const openDownward = true;
-    let top = null;
-    let bottom = null;
-    let maxHeight = 320;
-
-    if (openDownward) {
-      top = rect.bottom + margin;
-      const available = window.innerHeight - top - margin;
-      maxHeight = Math.min(320, Math.max(180, available));
-    } else {
-      bottom = window.innerHeight - rect.top + margin;
-      const available = rect.top - margin;
-      maxHeight = Math.min(320, Math.max(180, available));
-    }
+    const top = rect.bottom + margin;
+    const available = window.innerHeight - top - margin;
+    const maxHeight = Math.min(320, Math.max(180, available));
 
     const newStyle = {
       position: 'fixed',
       left,
       width,
       minHeight: 180,
-      maxHeight: maxHeight,
+      maxHeight,
       overflowY: 'auto',
-      ...(top !== null ? { top } : { bottom }),
+      top,
     };
     setStyle(newStyle);
   }, [isOpen, anchorRef, width]);
@@ -237,6 +213,15 @@ function Popover({ anchorRef, isOpen, onClose, children, width = 290 }) {
 // ---- PositionDetailModal is imported from ../components/PositionDetailModal ----
 
 // ---- Leave / Holiday Modal ----
+function CloseIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
 function LeaveModal({ tas, onClose, onSave, saving }) {
   const [selectedTAs, setSelectedTAs] = useState([]);
   const [startDate, setStartDate] = useState('');
@@ -249,13 +234,6 @@ function LeaveModal({ tas, onClose, onSave, saving }) {
   const toggleAll = () => setSelectedTAs(allSelected ? [] : tas.map(t => t._id));
 
   const canSave = selectedTAs.length > 0 && startDate && endDate && startDate <= endDate;
-
-  const CloseIcon = () => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
 
   return (
     <motion.div
@@ -354,7 +332,7 @@ function LeaveModal({ tas, onClose, onSave, saving }) {
 }
 
 // ---- PositionPool (unchanged) ----
-function PositionPool({ positions, navigate, onPositionClick }) {
+function PositionPool({ positions, onPositionClick }) {
   const [searchTerm, setSearchTerm] = useState('');
 
   const filtered = positions.filter(p => {
@@ -505,7 +483,7 @@ function PackageTooltip({ anchorRef, visible, salary, packageRange, clientName, 
 }
 
 // ---- GridCell (with hover state + leave/holiday + dual position slot support) ----
-function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, weekStart, taId, day }) {
+function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeSlot, setActiveSlot] = useState(1);
   const [tooltip1Visible, setTooltip1Visible] = useState(false);
@@ -762,7 +740,6 @@ function TACard({
   onCellToggle,
   onSelectCell,
   onSetCellLeave,
-  navigate,
   workloadCount,
   onMoveUp,
   onMoveDown,
@@ -971,7 +948,12 @@ function ActionPositionCard({
           <span className={`cpo-level cpo-level--${position.pLevel} ab-card-plevel`}>
             {position.pLevel}
           </span>
-          <span className="ab-card-jobid">{position.jobOrderId}</span>
+          <span className="ab-card-jobid">
+            {position.jobOrderId}
+            {(position.isReactivated || position.status === 'Reactivated') && (
+              <span className="reactivated-tag" title="Reactivated Requirement">↻</span>
+            )}
+          </span>
         </div>
         <div className="ab-card-top-right">
           <span className="ab-card-status">{position.status}</span>

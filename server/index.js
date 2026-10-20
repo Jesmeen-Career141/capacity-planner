@@ -9,15 +9,26 @@ const positionRoutes = require('./routes/positionRoutes');
 const archiveRoutes = require('./routes/archiveRoutes');
 const positionHistoryRoutes = require('./routes/positionHistoryRoutes');
 const weeklyAllocationRoutes = require('./routes/weeklyAllocationRoutes');
-const eventRoutes = require('./routes/eventRoutes');              // ADD THIS LINE
+const eventRoutes = require('./routes/eventRoutes');
 const strategyTrackerRoutes = require('./routes/strategyTrackerRoutes');
 const cvRoutes = require('./routes/cvRoutes');
 
 
 const app = express();
 
+const rawClientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+const normalizedClientUrl = rawClientUrl.replace(/\/+$/, '');
+const allowedOrigins = Array.from(new Set([normalizedClientUrl, 'http://localhost:5173', 'http://localhost:3000'])).filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CLIENT_URL,
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    const normalizedOrigin = origin.replace(/\/+$/, '');
+    if (allowedOrigins.includes(normalizedOrigin) || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 
@@ -33,7 +44,7 @@ app.use('/api/positions', positionRoutes);
 app.use('/api/archive', archiveRoutes);
 app.use('/api/position-history', positionHistoryRoutes);
 app.use('/api/weekly-allocations', weeklyAllocationRoutes);
-app.use('/api/events', eventRoutes);                              // ADD THIS LINE
+app.use('/api/events', eventRoutes);
 app.use('/api/color-legend', require('./routes/colorLegend'));
 app.use('/api/strategy-tracker', strategyTrackerRoutes);
 app.use('/api/cvs', cvRoutes);

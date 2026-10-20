@@ -487,6 +487,22 @@ body.table-resizing-active * {
   text-decoration: underline;
 }
 
+.reactivated-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  background: #ccfbf1;
+  color: #0f766e;
+  border: 1px solid rgba(15, 118, 110, 0.3);
+  vertical-align: middle;
+  line-height: 1.2;
+}
+
 /* Row tinting – only for blue (Follow up) and red (Add-on) */
 .row-tint-blue td {
   background-color: #f0f7ff;
@@ -658,6 +674,61 @@ body.table-resizing-active * {
   outline: 2px solid rgba(0, 0, 0, 0.15);
   outline-offset: -2px;
 }
+/* ---- Internal Shortlist Cell & CV Tracking Icon ---- */
+.int-shortlist-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.int-shortlist-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--color-text);
+  min-width: 14px;
+}
+
+.cv-tracking-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid rgba(31, 92, 62, 0.2);
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--color-primary, #1F5C3E);
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  flex-shrink: 0;
+}
+
+.cv-tracking-btn:hover {
+  background: color-mix(in srgb, var(--color-primary) 12%, white);
+  border-color: var(--color-primary);
+  color: var(--color-primary-hover, #2F8A5A);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.cv-tracking-btn:active {
+  transform: translateY(0);
+  background: color-mix(in srgb, var(--color-primary) 18%, white);
+}
+
+.cv-tracking-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.cv-tracking-icon {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
 /* ---- Ext Shortlist hybrid editor ---- */
 .ext-shortlist-edit {
   display: flex;

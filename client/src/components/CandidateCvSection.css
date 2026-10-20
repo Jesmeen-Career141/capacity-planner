@@ -620,16 +620,6 @@
   line-height: 1.2;
 }
 
-.candidate-unverified-tag {
-  font-size: 9px;
-  font-weight: 600;
-  color: #92400e;
-  background: #fef3c7;
-  padding: 1px 4px;
-  border-radius: 3px;
-  align-self: flex-start;
-}
-
 .candidate-card-header-actions {
   display: flex;
   align-items: center;

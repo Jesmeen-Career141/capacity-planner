@@ -8,6 +8,7 @@ import './Archive.css';
 const ARCHIVE_STATUSES = ['Placed', 'Lost', 'Hold'];
 
 const STATUS_OPTIONS = ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost', 'Focus', 'Client Decision'];
+const ALL_STATUS_OPTIONS = [...STATUS_OPTIONS, 'Reactivated'];
 
 const STATUS_COLORS = {
   'Yet to Activate': { bg: '#e5e7eb', text: '#374151' },
@@ -19,6 +20,7 @@ const STATUS_COLORS = {
   'Lost': { bg: '#fca5a5', text: '#7f1d1d' },
   'Focus': { bg: '#d1fae5', text: '#065f46' },
   'Client Decision': { bg: '#fbcfe8', text: '#831843' },
+  'Reactivated': { bg: '#ccfbf1', text: '#0f766e' },
 };
 
 const PLEVEL_COLORS = {
@@ -82,6 +84,15 @@ function ArchiveStatusDropdown({ value, onChange, disabled }) {
         <>
           <div className="popover-backdrop" onClick={() => setIsOpen(false)} />
           <div className={`arch-status-list arch-status-list--${direction}`}>
+            <button
+              type="button"
+              className="arch-status-option arch-status-option--reactivate"
+              style={{ backgroundColor: STATUS_COLORS.Reactivated.bg, color: STATUS_COLORS.Reactivated.text }}
+              onClick={() => { onChange('Reactivated'); setIsOpen(false); }}
+            >
+              ↻ Reactivated
+            </button>
+            <div className="arch-status-divider" />
             {STATUS_OPTIONS.map(s => {
               const sc = STATUS_COLORS[s] || { bg: '#e5e7eb', text: '#374151' };
               return (
@@ -165,7 +176,10 @@ function PositionHistoryTab() {
     }
 
     try {
-      await updatePosition(pos._id, { status: newStatus });
+      await updatePosition(pos._id, {
+        status: newStatus,
+        isReactivated: newStatus === 'Reactivated' ? true : pos.isReactivated
+      });
     } catch (err) {
       // Revert on error
       setPositions(prev => {
@@ -327,10 +341,6 @@ function WeeklySnapshotsTab() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState(null);
 
-  useEffect(() => {
-    fetchSnapshots();
-  }, []);
-
   const fetchSnapshots = async (autoSelectLatest = false) => {
     try {
       const res = await getArchiveSnapshots();
@@ -344,6 +354,10 @@ function WeeklySnapshotsTab() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchSnapshots();
+  }, []);
 
   const handleSnapshotClick = async (id) => {
     setDetailLoading(true);

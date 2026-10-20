@@ -27,7 +27,6 @@ export default function NumberFormatInput({
   disabled = false,
   className = '',
   ariaLabel,
-  min = 0,
   max,
   ...rest
 }) {

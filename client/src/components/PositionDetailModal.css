@@ -54,6 +54,22 @@
 .pos-detail-modal .modal-header h2 {
   margin: 0;
   font-size: 22px;
+  display: flex;
+  align-items: center;
+}
+
+.pos-detail-modal .reactivated-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #ccfbf1;
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid #99f6e4;
+  line-height: 1.2;
 }
 
 .pos-detail-modal .modal-close-btn {

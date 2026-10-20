@@ -23,8 +23,16 @@ const positionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost', 'Focus', 'Client Decision'],
+    enum: ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost', 'Focus', 'Client Decision', 'Reactivated'],
     default: 'Yet to Activate'
+  },
+  isReactivated: {
+    type: Boolean,
+    default: false
+  },
+  reactivatedAt: {
+    type: Date,
+    default: null
   },
   pipelineStage: {
     type: String,

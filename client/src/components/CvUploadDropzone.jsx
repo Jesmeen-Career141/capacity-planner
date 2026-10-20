@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { UploadCloud, FileText, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { UploadCloud, AlertTriangle, Loader2 } from 'lucide-react';
 
 const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx'];
 const ALLOWED_MIME_TYPES = [
@@ -60,7 +60,7 @@ export default function CvUploadDropzone({
     if (valid.length > 0) {
       try {
         await onUpload(valid);
-      } catch (err) {
+      } catch {
         // Parent component can also surface errors
       }
     }

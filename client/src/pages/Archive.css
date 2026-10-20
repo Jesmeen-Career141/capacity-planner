@@ -442,6 +442,15 @@
 }
 .arch-status-option:hover { filter: brightness(0.94); }
 .arch-status-option.selected { outline: 2px solid rgba(0,0,0,0.15); outline-offset: -2px; }
+.arch-status-option--reactivate {
+  font-weight: 700;
+  border: 1px solid rgba(15, 118, 110, 0.35) !important;
+}
+.arch-status-divider {
+  height: 1px;
+  background: var(--color-border, #E4E7E2);
+  margin: 4px 2px;
+}
 
 /* Shared popover-backdrop from Positions.css */
 .popover-backdrop {

@@ -519,6 +519,7 @@ async function updateSubmissionStatus(req, res) {
       readyToSend,
       sentToClient,
       clientShortlistStatus,
+      clientShortlistDate,
       clientFeedback,
       unverifiedLabel,
       nameIsVerified
@@ -575,6 +576,11 @@ async function updateSubmissionStatus(req, res) {
       }
     }
 
+    // Handle explicit client decision date if provided
+    if (clientShortlistDate !== undefined) {
+      submission.clientShortlistDate = clientShortlistDate ? new Date(clientShortlistDate) : null;
+    }
+
     // Handle clientShortlistStatus (enforcing invariant: Sent to client only)
     if (clientShortlistStatus !== undefined) {
       if (!submission.sentToClient && clientShortlistStatus !== 'Pending') {
@@ -582,9 +588,19 @@ async function updateSubmissionStatus(req, res) {
           error: 'Client shortlist decision cannot be recorded before the CV is marked as sent to the client.'
         });
       }
+      const allowedClientStatuses = ['Pending', 'Shortlisted', 'Rejected', 'Client Review', 'Review'];
+      if (!allowedClientStatuses.includes(clientShortlistStatus)) {
+        return res.status(400).json({
+          error: `Invalid client shortlist status: "${clientShortlistStatus}". Allowed values are "Shortlisted" or "Rejected".`
+        });
+      }
       submission.clientShortlistStatus = clientShortlistStatus;
-      if (clientShortlistStatus === 'Shortlisted' && !submission.clientShortlistDate) {
-        submission.clientShortlistDate = new Date();
+      if (clientShortlistStatus === 'Shortlisted' || clientShortlistStatus === 'Rejected') {
+        if (!submission.clientShortlistDate) {
+          submission.clientShortlistDate = new Date();
+        }
+      } else if (clientShortlistStatus === 'Pending') {
+        submission.clientShortlistDate = null;
       }
     }
 

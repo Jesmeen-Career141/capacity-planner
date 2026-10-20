@@ -33,7 +33,6 @@ function formatDate(dateStr) {
  */
 export default function CandidateCard({
   candidate,
-  columnKey,
   isReadOnly = false,
   onUpdateStatus,
   onDelete,
@@ -84,11 +83,6 @@ export default function CandidateCard({
               </span>
             )}
           </div>
-          {!candidate.nameIsVerified && (
-            <span className="candidate-unverified-tag" title="Name derived from filename (unverified)">
-              Unverified
-            </span>
-          )}
         </div>
 
         <div className="candidate-card-header-actions">
@@ -162,7 +156,7 @@ export default function CandidateCard({
                     >
                       <CheckCircle size={13} />
                       <span>
-                        {candidate.clientShortlistStatus === 'Shortlisted'
+                        {candidate.clientShortlistStatus === 'Shortlisted' || candidate.clientShortlistStatus === 'Rejected'
                           ? 'Change Client Decision...'
                           : 'Record Client Decision...'}
                       </span>

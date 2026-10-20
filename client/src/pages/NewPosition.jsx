@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { createPosition, getPositions } from '../api/positions';
 import { getClients } from '../api/clients';
 import { getActiveTAs } from '../api/tas';
@@ -12,12 +12,14 @@ function NewPosition() {
   const [loadingId, setLoadingId] = useState(true);
   const [clients, setClients] = useState([]);
   const [tas, setTAs] = useState([]);
+  const [existingPositions, setExistingPositions] = useState([]);
   const [formData, setFormData] = useState({
     jobOrderId: '',
     client: '',
     position: '',
     pLevel: 'P1',
     status: 'Yet to Activate',
+    isReactivated: false,
     pipelineStage: 'Hunting',
     assignee: '',
     transferParallel: 'New',
@@ -30,6 +32,20 @@ function NewPosition() {
     remarks: ''
   });
   const [error, setError] = useState('');
+
+  // Check for possible existing positions with matching client and similar position title
+  const possibleMatches = useMemo(() => {
+    if (!formData.client || !formData.position.trim()) return [];
+    const clientVal = String(formData.client);
+    const titleVal = formData.position.trim().toLowerCase();
+
+    return existingPositions.filter(p => {
+      const pClientId = String(p.client?._id || p.client || '');
+      if (pClientId !== clientVal) return false;
+      const pTitle = (p.position || '').trim().toLowerCase();
+      return pTitle === titleVal || pTitle.includes(titleVal) || titleVal.includes(pTitle);
+    });
+  }, [formData.client, formData.position, existingPositions]);
 
   // Generate next Job ID
   const generateNextJobId = (positions) => {
@@ -50,6 +66,7 @@ function NewPosition() {
         ]);
         setClients(clientRes.data);
         setTAs(taRes.data);
+        setExistingPositions(posRes.data || []);
 
         // Auto-generate Job ID from existing positions
         if (posRes.data && posRes.data.length > 0) {
@@ -59,7 +76,7 @@ function NewPosition() {
           // No positions yet, start with JO-001
           setFormData(prev => ({ ...prev, jobOrderId: 'JO-001' }));
         }
-      } catch (err) {
+      } catch {
         alert('Failed to load data for new position');
         // Fallback: allow manual entry
         setFormData(prev => ({ ...prev, jobOrderId: 'JO-001' }));
@@ -71,8 +88,20 @@ function NewPosition() {
   }, []);
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    if (type === 'checkbox') {
+      setFormData(prev => ({
+        ...prev,
+        [name]: checked,
+        status: checked && prev.status === 'Yet to Activate' ? 'Reactivated' : prev.status
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value,
+        isReactivated: name === 'status' && value === 'Reactivated' ? true : prev.isReactivated
+      }));
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -87,8 +116,10 @@ function NewPosition() {
 
     setLoading(true);
     try {
+      const isReactivatedVal = Boolean(formData.isReactivated || formData.status === 'Reactivated');
       const payload = {
         ...formData,
+        isReactivated: isReactivatedVal,
         salary: formData.salary || null,
         packageRange: formData.packageRange || '',
         lsCount: formData.lsCount ? Number(formData.lsCount) : null,
@@ -158,6 +189,32 @@ function NewPosition() {
           </div>
         </div>
 
+        {possibleMatches.length > 0 && (
+          <div className="possible-matches-callout">
+            <div className="matches-callout-header">
+              <strong>⚠️ Possible Existing Match Found ({possibleMatches.length})</strong>
+            </div>
+            <p className="matches-callout-desc">
+              Found existing record(s) for this client with a similar title. Check if this is an existing role that should be reactivated instead of creating a duplicate:
+            </p>
+            <ul className="matches-callout-list">
+              {possibleMatches.map(m => (
+                <li key={m._id}>
+                  <strong>{m.jobOrderId}</strong>: {m.position} — Status: <span className="matches-status-pill">{m.status}</span>
+                  {['Placed', 'Lost', 'Hold'].includes(m.status) ? (
+                    <Link to="/archive" className="match-view-link">View in Archive to Reactivate</Link>
+                  ) : (
+                    <Link to="/positions" className="match-view-link">View in Positions</Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <p className="matches-callout-foot">
+              If this requirement was never recorded in the Capacity Planner, you may proceed with creating it.
+            </p>
+          </div>
+        )}
+
         <div className="form-row">
           <div className="form-group">
             <label>Status</label>
@@ -169,6 +226,9 @@ function NewPosition() {
               <option value="Paused">Paused</option>
               <option value="Placed">Placed</option>
               <option value="Lost">Lost</option>
+              <option value="Focus">Focus</option>
+              <option value="Client Decision">Client Decision</option>
+              <option value="Reactivated">Reactivated</option>
             </select>
           </div>
           <div className="form-group">
@@ -181,6 +241,20 @@ function NewPosition() {
               <option value="Offer">Offer</option>
               <option value="Placed">Placed</option>
             </select>
+          </div>
+        </div>
+
+        <div className="form-row">
+          <div className="form-group form-group--checkbox full-width">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                name="isReactivated"
+                checked={Boolean(formData.isReactivated || formData.status === 'Reactivated')}
+                onChange={handleChange}
+              />
+              <span>Mark as Reactivated Requirement (for previously handled roles returning to recruitment)</span>
+            </label>
           </div>
         </div>
 

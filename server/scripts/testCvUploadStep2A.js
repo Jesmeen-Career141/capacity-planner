@@ -1374,6 +1374,173 @@ async function runAllTests() {
     );
   });
 
+  // --- 12. Client Decision Workflow & Invariants (Shortlisted / Rejected) ---
+  console.log('\n--- 12. Client Decision Workflow & Invariants ---');
+
+  runTest('CandidateSubmission schema accepts Shortlisted, Rejected, Pending, and legacy Review', () => {
+    ['Shortlisted', 'Rejected', 'Pending', 'Client Review', 'Review'].forEach(status => {
+      const doc = new CandidateSubmission({
+        position: '670000000000000000000001',
+        attempt: '670000000000000000000002',
+        originalFileName: 'test.pdf',
+        fileHash: 'abcdef',
+        fileSize: 1024,
+        mimeType: 'application/pdf',
+        r2StorageKey: `positions/test-${status}.pdf`,
+        sentToClient: true,
+        clientShortlistStatus: status
+      });
+      const err = doc.validateSync();
+      assert.strictEqual(err, undefined, `Status "${status}" should be valid in CandidateSubmission schema`);
+    });
+  });
+
+  await runAsyncTest('updateSubmissionStatus records Shortlisted decision and populates clientShortlistDate', async () => {
+    const origFindByIdSub = CandidateSubmission.findById;
+    const origFindByIdAtt = PositionAttempt.findById;
+
+    const mockDoc = {
+      _id: 'sub_123',
+      attempt: 'att_act',
+      sentToClient: true,
+      clientShortlistStatus: 'Pending',
+      clientShortlistDate: null,
+      clientFeedback: '',
+      save() { return Promise.resolve(this); }
+    };
+    CandidateSubmission.findById = (id) => ({
+      populate: () => ({
+        lean: () => Promise.resolve(mockDoc)
+      }),
+      then: (fn) => fn(mockDoc)
+    });
+    PositionAttempt.findById = () => Promise.resolve({ _id: 'att_act', status: 'Active' });
+
+    const explicitDate = '2026-10-15';
+    const { req, res } = createMockReqRes(
+      { submissionId: 'sub_123' },
+      { clientShortlistStatus: 'Shortlisted', clientShortlistDate: explicitDate, clientFeedback: 'Excellent candidate' }
+    );
+    await cvController.updateSubmissionStatus(req, res);
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(mockDoc.clientShortlistStatus, 'Shortlisted');
+    assert.ok(mockDoc.clientShortlistDate instanceof Date);
+    assert.strictEqual(mockDoc.clientShortlistDate.toISOString().split('T')[0], '2026-10-15');
+    assert.strictEqual(mockDoc.clientFeedback, 'Excellent candidate');
+
+    CandidateSubmission.findById = origFindByIdSub;
+    PositionAttempt.findById = origFindByIdAtt;
+  });
+
+  await runAsyncTest('updateSubmissionStatus records Rejected decision and populates clientShortlistDate', async () => {
+    const origFindByIdSub = CandidateSubmission.findById;
+    const origFindByIdAtt = PositionAttempt.findById;
+
+    const mockDoc = {
+      _id: 'sub_123',
+      attempt: 'att_act',
+      sentToClient: true,
+      clientShortlistStatus: 'Pending',
+      clientShortlistDate: null,
+      clientFeedback: '',
+      save() { return Promise.resolve(this); }
+    };
+    CandidateSubmission.findById = (id) => ({
+      populate: () => ({
+        lean: () => Promise.resolve(mockDoc)
+      }),
+      then: (fn) => fn(mockDoc)
+    });
+    PositionAttempt.findById = () => Promise.resolve({ _id: 'att_act', status: 'Active' });
+
+    const { req, res } = createMockReqRes(
+      { submissionId: 'sub_123' },
+      { clientShortlistStatus: 'Rejected', clientFeedback: 'Lacks required experience' }
+    );
+    await cvController.updateSubmissionStatus(req, res);
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(mockDoc.clientShortlistStatus, 'Rejected');
+    assert.ok(mockDoc.clientShortlistDate instanceof Date, 'clientShortlistDate auto-populated on rejection');
+    assert.strictEqual(mockDoc.clientFeedback, 'Lacks required experience');
+
+    CandidateSubmission.findById = origFindByIdSub;
+    PositionAttempt.findById = origFindByIdAtt;
+  });
+
+  await runAsyncTest('updateSubmissionStatus clears clientShortlistDate when reverted to Pending', async () => {
+    const origFindByIdSub = CandidateSubmission.findById;
+    const origFindByIdAtt = PositionAttempt.findById;
+
+    const mockDoc = {
+      _id: 'sub_123',
+      attempt: 'att_act',
+      sentToClient: true,
+      clientShortlistStatus: 'Shortlisted',
+      clientShortlistDate: new Date(),
+      save() { return Promise.resolve(this); }
+    };
+    CandidateSubmission.findById = (id) => ({
+      populate: () => ({
+        lean: () => Promise.resolve(mockDoc)
+      }),
+      then: (fn) => fn(mockDoc)
+    });
+    PositionAttempt.findById = () => Promise.resolve({ _id: 'att_act', status: 'Active' });
+
+    const { req, res } = createMockReqRes(
+      { submissionId: 'sub_123' },
+      { clientShortlistStatus: 'Pending' }
+    );
+    await cvController.updateSubmissionStatus(req, res);
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(mockDoc.clientShortlistStatus, 'Pending');
+    assert.strictEqual(mockDoc.clientShortlistDate, null);
+
+    CandidateSubmission.findById = origFindByIdSub;
+    PositionAttempt.findById = origFindByIdAtt;
+  });
+
+  await runAsyncTest('updateSubmissionStatus rejects invalid clientShortlistStatus values with HTTP 400', async () => {
+    const origFindByIdSub = CandidateSubmission.findById;
+    const origFindByIdAtt = PositionAttempt.findById;
+
+    const mockDoc = {
+      _id: 'sub_123',
+      attempt: 'att_act',
+      sentToClient: true,
+      clientShortlistStatus: 'Pending',
+      save() { return Promise.resolve(this); }
+    };
+    CandidateSubmission.findById = () => Promise.resolve(mockDoc);
+    PositionAttempt.findById = () => Promise.resolve({ _id: 'att_act', status: 'Active' });
+
+    const { req, res } = createMockReqRes(
+      { submissionId: 'sub_123' },
+      { clientShortlistStatus: 'NotAnOption' }
+    );
+    await cvController.updateSubmissionStatus(req, res);
+
+    assert.strictEqual(res.statusCode, 400);
+    assert.ok(res.data.error.includes('Invalid client shortlist status'));
+
+    CandidateSubmission.findById = origFindByIdSub;
+    PositionAttempt.findById = origFindByIdAtt;
+  });
+
+  runTest('Client Rejected candidate does NOT count as external shortlist', () => {
+    const submissions = [
+      { _id: 'c1', sentToClient: true, clientShortlistStatus: 'Shortlisted' },
+      { _id: 'c2', sentToClient: true, clientShortlistStatus: 'Rejected' },
+      { _id: 'c3', sentToClient: true, clientShortlistStatus: 'Pending' }
+    ];
+    const externalShortlists = submissions.filter(s => s.sentToClient && s.clientShortlistStatus === 'Shortlisted');
+    assert.strictEqual(externalShortlists.length, 1);
+    assert.strictEqual(externalShortlists[0]._id, 'c1');
+  });
+
   console.log('\n===============================================================');
   console.log(`  Phase 2 Step 2A Tests Finished: ${passed} passed, ${failed} failed`);
   console.log('===============================================================\n');

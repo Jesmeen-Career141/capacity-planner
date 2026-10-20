@@ -62,7 +62,7 @@ export default function CandidateCvSection({ position, tas = [] }) {
   const [decisionModalCandidate, setDecisionModalCandidate] = useState(null);
   const [decisionData, setDecisionData] = useState({
     status: 'Shortlisted',
-    date: () => new Date().toISOString().split('T')[0],
+    date: new Date().toISOString().split('T')[0],
     notes: ''
   });
   const [savingDecision, setSavingDecision] = useState(false);
@@ -356,13 +356,9 @@ export default function CandidateCvSection({ position, tas = [] }) {
       const payload = {
         sentToClient: true,
         clientShortlistStatus: decisionData.status,
+        clientShortlistDate: decisionData.date ? new Date(decisionData.date) : new Date(),
         clientFeedback: decisionData.notes || ''
       };
-      if (decisionData.status === 'Shortlisted') {
-        payload.clientShortlistDate = new Date(decisionData.date);
-      } else {
-        payload.clientShortlistDate = null;
-      }
 
       await handleUpdateStatus(decisionModalCandidate._id, payload);
       setDecisionModalCandidate(null);
@@ -560,9 +556,15 @@ export default function CandidateCvSection({ position, tas = [] }) {
               onDownload={handleDownloadCv}
               onRequestClientDecisionConfirmation={(cand, defaultStatus = 'Shortlisted') => {
                 setDecisionModalCandidate(cand);
+                const initialStatus =
+                  defaultStatus === 'Rejected' || cand.clientShortlistStatus === 'Rejected'
+                    ? 'Rejected'
+                    : 'Shortlisted';
                 setDecisionData({
-                  status: defaultStatus,
-                  date: new Date().toISOString().split('T')[0],
+                  status: initialStatus,
+                  date: cand.clientShortlistDate
+                    ? new Date(cand.clientShortlistDate).toISOString().split('T')[0]
+                    : new Date().toISOString().split('T')[0],
                   notes: cand.clientFeedback || ''
                 });
               }}
@@ -746,21 +748,7 @@ export default function CandidateCvSection({ position, tas = [] }) {
                   />
                   <div className="cv-decision-option-content">
                     <span className="cv-decision-option-title text-forest-700">Client Shortlisted</span>
-                    <span className="cv-decision-option-desc">Candidate accepted and moving to interviews (Stage D).</span>
-                  </div>
-                </label>
-
-                <label className="cv-decision-option">
-                  <input
-                    type="radio"
-                    name="clientDecision"
-                    value="Review"
-                    checked={decisionData.status === 'Review'}
-                    onChange={() => setDecisionData(prev => ({ ...prev, status: 'Review' }))}
-                  />
-                  <div className="cv-decision-option-content">
-                    <span className="cv-decision-option-title text-purple-700">Client Review</span>
-                    <span className="cv-decision-option-desc">Client is evaluating candidate profile (Stays in Stage C).</span>
+                    <span className="cv-decision-option-desc">Candidate accepted and moving forward to client interviews.</span>
                   </div>
                 </label>
 
@@ -774,37 +762,21 @@ export default function CandidateCvSection({ position, tas = [] }) {
                   />
                   <div className="cv-decision-option-content">
                     <span className="cv-decision-option-title text-red-700">Client Rejected</span>
-                    <span className="cv-decision-option-desc">Client decided not to proceed (Stays in Stage C with rejected badge).</span>
-                  </div>
-                </label>
-
-                <label className="cv-decision-option">
-                  <input
-                    type="radio"
-                    name="clientDecision"
-                    value="Pending"
-                    checked={decisionData.status === 'Pending'}
-                    onChange={() => setDecisionData(prev => ({ ...prev, status: 'Pending' }))}
-                  />
-                  <div className="cv-decision-option-content">
-                    <span className="cv-decision-option-title text-gray-700">Pending Decision</span>
-                    <span className="cv-decision-option-desc">Awaiting initial feedback from client.</span>
+                    <span className="cv-decision-option-desc">Client decided not to proceed with this candidate.</span>
                   </div>
                 </label>
               </div>
 
-              {decisionData.status === 'Shortlisted' && (
-                <div className="cv-form-field mt-2">
-                  <label htmlFor="decision-date-input">Client Shortlist Date:</label>
-                  <input
-                    id="decision-date-input"
-                    type="date"
-                    value={decisionData.date}
-                    onChange={e => setDecisionData(prev => ({ ...prev, date: e.target.value }))}
-                    className="cv-form-input"
-                  />
-                </div>
-              )}
+              <div className="cv-form-field mt-2">
+                <label htmlFor="decision-date-input">Client Decision Date:</label>
+                <input
+                  id="decision-date-input"
+                  type="date"
+                  value={decisionData.date}
+                  onChange={e => setDecisionData(prev => ({ ...prev, date: e.target.value }))}
+                  className="cv-form-input"
+                />
+              </div>
 
               <div className="cv-form-field">
                 <label htmlFor="client-notes-textarea">Client Feedback / Notes (Optional):</label>

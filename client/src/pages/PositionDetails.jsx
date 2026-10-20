@@ -11,6 +11,7 @@
 
   // ---- Shared constants (mirrors Positions.jsx) ----
   const STATUS_OPTIONS = ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost', 'Focus', 'Client Decision'];
+  const ALL_STATUS_OPTIONS = [...STATUS_OPTIONS, 'Reactivated'];
   const PLEVEL_OPTIONS = ['P1', 'P2', 'P3', 'P4', 'P5'];
   const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'];
 
@@ -46,6 +47,7 @@
     'Lost': { bg: '#fca5a5', text: '#7f1d1d' },
     'Focus': { bg: '#d1fae5', text: '#065f46' },
     'Client Decision': { bg: '#fbcfe8', text: '#831843' },
+    'Reactivated': { bg: '#ccfbf1', text: '#0f766e' },
   };
 
   const TA_COLORS = {
@@ -62,12 +64,6 @@
   };
 
   // ---- Icons ----
-  const CloseIcon = () => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-
   const CheckIcon = () => (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12" />
@@ -439,7 +435,7 @@
     if (error) return <div className="pos-detail-error">Error: {error}</div>;
     if (!position) return <div>Position not found</div>;
 
-    const statusOptions = STATUS_OPTIONS.map(s => {
+    const statusOptions = ALL_STATUS_OPTIONS.map(s => {
       const sc = STATUS_COLORS[s] || { bg: '#e5e7eb', text: '#374151' };
       return { value: s, label: s, bg: sc.bg, text: sc.text };
     });
@@ -453,9 +449,6 @@
     const currentAssigneeId = position.assignee?._id || null;
 
     const primaryTA = position.assignee;
-    const triggerStyle = primaryTA?.color
-      ? { backgroundColor: TA_COLORS[primaryTA.color]?.bg, color: TA_COLORS[primaryTA.color]?.text, borderColor: 'transparent' }
-      : undefined;
 
     // Compute displayed flags
     const flagEntries = position.flags ? Object.entries(position.flags).filter(([, f]) => f !== null) : [];
@@ -464,7 +457,12 @@
       <div className="pos-detail">
         <div className="detail-header">
           <div>
-            <h1>{position.jobOrderId}</h1>
+            <h1>
+              {position.jobOrderId}
+              {(position.isReactivated || position.status === 'Reactivated') && (
+                <span className="reactivated-tag" style={{ marginLeft: '10px', fontSize: '13px', verticalAlign: 'middle' }} title="Reactivated Requirement">↻ Reactivated</span>
+              )}
+            </h1>
             <p className="subtitle">{position.position} — {position.client?.clientName}</p>
           </div>
           <div className="header-actions">
@@ -569,7 +567,7 @@
 
                 <label>Status</label>
                 <select name="status" value={formData.status || ''} onChange={handleFormChange}>
-                  {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                  {ALL_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
 
                 <label>Salary Package</label>

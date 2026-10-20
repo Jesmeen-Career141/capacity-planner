@@ -1,5 +1,10 @@
 # Netlify configuration for Capacity Planner
 
+[build]
+  base = "client"
+  publish = "dist"
+  command = "npm run build"
+
 [[headers]]
   for = "/"
   [headers.values]

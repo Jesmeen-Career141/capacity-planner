@@ -927,6 +927,21 @@
   color: var(--color-text-muted);
 }
 
+.ab-card .reactivated-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #ccfbf1;
+  color: #0f766e;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 9999px;
+  border: 1px solid #99f6e4;
+  margin-left: 4px;
+  line-height: 1.2;
+}
+
 .ab-card-top-right {
   display: flex;
   align-items: center;

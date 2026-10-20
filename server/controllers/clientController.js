@@ -13,15 +13,35 @@ async function getAllClients(req, res) {
 // POST create a new client
 async function createClient(req, res) {
   try {
-    const { clientId, clientName } = req.body;
-    if (!clientId || !clientName) {
-      return res.status(400).json({ error: 'clientId and clientName are required' });
+    let { clientId, clientName } = req.body;
+    if (!clientName || !clientName.trim()) {
+      return res.status(400).json({ error: 'clientName is required' });
     }
+    clientName = clientName.trim();
+    if (!clientId || !clientId.trim()) {
+      clientId = clientName.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    } else {
+      clientId = clientId.trim();
+    }
+
+    if (!clientId) {
+      return res.status(400).json({ error: 'Could not generate a valid client identifier from client name' });
+    }
+
+    const existing = await Client.findOne({ clientId });
+    if (existing) {
+      return res.status(409).json({
+        error: 'A client with this generated identifier already exists. Please use a different client name or contact an administrator.'
+      });
+    }
+
     const newClient = await Client.create({ clientId, clientName });
     res.status(201).json(newClient);
   } catch (err) {
     if (err.code === 11000) {
-      return res.status(409).json({ error: 'A client with this clientId already exists' });
+      return res.status(409).json({
+        error: 'A client with this generated identifier already exists. Please use a different client name or contact an administrator.'
+      });
     }
     res.status(500).json({ error: err.message });
   }
@@ -31,7 +51,11 @@ async function createClient(req, res) {
 async function updateClient(req, res) {
   try {
     const { id } = req.params;
-    const { clientName } = req.body;
+    let { clientName } = req.body;
+    if (!clientName || !clientName.trim()) {
+      return res.status(400).json({ error: 'clientName is required' });
+    }
+    clientName = clientName.trim();
 
     const updatedClient = await Client.findByIdAndUpdate(
       id,

@@ -129,12 +129,17 @@ async function createPosition(req, res) {
       finalPackageRange = formatSalary(sanitized, packageRange || '');
     }
 
+    const isReactivated = Boolean(req.body.isReactivated || status === 'Reactivated');
+    const reactivatedAt = isReactivated ? (req.body.reactivatedAt || new Date()) : null;
+
     const newPosition = await Position.create({
       jobOrderId,
       client,
       position,
       pLevel,
       status,
+      isReactivated,
+      reactivatedAt,
       pipelineStage,
       assignee,
       transferParallel,
@@ -204,6 +209,13 @@ async function updatePosition(req, res) {
       // Not Placed and remains not Placed:
       if (updates.placedAt !== undefined) {
         updates.placedAt = null;
+      }
+    }
+
+    if (newStatus === 'Reactivated' || updates.isReactivated === true) {
+      updates.isReactivated = true;
+      if (!existing.reactivatedAt && !updates.reactivatedAt) {
+        updates.reactivatedAt = new Date();
       }
     }
 

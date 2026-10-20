@@ -7,7 +7,7 @@ import { getActiveTAs } from '../api/tas';
 import { getColorLegend, updateColorLegend } from '../api/colorLegend';
 import FlagBadge from '../components/FlagBadge';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
-import { SlidersHorizontal, RotateCcw } from 'lucide-react';
+import { SlidersHorizontal, RotateCcw, FileText } from 'lucide-react';
 import { formatSalary } from '../utils/salaryFormatter';
 import SalaryPackagePicker from '../components/SalaryPackagePicker';
 import PositionDetailModal from '../components/PositionDetailModal';
@@ -15,6 +15,7 @@ import './Positions.css';
 
 // ---- Constants ----
 const STATUS_OPTIONS = ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost', 'Focus', 'Client Decision'];
+const ALL_STATUS_OPTIONS = [...STATUS_OPTIONS, 'Reactivated'];
 const PLEVEL_OPTIONS = ['P1', 'P2', 'P3', 'P4', 'P5'];
 const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'];
 
@@ -24,7 +25,7 @@ const normalizeStatusParam = (status) => {
   if (trimmed.toLowerCase() === 'active' || trimmed === 'A&P' || trimmed === 'A & P') {
     return 'A&P';
   }
-  const match = STATUS_OPTIONS.find(s => s.toLowerCase() === trimmed.toLowerCase());
+  const match = ALL_STATUS_OPTIONS.find(s => s.toLowerCase() === trimmed.toLowerCase());
   return match || trimmed;
 };
 
@@ -64,7 +65,8 @@ const STATUS_COLORS = {
   'Placed': { bg: '#bfdbfe', text: '#1e40af' },
   'Lost': { bg: '#fca5a5', text: '#7f1d1d' },
   'Focus': { bg: '#d1fae5', text: '#065f46' },
-  'Client Decision': { bg: '#fbcfe8', text: '#831843' }
+  'Client Decision': { bg: '#fbcfe8', text: '#831843' },
+  'Reactivated': { bg: '#ccfbf1', text: '#0f766e' }
 };
 
 // ---- Shared color palette (duplicated from TAs.jsx) ----
@@ -739,6 +741,17 @@ function Positions() {
   const [colorPopoverId, setColorPopoverId] = useState(null);
   const [flagPopoverId, setFlagPopoverId] = useState(null);
   const [selectedPosition, setSelectedPosition] = useState(null);
+  const [detailModalTab, setDetailModalTab] = useState('details');
+
+  const handleOpenDetails = (pos, tab = 'details') => {
+    setSelectedPosition(pos);
+    setDetailModalTab(tab);
+  };
+
+  const handleCloseDetails = () => {
+    setSelectedPosition(null);
+    setDetailModalTab('details');
+  };
   const [flagPopoverDirection, setFlagPopoverDirection] = useState({});
   const [salaryModalPosition, setSalaryModalPosition] = useState(null);
   const [tempSalaryModalData, setTempSalaryModalData] = useState(null);
@@ -1230,7 +1243,6 @@ function Positions() {
     { value: 'unassigned', label: 'Unassigned' },
     ...tas.map(ta => ({ value: ta._id, label: ta.name }))
   ];
-  const statusOptions = STATUS_OPTIONS.map(s => ({ value: s, label: s }));
   const levelOptions = PLEVEL_OPTIONS.map(p => ({ value: p, label: p }));
   const colorOptions = [
     { value: '', label: 'None' },
@@ -1241,12 +1253,12 @@ function Positions() {
   // Filter dropdown excludes archived statuses (unless one is currently selected)
   const filterStatusOptions = (
     ARCHIVE_STATUSES.includes(filters.status)
-      ? STATUS_OPTIONS
-      : STATUS_OPTIONS.filter(s => !ARCHIVE_STATUSES.includes(s))
+      ? ALL_STATUS_OPTIONS
+      : ALL_STATUS_OPTIONS.filter(s => !ARCHIVE_STATUSES.includes(s))
   ).map(s => ({ value: s, label: s }));
 
   // Inline row status dropdown keeps ALL statuses so users can archive from the row
-  const rowStatusOptions = STATUS_OPTIONS.map(s => {
+  const rowStatusOptions = ALL_STATUS_OPTIONS.map(s => {
     const sc = STATUS_COLORS[s] || { bg: '#e5e7eb', text: '#374151' };
     return { value: s, label: s, bg: sc.bg, text: sc.text };
   });
@@ -1526,6 +1538,9 @@ function Positions() {
                       {colVisibility.jobOrderId !== false && (
                         <td className="td-sticky-1">
                           <Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link>
+                          {(pos.isReactivated || pos.status === 'Reactivated') && (
+                            <span className="reactivated-tag" title="Reactivated Requirement">↻</span>
+                          )}
                         </td>
                       )}
 
@@ -1724,7 +1739,23 @@ function Positions() {
                         <td>
                           {isEditing ? (
                             <input type="number" min="0" className="inline-edit-input inline-edit-input--num" name="cvCount" value={editForm.cvCount} onChange={handleEditFormChange} />
-                          ) : (pos.cvCount ?? '—')}
+                          ) : (
+                            <div className="int-shortlist-cell">
+                              <span className="int-shortlist-count">{pos.cvCount ?? '—'}</span>
+                              <button
+                                type="button"
+                                className="cv-tracking-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenDetails(pos, 'cvTracking');
+                                }}
+                                title="Open CV Tracking"
+                                aria-label="Open CV Tracking"
+                              >
+                                <FileText size={14} className="cv-tracking-icon" aria-hidden="true" />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       )}
 
@@ -1772,7 +1803,7 @@ function Positions() {
                             ) : (
                               <>
                                 <button className="action-edit" onClick={() => startEdit(pos)} title="Edit row"><EditIcon /></button>
-                                <button className="action-link" onClick={() => setSelectedPosition(pos)} title="View details"><ViewIcon /></button>
+                                <button className="action-link" onClick={() => handleOpenDetails(pos, 'details')} title="View details"><ViewIcon /></button>
                                 <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position"><DeleteIcon /></button>
                               </>
                             )}
@@ -1796,7 +1827,7 @@ function Positions() {
                 pLevel="Fence"
                 labelOverride="Fence"
                 positions={fencePositions}
-                onView={setSelectedPosition}
+                onView={(p) => handleOpenDetails(p, 'details')}
                 onDelete={handleDeleteClick}
               />
               {PLEVEL_OPTIONS.map(pl => (
@@ -1804,7 +1835,7 @@ function Positions() {
                   key={pl}
                   pLevel={pl}
                   positions={nonFenceByLevel(pl)}
-                  onView={setSelectedPosition}
+                  onView={(p) => handleOpenDetails(p, 'details')}
                   onDelete={handleDeleteClick}
                 />
               ))}
@@ -1827,7 +1858,13 @@ function Positions() {
       )}
 
       {selectedPosition && (
-        <PositionDetailModal position={selectedPosition} onClose={() => setSelectedPosition(null)} onUpdate={refreshList} tas={tas} />
+        <PositionDetailModal
+          position={positions.find(p => p._id === selectedPosition._id) || selectedPosition}
+          initialTab={detailModalTab}
+          onClose={handleCloseDetails}
+          onUpdate={refreshList}
+          tas={tas}
+        />
       )}
 
       {salaryModalPosition && (

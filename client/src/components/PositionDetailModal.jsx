@@ -10,19 +10,22 @@ const CloseIcon = () => (
   </svg>
 );
 
-export default function PositionDetailModal({ position, onClose, onUpdate, tas }) {
-  const [activeTab, setActiveTab] = useState('details');
+export default function PositionDetailModal({ position, onClose, onUpdate, tas, initialTab = 'details' }) {
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [editData, setEditData] = useState({
     remarks: position?.remarks || '',
     thisWeekFocus: position?.thisWeekFocus || '',
     allocationRounds: position?.allocationRounds || [],
   });
   const [prevPositionId, setPrevPositionId] = useState(position?._id);
+  const [prevInitialTab, setPrevInitialTab] = useState(initialTab);
   const [saving, setSaving] = useState(false);
 
-  // Sync state if position changes while modal is open (recommended React pattern)
-  if (position?._id !== prevPositionId) {
+  // Sync state if position or initialTab changes while modal is open (recommended React pattern)
+  if (position?._id !== prevPositionId || initialTab !== prevInitialTab) {
     setPrevPositionId(position?._id);
+    setPrevInitialTab(initialTab);
+    setActiveTab(initialTab);
     setEditData({
       remarks: position?.remarks || '',
       thisWeekFocus: position?.thisWeekFocus || '',
@@ -65,7 +68,12 @@ export default function PositionDetailModal({ position, onClose, onUpdate, tas }
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-lg pos-detail-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{position.jobOrderId}</h2>
+          <h2>
+            {position.jobOrderId}
+            {(position.isReactivated || position.status === 'Reactivated') && (
+              <span className="reactivated-tag" style={{ marginLeft: '10px', fontSize: '12px', verticalAlign: 'middle' }} title="Reactivated Requirement">↻ Reactivated</span>
+            )}
+          </h2>
           <button className="modal-close-btn" onClick={onClose}>
             <CloseIcon />
           </button>

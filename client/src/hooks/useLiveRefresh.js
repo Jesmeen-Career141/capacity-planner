@@ -3,9 +3,10 @@ import { useQueryClient } from '@tanstack/react-query';
 
 export function useLiveRefresh() {
   const queryClient = useQueryClient();
-
   useEffect(() => {
-    const es = new EventSource(`${import.meta.env.VITE_API_URL}/api/events/stream`);
+    const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const apiUrl = rawApiUrl.replace(/\/+$/, '');
+    const es = new EventSource(`${apiUrl}/api/events/stream`);
 
     es.onmessage = (e) => {
       if (e.data === 'positions') queryClient.invalidateQueries(['positions']);

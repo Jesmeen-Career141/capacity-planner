@@ -112,7 +112,6 @@ function TAs() {
   const [updating, setUpdating] = useState(null);
   const [settingReceiver, setSettingReceiver] = useState(null);
   const [deleting, setDeleting] = useState(null);
-  const [deleteError, setDeleteError] = useState(null);
 
   // Popover is now portaled to document.body, so it needs viewport-relative
   // coordinates instead of relying on CSS anchoring inside the table.
@@ -201,7 +200,6 @@ function TAs() {
       setEditing(null);
       setFormData({ name: '' });
     }
-    setDeleteError(null);
     setShowModal(true);
   };
 
@@ -209,13 +207,11 @@ function TAs() {
     setShowModal(false);
     setEditing(null);
     setFormData({ name: '' });
-    setDeleteError(null);
   };
 
   const handleSave = async () => {
     if (!formData.name.trim()) return alert('Name is required');
     setSaving(true);
-    setDeleteError(null);
     try {
       if (editing) {
         await updateNameMutation.mutateAsync({ id: editing, name: formData.name.trim() });
@@ -280,12 +276,10 @@ function TAs() {
     }
 
     setDeleting(id);
-    setDeleteError(null);
     try {
       await deleteMutation.mutateAsync(id);
     } catch (err) {
       const msg = err.response?.data?.error || 'Failed to delete TA';
-      setDeleteError(msg);
       alert(msg);
     } finally {
       setDeleting(null);
