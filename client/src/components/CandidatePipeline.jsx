@@ -1,207 +1,179 @@
-import React, { useState } from 'react';
-import { ListFilter, Star, CheckCircle2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
 import CandidateCard from './CandidateCard';
 
 /**
  * CandidatePipeline
- * Three-column CV tracking pipeline representing the business workflow:
- *  Column A - Total Internally Shortlisted (Every internally shortlisted CV; treated as transmitted to client)
- *  Column B - Good CVs (Subset of internally shortlisted CVs rated 'Good'; counts toward target)
- *  Column C - External Shortlists (Candidates confirmed accepted & shortlisted by client)
+ * Implements HTML Demo 3 — Compact Searchable List (#v3):
+ * - Single compact list of all internally shortlisted CVs (no repeated cards across columns)
+ * - Search by candidate name or file name
+ * - Filter by quality rating (All quality ratings / Not rated / Good / Optional)
+ * - Filter by client decision (All client decisions / Shortlisted / Rejected / Pending)
  */
 export default function CandidatePipeline({
   submissions = [],
   isReadOnly = false,
-  target = 0,
   onUpdateStatus,
   onDelete,
   onDownload,
   onRequestClientDecisionConfirmation
 }) {
-  const [draggedItem, setDraggedItem] = useState(null);
-  const [activeDropColumn, setActiveDropColumn] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [qualityFilter, setQualityFilter] = useState('ALL');
+  const [clientDecisionFilter, setClientDecisionFilter] = useState('ALL');
 
-  // Group candidates into the 3 columns
   const safeSubmissions = Array.isArray(submissions) ? submissions : [];
 
-  // Column A: Every internally shortlisted CV in this attempt
-  const colASubmissions = safeSubmissions.filter(
-    s => s && s.internalShortlistStatus === 'Shortlisted'
+  // Business Rule: Only internally shortlisted candidates enter CV Tracking
+  const shortlistedSubmissions = useMemo(
+    () => safeSubmissions.filter(s => s && s.internalShortlistStatus === 'Shortlisted'),
+    [safeSubmissions]
   );
 
-  // Column B: Subset of internally shortlisted CVs with qualityRating === 'Good'
-  const colBSubmissions = safeSubmissions.filter(
-    s => s && s.internalShortlistStatus === 'Shortlisted' && s.qualityRating === 'Good'
-  );
+  // Filter by search query, quality rating, and client decision
+  const filteredSubmissions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
 
-  // Column C: Genuine client decisions where client accepted & shortlisted
-  const colCSubmissions = safeSubmissions.filter(
-    s => s && s.sentToClient === true && s.clientShortlistStatus === 'Shortlisted'
-  );
-
-  const columns = [
-    {
-      key: 'internallyShortlisted',
-      title: 'Total Internally Shortlisted',
-      subtitle: 'All internally shortlisted CVs (transmitted to client)',
-      candidates: colASubmissions,
-      countLabel: `${colASubmissions.length}`,
-      icon: <ListFilter size={16} className="text-forest-600" />,
-      colorClass: 'stage-column--shortlisted',
-      emptyMessage: 'No internally shortlisted CVs in this attempt'
-    },
-    {
-      key: 'goodCvs',
-      title: 'Good CVs',
-      subtitle: 'Subset meeting Good criteria (counts toward target)',
-      candidates: colBSubmissions,
-      countLabel: target > 0 ? `${colBSubmissions.length} / ${target}` : `${colBSubmissions.length}`,
-      icon: <Star size={16} className="text-emerald-600" />,
-      colorClass: 'stage-column--good',
-      emptyMessage: 'No Good CVs yet (Drag CV here or select ★ Good)'
-    },
-    {
-      key: 'externalShortlists',
-      title: 'External Shortlists',
-      subtitle: 'Accepted & approved by client',
-      candidates: colCSubmissions,
-      countLabel: `${colCSubmissions.length}`,
-      icon: <CheckCircle2 size={16} className="text-forest-600" />,
-      colorClass: 'stage-column--accepted',
-      emptyMessage: 'No external client shortlists yet'
-    }
-  ];
-
-  const handleDragStart = (e, candidate, sourceColumnKey) => {
-    if (isReadOnly) return;
-    setDraggedItem({ candidate, sourceColumnKey });
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', candidate._id);
-  };
-
-  const handleDragOver = (e, columnKey) => {
-    if (isReadOnly || !draggedItem) return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = 'move';
-    if (activeDropColumn !== columnKey) {
-      setActiveDropColumn(columnKey);
-    }
-  };
-
-  const handleDragLeave = (e, columnKey) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (activeDropColumn === columnKey) {
-      setActiveDropColumn(null);
-    }
-  };
-
-  const handleDrop = async (e, targetColumnKey) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setActiveDropColumn(null);
-
-    const item = draggedItem;
-    setDraggedItem(null);
-    if (!item || !item.candidate || isReadOnly) return;
-
-    const { candidate, sourceColumnKey } = item;
-
-    // Handle dropping onto Column B (Good CVs)
-    if (targetColumnKey === 'goodCvs') {
-      if (candidate.qualityRating !== 'Good') {
-        await onUpdateStatus(candidate._id, { qualityRating: 'Good' });
-      }
-      return;
-    }
-
-    // Handle dropping onto Column A (Total Internally Shortlisted)
-    if (targetColumnKey === 'internallyShortlisted') {
-      if (sourceColumnKey === 'goodCvs') {
-        const confirmChange = window.confirm(
-          `Change rating for "${candidate.unverifiedLabel || 'Candidate'}" from Good to Optional?`
-        );
-        if (confirmChange) {
-          await onUpdateStatus(candidate._id, { qualityRating: 'Optional' });
-        }
-      } else if (sourceColumnKey === 'externalShortlists') {
-        const confirmRevert = window.confirm(
-          `Revert client decision for "${candidate.unverifiedLabel || 'Candidate'}" back to Pending?`
-        );
-        if (confirmRevert) {
-          await onUpdateStatus(candidate._id, {
-            clientShortlistStatus: 'Pending',
-            clientShortlistDate: null
-          });
+    return shortlistedSubmissions.filter(candidate => {
+      // 1. Search candidate name or original filename
+      if (q) {
+        const label = (candidate.unverifiedLabel || '').toLowerCase();
+        const fileName = (candidate.originalFileName || '').toLowerCase();
+        if (!label.includes(q) && !fileName.includes(q)) {
+          return false;
         }
       }
-      return;
-    }
 
-    // Handle dropping onto Column C (External Shortlists)
-    if (targetColumnKey === 'externalShortlists') {
-      if (candidate.clientShortlistStatus !== 'Shortlisted') {
-        onRequestClientDecisionConfirmation(candidate, 'Shortlisted');
+      // 2. Filter by quality rating
+      if (qualityFilter !== 'ALL') {
+        const rating = candidate.qualityRating || 'Not Rated';
+        if (rating !== qualityFilter) {
+          return false;
+        }
       }
-      return;
-    }
+
+      // 3. Filter by client decision
+      if (clientDecisionFilter !== 'ALL') {
+        const decision = candidate.clientShortlistStatus || 'Pending';
+        if (decision !== clientDecisionFilter) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [shortlistedSubmissions, searchQuery, qualityFilter, clientDecisionFilter]);
+
+  const hasActiveFilters =
+    searchQuery.trim() !== '' || qualityFilter !== 'ALL' || clientDecisionFilter !== 'ALL';
+
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setQualityFilter('ALL');
+    setClientDecisionFilter('ALL');
   };
 
   return (
-    <div className="candidate-pipeline-container">
-      <div className="candidate-pipeline-grid">
-        {columns.map((col) => {
-          const isDropActive = activeDropColumn === col.key;
+    <section className="cv-demo3-section">
+      {/* Toolbar Header */}
+      <div className="cv-demo3-toolbar">
+        <div>
+          <h2 className="cv-demo3-title">All tracked CVs</h2>
+          <p className="cv-demo3-subtitle">
+            A single list reduces repeated cards and makes searching easier.
+          </p>
+        </div>
+        {hasActiveFilters && (
+          <button
+            type="button"
+            className="cv-demo3-reset-btn"
+            onClick={handleResetFilters}
+          >
+            Reset filters ({filteredSubmissions.length} / {shortlistedSubmissions.length})
+          </button>
+        )}
+      </div>
 
-          return (
-            <div
-              key={col.key}
-              className={`pipeline-column ${col.colorClass} ${
-                isDropActive ? 'pipeline-column--drop-target' : ''
-              }`}
-              onDragOver={(e) => handleDragOver(e, col.key)}
-              onDragLeave={(e) => handleDragLeave(e, col.key)}
-              onDrop={(e) => handleDrop(e, col.key)}
-            >
-              {/* Column Header */}
-              <div className="pipeline-column-header">
-                <div className="pipeline-column-title-row">
-                  <div className="pipeline-column-title-flex">
-                    {col.icon}
-                    <h4 className="pipeline-column-title">{col.title}</h4>
-                  </div>
-                  <span className="pipeline-column-badge">{col.countLabel}</span>
-                </div>
-                <p className="pipeline-column-subtitle">{col.subtitle}</p>
-              </div>
+      {/* Search & Filter Controls Bar */}
+      <div className="cv-demo3-filters-row">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search candidate or file name…"
+          aria-label="Search candidate or file name"
+          className="cv-demo3-search-input"
+        />
 
-              {/* Column Cards Container */}
-              <div className="pipeline-column-body">
-                {col.candidates.length === 0 ? (
-                  <div className="pipeline-empty-placeholder">
-                    <span>{col.emptyMessage}</span>
-                  </div>
-                ) : (
-                  col.candidates.map((candidate) => (
-                    <CandidateCard
-                      key={`${col.key}-${candidate._id}`}
-                      candidate={candidate}
-                      columnKey={col.key}
-                      isReadOnly={isReadOnly}
-                      onUpdateStatus={onUpdateStatus}
-                      onDelete={onDelete}
-                      onDownload={onDownload}
-                      onRequestClientDecisionConfirmation={onRequestClientDecisionConfirmation}
-                      onDragStart={(e, c) => handleDragStart(e, c, col.key)}
-                    />
-                  ))
-                )}
+        <select
+          value={qualityFilter}
+          onChange={(e) => setQualityFilter(e.target.value)}
+          aria-label="Filter by quality rating"
+          className="cv-demo3-filter-select"
+        >
+          <option value="ALL">All quality ratings</option>
+          <option value="Not Rated">Not rated</option>
+          <option value="Good">Good</option>
+          <option value="Optional">Optional</option>
+        </select>
+
+        <select
+          value={clientDecisionFilter}
+          onChange={(e) => setClientDecisionFilter(e.target.value)}
+          aria-label="Filter by client decision"
+          className="cv-demo3-filter-select"
+        >
+          <option value="ALL">All client decisions</option>
+          <option value="Shortlisted">Shortlisted</option>
+          <option value="Rejected">Rejected</option>
+          <option value="Pending">Pending</option>
+        </select>
+      </div>
+
+      {/* Compact Candidate List */}
+      <div className="cv-demo3-list-box">
+        <div className="cv-demo3-list-head">
+          <b>Candidate / CV</b>
+          <b>Internal status</b>
+          <b>Quality</b>
+          <b>Client decision</b>
+          <b className="cv-demo3-head-actions">Actions</b>
+        </div>
+
+        {shortlistedSubmissions.length === 0 ? (
+          <div className="cv-demo3-empty">
+            No internally shortlisted CVs in this attempt yet.
+          </div>
+        ) : filteredSubmissions.length === 0 ? (
+          <div className="cv-demo3-empty">
+            <div>
+              No candidates match your current search or filters.
+              <div style={{ marginTop: '6px' }}>
+                <button
+                  type="button"
+                  className="cv-demo3-reset-btn"
+                  onClick={handleResetFilters}
+                >
+                  Clear search & filters
+                </button>
               </div>
             </div>
-          );
-        })}
+          </div>
+        ) : (
+          <div className="cv-demo3-rows">
+            {filteredSubmissions.map((candidate) => (
+              <CandidateCard
+                key={candidate._id}
+                candidate={candidate}
+                isReadOnly={isReadOnly}
+                onUpdateStatus={onUpdateStatus}
+                onDelete={onDelete}
+                onDownload={onDownload}
+                onRequestClientDecisionConfirmation={onRequestClientDecisionConfirmation}
+              />
+            ))}
+          </div>
+        )}
       </div>
-    </div>
+    </section>
   );
 }

@@ -1,10 +1,12 @@
 import React from 'react';
-import { Target, Award, Users, CheckCircle2, AlertCircle, Edit3, ListFilter } from 'lucide-react';
+import { Edit3 } from 'lucide-react';
 
 /**
  * AttemptMetricsCard
- * Displays target progress, Good CV gap, achievement rate, and volume metrics
- * for the selected recruitment attempt, aligning with the three-column pipeline.
+ * Displays the compact 3-card summary stats from HTML Demo 3 (Option 3: Compact list):
+ * 1. Internally shortlisted (All submitted candidates)
+ * 2. Good CVs (Counts toward target, with inline target editor)
+ * 3. Client shortlisted (Confirmed client decisions)
  */
 export default function AttemptMetricsCard({
   attempt,
@@ -29,103 +31,52 @@ export default function AttemptMetricsCard({
   const achievement = Math.min(100, Math.round(rawAchievement));
 
   return (
-    <div className="attempt-metrics-container">
-      {/* Target & Progress Header Card */}
-      <div className="metrics-hero-card">
-        <div className="metrics-hero-top">
-          <div className="metrics-target-info">
-            <div className="metrics-target-title">
-              <Target size={18} className="text-forest-600" />
-              <span>Required Good CV Target</span>
-              {!isReadOnly && onEditTarget && (
-                <button
-                  type="button"
-                  className="metrics-edit-btn"
-                  onClick={onEditTarget}
-                  title="Edit Required Good CV Target"
-                >
-                  <Edit3 size={14} />
-                  <span>Edit Target</span>
-                </button>
-              )}
-            </div>
-            <div className="metrics-target-stat">
-              <span className="metrics-number-large">{target}</span>
-              <span className="metrics-subtext">
-                {isTargetUnset ? '(Target not configured)' : 'Good CVs required'}
-              </span>
-            </div>
-          </div>
-
-          <div className="metrics-achievement-info">
-            <div className="metrics-achievement-header">
-              <span className="metrics-stat-label">Achievement</span>
-              <span className="metrics-achievement-percent">
-                {isTargetUnset ? '0% (Unset)' : `${achievement}%`}
-              </span>
-            </div>
-            <div className="metrics-progress-bar-bg">
-              <div
-                className={`metrics-progress-bar-fill ${
-                  achievement >= 100 ? 'bg-forest-500' : 'bg-forest-600'
-                }`}
-                style={{ width: `${isTargetUnset ? 0 : achievement}%` }}
-              />
-            </div>
-            <div className="metrics-gap-info">
-              {isTargetUnset ? (
-                <span className="text-muted">Set a target to calculate remaining gap</span>
-              ) : goodCvGap === 0 ? (
-                <span className="text-forest-600 font-semibold flex items-center gap-1">
-                  <CheckCircle2 size={13} /> Target reached ({goodCount}/{target})
-                </span>
-              ) : (
-                <span className="text-amber-700 font-medium flex items-center gap-1">
-                  <AlertCircle size={13} /> Gap: {goodCvGap} more Good {goodCvGap === 1 ? 'CV' : 'CVs'} needed
-                </span>
-              )}
-            </div>
-          </div>
+    <div className="cv-demo3-stats">
+      <div className="cv-demo3-stat">
+        <div className="cv-demo3-stat-info">
+          <span className="cv-demo3-stat-label">Internally shortlisted</span>
+          <small className="cv-demo3-stat-sub">
+            All submitted candidates{optionalCount > 0 ? ` · ${optionalCount} Optional` : ''}
+          </small>
         </div>
+        <strong className="cv-demo3-stat-value">{totalShortlistedCount}</strong>
       </div>
 
-      {/* Breakdown Mini-Cards */}
-      <div className="metrics-grid">
-        <div className="metric-pill metric-pill-shortlisted">
-          <div className="metric-pill-label">
-            <ListFilter size={15} />
-            <span>Total Shortlisted</span>
+      <div className="cv-demo3-stat cv-demo3-stat--good">
+        <div className="cv-demo3-stat-info">
+          <div className="cv-demo3-stat-label-row">
+            <span className="cv-demo3-stat-label">Good CVs</span>
+            {!isReadOnly && onEditTarget && (
+              <button
+                type="button"
+                className="cv-demo3-edit-target-btn"
+                onClick={onEditTarget}
+                title="Edit Required Good CV Target"
+              >
+                <Edit3 size={11} />
+                <span>Target</span>
+              </button>
+            )}
           </div>
-          <div className="metric-pill-value">{totalShortlistedCount}</div>
-          <div className="metric-pill-note">Transmitted to client</div>
+          <small className="cv-demo3-stat-sub">
+            {isTargetUnset
+              ? 'Counts toward target (target unset)'
+              : goodCvGap === 0
+              ? `Counts toward target · Reached (${achievement}%)`
+              : `Counts toward target · ${goodCvGap} more needed (${achievement}%)`}
+          </small>
         </div>
+        <strong className="cv-demo3-stat-value">
+          {goodCount} / {target}
+        </strong>
+      </div>
 
-        <div className="metric-pill metric-pill-good">
-          <div className="metric-pill-label">
-            <Award size={15} />
-            <span>Good CVs</span>
-          </div>
-          <div className="metric-pill-value">{goodCount}</div>
-          <div className="metric-pill-note">Counts toward target</div>
+      <div className="cv-demo3-stat">
+        <div className="cv-demo3-stat-info">
+          <span className="cv-demo3-stat-label">Client shortlisted</span>
+          <small className="cv-demo3-stat-sub">Confirmed client decisions</small>
         </div>
-
-        <div className="metric-pill metric-pill-optional">
-          <div className="metric-pill-label">
-            <Users size={15} />
-            <span>Optional CVs</span>
-          </div>
-          <div className="metric-pill-value">{optionalCount}</div>
-          <div className="metric-pill-note">Secondary pool</div>
-        </div>
-
-        <div className="metric-pill metric-pill-client">
-          <div className="metric-pill-label">
-            <CheckCircle2 size={15} />
-            <span>External Shortlists</span>
-          </div>
-          <div className="metric-pill-value">{clientShortlistedCount}</div>
-          <div className="metric-pill-note">Approved by client</div>
-        </div>
+        <strong className="cv-demo3-stat-value">{clientShortlistedCount}</strong>
       </div>
     </div>
   );

@@ -1,11 +1,8 @@
 import React, { useState } from 'react';
 import {
-  FileText,
   Download,
   Trash2,
-  Star,
-  CheckCircle,
-  MoreVertical
+  FileEdit
 } from 'lucide-react';
 
 function formatBytes(bytes) {
@@ -24,12 +21,12 @@ function formatDate(dateStr) {
 
 /**
  * CandidateCard
- * Displays an individual candidate CV card with:
- * - Quality rating selector (Good / Optional / Not Rated)
- * - Visual Good CV badge / indicator
- * - Client shortlist outcome badge
- * - Secure download and deletion controls
- * - Workflow action menu
+ * Renders a compact candidate row for HTML Demo 3 (Option 3 — Compact Searchable List):
+ * - Candidate name & CV file metadata (filename, size, dates, feedback)
+ * - Internal status pill ("Internally shortlisted")
+ * - Quality rating selector (Not rated / Good / Optional)
+ * - Client decision selector (Pending / Shortlisted / Rejected)
+ * - Accessible actions for viewing/downloading CV, editing decision details/notes, and deleting CV
  */
 export default function CandidateCard({
   candidate,
@@ -37,11 +34,10 @@ export default function CandidateCard({
   onUpdateStatus,
   onDelete,
   onDownload,
-  onRequestClientDecisionConfirmation,
-  onDragStart
+  onRequestClientDecisionConfirmation
 }) {
-  const [showMenu, setShowMenu] = useState(false);
   const [isUpdatingRating, setIsUpdatingRating] = useState(false);
+  const [isUpdatingDecision, setIsUpdatingDecision] = useState(false);
 
   const handleRatingChange = async (newRating) => {
     if (isReadOnly || isUpdatingRating || candidate.qualityRating === newRating) return;
@@ -53,207 +49,159 @@ export default function CandidateCard({
     }
   };
 
+  const handleClientDecisionChange = async (newDecision) => {
+    const currentDecision = candidate.clientShortlistStatus || 'Pending';
+    if (isReadOnly || isUpdatingDecision || currentDecision === newDecision) return;
+    setIsUpdatingDecision(true);
+    try {
+      if (newDecision === 'Pending') {
+        await onUpdateStatus(candidate._id, {
+          clientShortlistStatus: 'Pending',
+          clientShortlistDate: null
+        });
+      } else {
+        await onUpdateStatus(candidate._id, {
+          sentToClient: true,
+          clientShortlistStatus: newDecision,
+          clientShortlistDate: candidate.clientShortlistDate || new Date().toISOString()
+        });
+      }
+    } finally {
+      setIsUpdatingDecision(false);
+    }
+  };
+
   const uploadDate = formatDate(candidate.uploadedAt || candidate.internalShortlistDate);
-  const sentDate = formatDate(candidate.sentToClientDate);
   const clientDate = formatDate(candidate.clientShortlistDate);
 
-  const isGood = candidate.qualityRating === 'Good';
-  const hasClientDecision =
-    candidate.clientShortlistStatus && candidate.clientShortlistStatus !== 'Pending';
+  const qualityValue = candidate.qualityRating || 'Not Rated';
+  const clientDecisionValue = candidate.clientShortlistStatus || 'Pending';
+  const isLegacyReviewStatus =
+    clientDecisionValue === 'Review' || clientDecisionValue === 'Client Review';
 
   return (
-    <div
-      className={`candidate-card ${isReadOnly ? 'candidate-card--readonly' : ''} ${
-        isGood ? 'candidate-card--good' : ''
-      }`}
-      draggable={!isReadOnly}
-      onDragStart={(e) => onDragStart && onDragStart(e, candidate)}
-    >
-      {/* Card Header: Candidate Name, Good Badge & Header Actions */}
-      <div className="candidate-card-header">
-        <div className="candidate-name-block">
-          <div className="candidate-name-row">
-            <span className="candidate-name" title={candidate.unverifiedLabel}>
-              {candidate.unverifiedLabel || 'Candidate'}
-            </span>
-            {isGood && (
-              <span className="candidate-good-indicator" title="Included in Good CVs (Counts toward target)">
-                <Star size={10} fill="#15803d" className="text-emerald-700" />
-                <span>Good CV</span>
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="candidate-card-header-actions">
+    <div className="cv-demo3-row">
+      {/* Column 1: Candidate / CV */}
+      <div className="cv-demo3-cell-candidate">
+        <strong className="cv-demo3-candidate-name" title={candidate.unverifiedLabel || 'Candidate'}>
+          {candidate.unverifiedLabel || 'Candidate'}
+        </strong>
+        <small className="cv-demo3-candidate-meta">
           <button
             type="button"
-            className="candidate-icon-btn candidate-download-btn"
+            className="cv-demo3-file-link"
             onClick={() => onDownload(candidate._id)}
-            title={`Download ${candidate.originalFileName}`}
+            title={`Open / download ${candidate.originalFileName}`}
           >
-            <Download size={14} />
+            {candidate.originalFileName}
           </button>
-
-          {!isReadOnly && (
-            <div className="candidate-menu-wrapper">
-              <button
-                type="button"
-                className="candidate-icon-btn candidate-menu-btn"
-                onClick={() => setShowMenu(prev => !prev)}
-                title="Candidate actions"
-              >
-                <MoreVertical size={14} />
-              </button>
-
-              {showMenu && (
-                <>
-                  <div className="candidate-menu-backdrop" onClick={() => setShowMenu(false)} />
-                  <div className="candidate-menu-dropdown">
-                    <div className="candidate-menu-title">Quality Rating</div>
-                    <button
-                      type="button"
-                      className={`candidate-menu-item ${candidate.qualityRating === 'Good' ? 'active' : ''}`}
-                      onClick={() => {
-                        setShowMenu(false);
-                        handleRatingChange('Good');
-                      }}
-                    >
-                      <Star size={13} className="text-emerald-600" />
-                      <span>★ Rate as Good</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`candidate-menu-item ${candidate.qualityRating === 'Optional' ? 'active' : ''}`}
-                      onClick={() => {
-                        setShowMenu(false);
-                        handleRatingChange('Optional');
-                      }}
-                    >
-                      <span>Rate as Optional</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`candidate-menu-item ${candidate.qualityRating === 'Not Rated' ? 'active' : ''}`}
-                      onClick={() => {
-                        setShowMenu(false);
-                        handleRatingChange('Not Rated');
-                      }}
-                    >
-                      <span>Reset to Not Rated</span>
-                    </button>
-
-                    <div className="candidate-menu-divider" />
-
-                    <div className="candidate-menu-title">Client Decisions</div>
-                    <button
-                      type="button"
-                      className="candidate-menu-item candidate-menu-item--primary"
-                      onClick={() => {
-                        setShowMenu(false);
-                        onRequestClientDecisionConfirmation(candidate);
-                      }}
-                    >
-                      <CheckCircle size={13} />
-                      <span>
-                        {candidate.clientShortlistStatus === 'Shortlisted' || candidate.clientShortlistStatus === 'Rejected'
-                          ? 'Change Client Decision...'
-                          : 'Record Client Decision...'}
-                      </span>
-                    </button>
-
-                    <div className="candidate-menu-divider" />
-
-                    <button
-                      type="button"
-                      className="candidate-menu-item candidate-menu-item--danger"
-                      onClick={() => {
-                        setShowMenu(false);
-                        onDelete(candidate);
-                      }}
-                    >
-                      <Trash2 size={13} />
-                      <span>Delete CV</span>
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+          <span> · {formatBytes(candidate.fileSize)}</span>
+          {uploadDate && <span> · Added {uploadDate}</span>}
+          {clientDate && clientDecisionValue !== 'Pending' && (
+            <span> · Decided {clientDate}</span>
           )}
-        </div>
-      </div>
-
-      {/* File Metadata */}
-      <div className="candidate-file-meta" title={candidate.originalFileName}>
-        <FileText size={13} className="text-muted flex-shrink-0" />
-        <span className="candidate-filename truncate">{candidate.originalFileName}</span>
-        <span className="candidate-filesize flex-shrink-0">({formatBytes(candidate.fileSize)})</span>
-      </div>
-
-      {/* Quality Rating Selector */}
-      <div className="candidate-rating-row">
-        <span className="candidate-rating-label">Rating:</span>
-        {isReadOnly ? (
-          <span
-            className={`rating-badge ${
-              candidate.qualityRating === 'Good'
-                ? 'rating-badge--good'
-                : candidate.qualityRating === 'Optional'
-                ? 'rating-badge--optional'
-                : 'rating-badge--none'
-            }`}
-          >
-            {candidate.qualityRating === 'Good' && '★ '}
-            {candidate.qualityRating}
-          </span>
-        ) : (
-          <select
-            value={candidate.qualityRating}
-            disabled={isUpdatingRating}
-            onChange={(e) => handleRatingChange(e.target.value)}
-            className={`rating-select ${
-              candidate.qualityRating === 'Good'
-                ? 'rating-select--good'
-                : candidate.qualityRating === 'Optional'
-                ? 'rating-select--optional'
-                : 'rating-select--none'
-            }`}
-          >
-            <option value="Not Rated">Not Rated</option>
-            <option value="Good">★ Good</option>
-            <option value="Optional">Optional</option>
-          </select>
+        </small>
+        {candidate.clientFeedback && (
+          <small className="cv-demo3-candidate-feedback" title={candidate.clientFeedback}>
+            Note: {candidate.clientFeedback}
+          </small>
         )}
       </div>
 
-      {/* Timeline Dates & Client Decision Badges */}
-      <div className="candidate-footer-meta">
-        <div className="candidate-dates-list">
-          {uploadDate && (
-            <div className="candidate-date-item">
-              <span className="candidate-date-prefix">Added:</span> {uploadDate}
-            </div>
+      {/* Column 2: Internal status */}
+      <div className="cv-demo3-cell-status">
+        <span className="cv-demo3-pill">
+          {candidate.internalShortlistStatus === 'Shortlisted'
+            ? 'Internally shortlisted'
+            : candidate.internalShortlistStatus || 'Internally shortlisted'}
+        </span>
+      </div>
+
+      {/* Column 3: Quality rating */}
+      <div className="cv-demo3-cell-quality">
+        <select
+          aria-label={`Quality rating for ${candidate.unverifiedLabel || 'Candidate'}`}
+          value={qualityValue}
+          disabled={isReadOnly || isUpdatingRating}
+          onChange={(e) => handleRatingChange(e.target.value)}
+          className={`cv-demo3-select ${
+            qualityValue === 'Good'
+              ? 'cv-demo3-select--good'
+              : qualityValue === 'Optional'
+              ? 'cv-demo3-select--optional'
+              : ''
+          }`}
+        >
+          <option value="Not Rated">Not rated</option>
+          <option value="Good">Good</option>
+          <option value="Optional">Optional</option>
+        </select>
+      </div>
+
+      {/* Column 4: Client decision */}
+      <div className="cv-demo3-cell-decision">
+        <select
+          aria-label={`Client decision for ${candidate.unverifiedLabel || 'Candidate'}`}
+          value={clientDecisionValue}
+          disabled={isReadOnly || isUpdatingDecision}
+          onChange={(e) => handleClientDecisionChange(e.target.value)}
+          className={`cv-demo3-select ${
+            clientDecisionValue === 'Shortlisted'
+              ? 'cv-demo3-select--shortlisted'
+              : clientDecisionValue === 'Rejected'
+              ? 'cv-demo3-select--rejected'
+              : ''
+          }`}
+        >
+          <option value="Pending">
+            {candidate.sentToClient === false ? 'Not sent' : 'Pending'}
+          </option>
+          <option value="Shortlisted">Shortlisted</option>
+          <option value="Rejected">Rejected</option>
+          {isLegacyReviewStatus && (
+            <option value={clientDecisionValue}>{clientDecisionValue}</option>
           )}
-          {sentDate && (
-            <div className="candidate-date-item text-blue-700">
-              <span className="candidate-date-prefix">Sent:</span> {sentDate}
-            </div>
-          )}
-          {hasClientDecision && (
-            <div
-              className={`candidate-client-status-badge ${
-                candidate.clientShortlistStatus === 'Shortlisted'
-                  ? 'status-badge--accepted'
-                  : candidate.clientShortlistStatus === 'Rejected'
-                  ? 'status-badge--rejected'
-                  : 'status-badge--review'
-              }`}
-            >
-              Client: {candidate.clientShortlistStatus}
-              {clientDate ? ` (${clientDate})` : ''}
-            </div>
-          )}
-        </div>
+        </select>
+      </div>
+
+      {/* Column 5: Actions (Open/Download CV, Decision Details/Notes, Delete) */}
+      <div className="cv-demo3-cell-actions">
+        <button
+          type="button"
+          className="cv-demo3-action-btn cv-demo3-action-btn--download"
+          onClick={() => onDownload(candidate._id)}
+          title={`View / download ${candidate.originalFileName}`}
+        >
+          <Download size={13} />
+          <span>CV</span>
+        </button>
+
+        {!isReadOnly && onRequestClientDecisionConfirmation && (
+          <button
+            type="button"
+            className="cv-demo3-icon-btn"
+            onClick={() =>
+              onRequestClientDecisionConfirmation(
+                candidate,
+                candidate.clientShortlistStatus === 'Rejected' ? 'Rejected' : 'Shortlisted'
+              )
+            }
+            title="Record client decision date & notes"
+          >
+            <FileEdit size={13} />
+          </button>
+        )}
+
+        {!isReadOnly && onDelete && (
+          <button
+            type="button"
+            className="cv-demo3-icon-btn cv-demo3-icon-btn--danger"
+            onClick={() => onDelete(candidate)}
+            title={`Delete CV for ${candidate.unverifiedLabel || 'Candidate'}`}
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
       </div>
     </div>
   );

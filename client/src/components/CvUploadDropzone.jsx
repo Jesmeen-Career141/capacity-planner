@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { UploadCloud, AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 
 const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx'];
 const ALLOWED_MIME_TYPES = [
@@ -124,23 +124,20 @@ export default function CvUploadDropzone({
         <div className="cv-dropzone-content">
           {isUploading ? (
             <div className="cv-upload-loading">
-              <Loader2 size={32} className="animate-spin text-forest-600" />
-              <p className="cv-upload-loading-text">Uploading CV files directly to secure storage...</p>
+              <Loader2 size={18} className="animate-spin text-forest-600" />
+              <span className="cv-upload-loading-text">Uploading CV files directly to secure storage...</span>
             </div>
           ) : (
-            <>
-              <div className="cv-dropzone-icon">
-                <UploadCloud size={30} />
+            <div className="cv-dropzone-compact">
+              <div className="cv-dropzone-primary-line">
+                <strong className="cv-dropzone-strong">⇧ Upload shortlisted CVs</strong>
+                <span className="cv-dropzone-dash"> — </span>
+                <span className="cv-dropzone-browse">click to browse or drag and drop</span>
               </div>
-              <div className="cv-dropzone-text">
-                <p className="cv-dropzone-primary-text">
-                  <span className="cv-dropzone-highlight">Click to browse</span> or drag and drop shortlisted CVs
-                </p>
-                <p className="cv-dropzone-secondary-text">
-                  Supported formats: PDF, DOC, DOCX • Maximum file size: 10 MB per file
-                </p>
-              </div>
-            </>
+              <small className="cv-dropzone-secondary-text">
+                PDF, DOC, DOCX · Maximum 10 MB per file
+              </small>
+            </div>
           )}
         </div>
       </div>

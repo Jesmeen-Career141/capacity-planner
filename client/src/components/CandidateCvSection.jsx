@@ -484,17 +484,7 @@ export default function CandidateCvSection({ position, tas = [] }) {
         </div>
       )}
 
-      {/* Metrics Card */}
-      {selectedAttempt && (
-        <AttemptMetricsCard
-          attempt={selectedAttempt}
-          submissions={submissionsList}
-          isReadOnly={isReadOnly}
-          onEditTarget={handleOpenTargetModal}
-        />
-      )}
-
-      {/* CV Upload Dropzone */}
+      {/* CV Upload Dropzone (Demo 3 top upload area) */}
       {selectedAttempt && (
         <CvUploadDropzone
           onUpload={handleUploadFiles}
@@ -536,6 +526,16 @@ export default function CandidateCvSection({ position, tas = [] }) {
             </ul>
           )}
         </div>
+      )}
+
+      {/* Metrics Summary Bar (Demo 3 3-card stats row) */}
+      {selectedAttempt && (
+        <AttemptMetricsCard
+          attempt={selectedAttempt}
+          submissions={submissionsList}
+          isReadOnly={isReadOnly}
+          onEditTarget={handleOpenTargetModal}
+        />
       )}
 
       {/* 4-Stage Workflow Pipeline */}
