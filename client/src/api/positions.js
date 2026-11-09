@@ -1,9 +1,11 @@
-﻿import api from './client';
+import api from './client';
 
-export const getPositions = () => api.get('/positions');
+export const getPositions = (params) => api.get('/positions', { params });
 export const getPosition = (id) => api.get(`/positions/${id}`);
 export const createPosition = (data) => api.post('/positions', data);
 export const updatePosition = (id, data) => api.put(`/positions/${id}`, data);
+export const bulkUpdateEngagement = (positionIds, isEngaged) =>
+  api.patch('/positions/bulk-engagement', { positionIds, isEngaged });
 
 // assignPosition – mode param is kept for consistency, though backend now only uses 'primary'
 // (parallel assignments go through updatePosition on the frontend)

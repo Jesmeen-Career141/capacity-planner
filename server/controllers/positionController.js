@@ -1,4 +1,5 @@
 const Position = require('../models/Position');
+const Client = require('../models/Client');
 const PositionHistory = require('../models/PositionHistory');
 const { computeFlags } = require('../utils/flagLogic');
 const liveEvents = require('../utils/liveEvents');
@@ -6,10 +7,21 @@ const { formatSalary, validateSalary } = require('../utils/salaryFormatter');
 // GET all positions
 async function getAllPositions(req, res) {
   try {
-    const positions = await Position.find()
-      .populate('client', 'clientId clientName')
+    const filter = {};
+    if (req.query.engaged === 'true') {
+      const engagedClientIds = await Client.find({ isEngaged: true }).distinct('_id');
+      filter.client = { $in: engagedClientIds };
+    } else if (req.query.engaged === 'false') {
+      const engagedClientIds = await Client.find({ isEngaged: true }).distinct('_id');
+      filter.client = { $nin: engagedClientIds };
+    }
+
+    const positions = await Position.find(filter)
+      .populate('client', 'clientId clientName isEngaged')
       .populate('assignee', 'name status color')
       .populate('parallelAssignees', 'name status color')
+      .populate('taAssignments.ta', 'name status color')
+      .populate('assignmentHistory.ta', 'name status color')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -31,6 +43,8 @@ async function getPositionById(req, res) {
       .populate('client', 'clientId clientName')
       .populate('assignee', 'name status color')
       .populate('parallelAssignees', 'name status color')
+      .populate('taAssignments.ta', 'name status color')
+      .populate('assignmentHistory.ta', 'name status color')
       .lean();
 
     if (!position) {
@@ -81,8 +95,10 @@ async function createPosition(req, res) {
       status,
       pipelineStage,
       assignee,
+      parallelAssignees,
       transferParallel,
       dateAssigned,
+      receivedDate,
       expectedCloseDate,
       completionPercent,
       cvCount,
@@ -132,18 +148,78 @@ async function createPosition(req, res) {
     const isReactivated = Boolean(req.body.isReactivated || status === 'Reactivated');
     const reactivatedAt = isReactivated ? (req.body.reactivatedAt || new Date()) : null;
 
+    const clientDoc = await Client.findById(client).lean();
+    const clientIsEngaged = Boolean(clientDoc && clientDoc.isEngaged);
+
+    const now = new Date();
+    const finalReceivedDate = receivedDate ? new Date(receivedDate) : now;
+    const finalDateAssigned = assignee ? (dateAssigned ? new Date(dateAssigned) : now) : (dateAssigned ? new Date(dateAssigned) : null);
+
+    const initialTaAssignments = [];
+    const initialAssignmentHistory = [];
+    const initialAllocationRounds = [];
+
+    if (assignee) {
+      const assignedTimestamp = finalDateAssigned || now;
+      initialTaAssignments.push({
+        ta: assignee,
+        role: 'Primary',
+        assignedAt: assignedTimestamp
+      });
+      initialAssignmentHistory.push({
+        ta: assignee,
+        role: 'Primary',
+        assignedAt: assignedTimestamp,
+        unassignedAt: null,
+        action: 'Assigned'
+      });
+      initialAllocationRounds.push({
+        taAssigned: assignee,
+        roundNumber: 1,
+        dateAssigned: assignedTimestamp,
+        reason: 'Initial assignment',
+        cvCountAtRound: cvCount || 0
+      });
+    }
+
+    if (Array.isArray(parallelAssignees) && parallelAssignees.length > 0) {
+      for (const pTaId of parallelAssignees) {
+        if (!pTaId) continue;
+        initialTaAssignments.push({
+          ta: pTaId,
+          role: 'Parallel',
+          assignedAt: now
+        });
+        initialAssignmentHistory.push({
+          ta: pTaId,
+          role: 'Parallel',
+          assignedAt: now,
+          unassignedAt: null,
+          action: 'Assigned'
+        });
+      }
+    }
+
     const newPosition = await Position.create({
       jobOrderId,
       client,
       position,
       pLevel,
       status,
+      isEngaged: clientIsEngaged,
+      engagedAt: clientIsEngaged ? (clientDoc.engagedAt || now) : null,
       isReactivated,
       reactivatedAt,
       pipelineStage,
-      assignee,
+      assignee: assignee || null,
+      parallelAssignees: Array.isArray(parallelAssignees) ? parallelAssignees : [],
       transferParallel,
-      dateAssigned,
+      dateAssigned: finalDateAssigned,
+      receivedDate: isNaN(finalReceivedDate.getTime()) ? now : finalReceivedDate,
+      activatedAt: null, // Only activated when first placed on TA Board
+      taAssignments: initialTaAssignments,
+      assignmentHistory: initialAssignmentHistory,
+      allocationRounds: initialAllocationRounds,
       expectedCloseDate,
       placedAt: finalPlacedAt,
       completionPercent,
@@ -184,6 +260,19 @@ async function updatePosition(req, res) {
       updates.placedAt = placedAtParsed.value;
     }
 
+    // Validate receivedDate if provided
+    if (updates.receivedDate !== undefined) {
+      if (updates.receivedDate === null || updates.receivedDate === '') {
+        delete updates.receivedDate;
+      } else {
+        const parsedReceived = new Date(updates.receivedDate);
+        if (isNaN(parsedReceived.getTime())) {
+          return res.status(400).json({ error: 'Invalid receivedDate format' });
+        }
+        updates.receivedDate = parsedReceived;
+      }
+    }
+
     const oldStatus = existing.status;
     const isStatusProvided = updates.status !== undefined;
     const newStatus = isStatusProvided ? updates.status : oldStatus;
@@ -219,6 +308,124 @@ async function updatePosition(req, res) {
       }
     }
 
+    if (updates.isEngaged !== undefined) {
+      updates.isEngaged = Boolean(updates.isEngaged);
+      updates.engagedAt = updates.isEngaged ? (existing.engagedAt || new Date()) : null;
+    }
+
+    // Track per-TA assignment dates when assignee or parallelAssignees change via updatePosition
+    const now = new Date();
+    let currentTaAssignments = Array.isArray(existing.taAssignments)
+      ? existing.taAssignments.map(a => ({ ...a }))
+      : [];
+    let currentAssignmentHistory = Array.isArray(existing.assignmentHistory)
+      ? existing.assignmentHistory.map(h => ({ ...h }))
+      : [];
+    let taAssignmentsModified = false;
+
+    // Seed existing primary/parallel into currentTaAssignments if legacy record had empty taAssignments
+    if (currentTaAssignments.length === 0) {
+      if (existing.assignee) {
+        currentTaAssignments.push({
+          ta: existing.assignee,
+          role: 'Primary',
+          assignedAt: existing.dateAssigned || existing.createdAt || now
+        });
+      }
+      if (Array.isArray(existing.parallelAssignees)) {
+        for (const pId of existing.parallelAssignees) {
+          currentTaAssignments.push({
+            ta: pId,
+            role: 'Parallel',
+            assignedAt: existing.dateAssigned || existing.createdAt || now
+          });
+        }
+      }
+    }
+
+    if (updates.assignee !== undefined) {
+      const oldPrimary = existing.assignee ? String(existing.assignee) : '';
+      const newPrimary = updates.assignee ? String(updates.assignee) : '';
+      if (oldPrimary !== newPrimary) {
+        taAssignmentsModified = true;
+        // Close previous primary in assignmentHistory without overwriting original assignedAt
+        if (oldPrimary) {
+          for (let i = currentAssignmentHistory.length - 1; i >= 0; i--) {
+            if (String(currentAssignmentHistory[i].ta) === oldPrimary && currentAssignmentHistory[i].role === 'Primary' && !currentAssignmentHistory[i].unassignedAt) {
+              currentAssignmentHistory[i].unassignedAt = now;
+              break;
+            }
+          }
+        }
+        // Remove previous Primary from active taAssignments
+        currentTaAssignments = currentTaAssignments.filter(a => a.role !== 'Primary');
+        if (newPrimary) {
+          currentTaAssignments.unshift({
+            ta: updates.assignee,
+            role: 'Primary',
+            assignedAt: now
+          });
+          currentAssignmentHistory.push({
+            ta: updates.assignee,
+            role: 'Primary',
+            assignedAt: now,
+            unassignedAt: null,
+            action: oldPrimary ? 'Reassigned' : 'Assigned'
+          });
+          if (!updates.dateAssigned) {
+            updates.dateAssigned = now;
+          }
+        }
+      }
+    }
+
+    if (updates.parallelAssignees !== undefined && Array.isArray(updates.parallelAssignees)) {
+      const oldParallelIds = (existing.parallelAssignees || []).map(id => String(id));
+      const newParallelIds = updates.parallelAssignees.filter(Boolean).map(id => String(id));
+
+      const addedParallel = newParallelIds.filter(id => !oldParallelIds.includes(id));
+      const removedParallel = oldParallelIds.filter(id => !newParallelIds.includes(id));
+
+      if (addedParallel.length > 0 || removedParallel.length > 0) {
+        taAssignmentsModified = true;
+        // Mark removed parallel TAs as unassigned in history (preserving original assignedAt)
+        for (const remId of removedParallel) {
+          currentTaAssignments = currentTaAssignments.filter(
+            a => !(a.role === 'Parallel' && String(a.ta) === remId)
+          );
+          for (let i = currentAssignmentHistory.length - 1; i >= 0; i--) {
+            if (String(currentAssignmentHistory[i].ta) === remId && currentAssignmentHistory[i].role === 'Parallel' && !currentAssignmentHistory[i].unassignedAt) {
+              currentAssignmentHistory[i].unassignedAt = now;
+              break;
+            }
+          }
+        }
+        // Add newly assigned parallel TAs with their individual assignedAt timestamp
+        for (const addId of addedParallel) {
+          currentTaAssignments.push({
+            ta: addId,
+            role: 'Parallel',
+            assignedAt: now
+          });
+          currentAssignmentHistory.push({
+            ta: addId,
+            role: 'Parallel',
+            assignedAt: now,
+            unassignedAt: null,
+            action: 'Assigned'
+          });
+        }
+        if (addedParallel.length > 0 && !existing.dateAssigned && !updates.dateAssigned) {
+          updates.dateAssigned = now;
+        }
+      }
+    }
+
+    if (taAssignmentsModified) {
+      updates.taAssignments = currentTaAssignments;
+      updates.assignmentHistory = currentAssignmentHistory;
+    }
+
     // Synchronize salary data on updates:
     // 1. When structured salary is explicitly provided
     if (updates.salary !== undefined) {
@@ -237,7 +444,7 @@ async function updatePosition(req, res) {
     // 2. When legacy client submits only packageRange without salary:
     // We intentionally avoid overwriting or erasing existing.salary
 
-    const skipFields = ['_id', '__v', 'createdAt', 'updatedAt', 'allocationRounds'];
+    const skipFields = ['_id', '__v', 'createdAt', 'updatedAt', 'allocationRounds', 'taAssignments', 'assignmentHistory'];
 
     const historyEntries = [];
 
@@ -268,6 +475,8 @@ async function updatePosition(req, res) {
       .populate('client', 'clientId clientName')
       .populate('assignee', 'name status color')
       .populate('parallelAssignees', 'name status color')
+      .populate('taAssignments.ta', 'name status color')
+      .populate('assignmentHistory.ta', 'name status color')
       .lean();
 
     if (historyEntries.length > 0) {
@@ -292,17 +501,83 @@ async function assignPosition(req, res) {
       return res.status(404).json({ error: 'Position not found' });
     }
 
+    const now = new Date();
     const oldAssignee = position.assignee ? String(position.assignee) : '';
+    const newAssignee = taId ? String(taId) : '';
 
-    position.assignee = taId;
-    position.dateAssigned = new Date();
+    // Seed taAssignments from legacy fields if empty
+    if (!Array.isArray(position.taAssignments) || position.taAssignments.length === 0) {
+      position.taAssignments = [];
+      if (position.assignee) {
+        position.taAssignments.push({
+          ta: position.assignee,
+          role: 'Primary',
+          assignedAt: position.dateAssigned || position.createdAt || now
+        });
+      }
+      if (Array.isArray(position.parallelAssignees)) {
+        for (const pId of position.parallelAssignees) {
+          position.taAssignments.push({
+            ta: pId,
+            role: 'Parallel',
+            assignedAt: position.dateAssigned || position.createdAt || now
+          });
+        }
+      }
+    }
+    if (!Array.isArray(position.assignmentHistory)) {
+      position.assignmentHistory = [];
+      if (position.assignee) {
+        position.assignmentHistory.push({
+          ta: position.assignee,
+          role: 'Primary',
+          assignedAt: position.dateAssigned || position.createdAt || now,
+          unassignedAt: null,
+          action: 'Assigned'
+        });
+      }
+    }
+
+    if (oldAssignee !== newAssignee) {
+      // Mark previous primary entry as unassigned without overwriting its original assignedAt
+      if (oldAssignee) {
+        for (let i = position.assignmentHistory.length - 1; i >= 0; i--) {
+          if (String(position.assignmentHistory[i].ta) === oldAssignee && position.assignmentHistory[i].role === 'Primary' && !position.assignmentHistory[i].unassignedAt) {
+            position.assignmentHistory[i].unassignedAt = now;
+            break;
+          }
+        }
+      }
+      // Keep parallel assignments with their existing assignedAt timestamps; replace Primary
+      position.taAssignments = position.taAssignments.filter(a => a.role !== 'Primary');
+      if (taId) {
+        position.taAssignments.unshift({
+          ta: taId,
+          role: 'Primary',
+          assignedAt: now
+        });
+        position.assignmentHistory.push({
+          ta: taId,
+          role: 'Primary',
+          assignedAt: now,
+          unassignedAt: null,
+          action: oldAssignee ? 'Reassigned' : 'Assigned'
+        });
+      }
+    }
+
+    position.assignee = taId || null;
+    if (taId) {
+      position.dateAssigned = now;
+    }
 
     // Only push to allocationRounds if assigning someone (not unassigning)
     if (taId) {
       position.allocationRounds.push({
         taAssigned: taId,
         roundNumber: position.allocationRounds.length + 1,
-        reason: reason || 'Primary assignment',
+        dateAssigned: now,
+        reason: reason || (oldAssignee ? 'Reassigned' : 'Primary assignment'),
         cvCountAtRound: position.cvCount
       });
     }
@@ -314,12 +589,12 @@ async function assignPosition(req, res) {
 
     await position.save();
 
-    if (oldAssignee !== String(taId)) {
+    if (oldAssignee !== newAssignee) {
       await PositionHistory.create({
         position: id,
         field: 'assignee',
         oldValue: oldAssignee,
-        newValue: String(taId)
+        newValue: newAssignee
       });
     }
 
@@ -327,6 +602,8 @@ async function assignPosition(req, res) {
       .populate('client', 'clientId clientName')
       .populate('assignee', 'name status color')
       .populate('parallelAssignees', 'name status color')
+      .populate('taAssignments.ta', 'name status color')
+      .populate('assignmentHistory.ta', 'name status color')
       .lean();
 
     liveEvents.emit('positions:changed');   // ADD THIS LINE — currently missing
@@ -365,6 +642,8 @@ async function setFlagOverride(req, res) {
       .populate('client', 'clientId clientName')
       .populate('assignee', 'name status color')
       .populate('parallelAssignees', 'name status color')
+      .populate('taAssignments.ta', 'name status color')
+      .populate('assignmentHistory.ta', 'name status color')
       .lean();
 
     if (oldMode !== mode) {
@@ -402,6 +681,63 @@ async function deletePosition(req, res) {
   }
 }
 
+// BULK UPDATE ENGAGEMENT (Client-level engagement)
+async function bulkUpdateEngagement(req, res) {
+  try {
+    const { positionIds, clientIds, isEngaged } = req.body;
+    let targetClientIds = [];
+
+    if (Array.isArray(clientIds) && clientIds.length > 0) {
+      targetClientIds = [...new Set(clientIds.map(String))];
+    } else if (Array.isArray(positionIds) && positionIds.length > 0) {
+      const positions = await Position.find({ _id: { $in: positionIds } }, 'client').lean();
+      targetClientIds = [...new Set(positions.map(p => p.client?.toString()).filter(Boolean))];
+    }
+
+    if (targetClientIds.length === 0) {
+      return res.status(400).json({ error: 'No valid clients or positions provided' });
+    }
+
+    const engagedBool = Boolean(isEngaged);
+    const engagedDate = engagedBool ? new Date() : null;
+
+    // 1. Update all identified distinct clients
+    await Client.updateMany(
+      { _id: { $in: targetClientIds } },
+      {
+        $set: {
+          isEngaged: engagedBool,
+          engagedAt: engagedDate
+        }
+      }
+    );
+
+    // 2. Update ALL positions belonging to these clients
+    const positionUpdateResult = await Position.updateMany(
+      { client: { $in: targetClientIds } },
+      {
+        $set: {
+          isEngaged: engagedBool,
+          engagedAt: engagedDate
+        }
+      }
+    );
+
+    const clientDocs = await Client.find({ _id: { $in: targetClientIds } }, 'clientName').lean();
+
+    liveEvents.emit('positions:changed');
+    res.json({
+      success: true,
+      clientCount: targetClientIds.length,
+      clients: clientDocs.map(c => c.clientName),
+      modifiedPositionsCount: positionUpdateResult.modifiedCount,
+      isEngaged: engagedBool
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   getAllPositions,
   getPositionById,
@@ -409,5 +745,6 @@ module.exports = {
   updatePosition,
   assignPosition,
   setFlagOverride,
-  deletePosition
+  deletePosition,
+  bulkUpdateEngagement
 };

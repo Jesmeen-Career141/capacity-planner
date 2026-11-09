@@ -18,13 +18,6 @@ import CompactEditPopover from '../components/CompactEditPopover';
 const CARD_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
 
-const FLAG_META = {
-  followUp: { label: 'Follow up' },
-  addOn: { label: 'Add-on' },
-  backup: { label: 'Backup' },
-  goingGood: { label: 'Going good' },
-  reAssign: { label: 'Re-assign' },
-};
 
 // ---- HELPERS ----
 
@@ -39,6 +32,8 @@ function roleChipStyle(title) {
 }
 
 // ===== UTC DATE HELPERS =====
+const DAY_OFFSETS = { mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
+
 function getMondayOfWeek(date) {
   const d = new Date(date);
   const day = d.getUTCDay();
@@ -57,6 +52,32 @@ function toISODate(date) {
   return date.toISOString().split('T')[0];
 }
 
+function getDayUTCDate(weekStartISO, dayKey) {
+  const offset = DAY_OFFSETS[dayKey] ?? 0;
+  return addDays(new Date(weekStartISO), offset);
+}
+
+function isDateInSelectedMonth(dateObj, year, monthIndex) {
+  return dateObj.getUTCFullYear() === year && dateObj.getUTCMonth() === monthIndex;
+}
+
+function formatUTCShortDate(dateObj) {
+  return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+function getWeekDateRangeForMonth(weekStartISO, year, monthIndex) {
+  const inMonthDates = [];
+  for (const dayKey of CARD_DAYS) {
+    const dt = getDayUTCDate(weekStartISO, dayKey);
+    if (isDateInSelectedMonth(dt, year, monthIndex)) {
+      inMonthDates.push(dt);
+    }
+  }
+  if (inMonthDates.length === 0) return '';
+  if (inMonthDates.length === 1) return formatUTCShortDate(inMonthDates[0]);
+  return `${formatUTCShortDate(inMonthDates[0])} – ${formatUTCShortDate(inMonthDates[inMonthDates.length - 1])}`;
+}
+
 function getMonthWeeks(year, monthIndex) {
   const firstOfMonth = new Date(Date.UTC(year, monthIndex, 1));
   const lastOfMonth = new Date(Date.UTC(year, monthIndex + 1, 0));
@@ -64,7 +85,12 @@ function getMonthWeeks(year, monthIndex) {
   const weeks = [];
   while (cursor <= lastOfMonth) {
     const weekEnd = addDays(cursor, 6);
-    weeks.push({ weekStart: toISODate(cursor), weekEnd: toISODate(weekEnd) });
+    const weekStartISO = toISODate(cursor);
+    weeks.push({
+      weekStart: weekStartISO,
+      weekEnd: toISODate(weekEnd),
+      dateRangeLabel: getWeekDateRangeForMonth(weekStartISO, year, monthIndex)
+    });
     cursor = addDays(cursor, 7);
   }
   return weeks;
@@ -73,19 +99,19 @@ function getMonthWeeks(year, monthIndex) {
 function buildMonthOptions() {
   const now = new Date();
   const options = [];
-  for (let i = -6; i <= 6; i++) {
+  for (let i = -12; i <= 12; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
     options.push({
       year: d.getFullYear(),
       monthIndex: d.getMonth(),
-      label: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) + (i === 0 ? ' . Current' : ''),
+      label: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) + (i === 0 ? ' · Current' : ''),
     });
   }
   return options;
 }
 
 const MONTH_OPTIONS = buildMonthOptions();
-const CURRENT_MONTH_IDX = 6;
+const CURRENT_MONTH_IDX = 12;
 
 const TODAY = new Date();
 const TODAY_ISO = toISODate(TODAY);
@@ -160,33 +186,63 @@ function daysSince(dateStr) {
 }
 
 // ---- Popover (portal) ----
-function Popover({ anchorRef, isOpen, onClose, children, width = 290 }) {
+function Popover({ anchorRef, isOpen, onClose, children, width = 420 }) {
   const [style, setStyle] = useState(null);
   const popoverRef = useRef(null);
 
   useLayoutEffect(() => {
     if (!isOpen || !anchorRef.current) return;
-    const rect = anchorRef.current.getBoundingClientRect();
-    const margin = 8;
-    let left = rect.left;
-    const maxLeft = window.innerWidth - width - margin;
-    if (left < margin) left = margin;
-    if (left > maxLeft) left = maxLeft;
 
-    const top = rect.bottom + margin;
-    const available = window.innerHeight - top - margin;
-    const maxHeight = Math.min(320, Math.max(180, available));
+    const updatePosition = () => {
+      if (!anchorRef.current) return;
+      const rect = anchorRef.current.getBoundingClientRect();
+      const margin = 12;
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
 
-    const newStyle = {
-      position: 'fixed',
-      left,
-      width,
-      minHeight: 180,
-      maxHeight,
-      overflowY: 'auto',
-      top,
+      // Responsive width: target 380-440px (default 420px), clamped so it never overflows the viewport
+      const effectiveWidth = Math.min(width, Math.max(260, viewportW - margin * 2));
+
+      let left = rect.left;
+      const maxLeft = viewportW - effectiveWidth - margin;
+      if (left > maxLeft) left = maxLeft;
+      if (left < margin) left = margin;
+
+      const gap = 6;
+      const spaceBelow = viewportH - rect.bottom - margin - gap;
+      const spaceAbove = rect.top - margin - gap;
+      const desiredMaxHeight = 380;
+      const minComfortHeight = 220;
+
+      let top;
+      let maxHeight;
+
+      if (spaceBelow >= minComfortHeight || spaceBelow >= spaceAbove) {
+        top = rect.bottom + gap;
+        maxHeight = Math.min(desiredMaxHeight, Math.max(180, viewportH - top - margin));
+      } else {
+        maxHeight = Math.min(desiredMaxHeight, Math.max(180, spaceAbove));
+        top = Math.max(margin, rect.top - maxHeight - gap);
+      }
+
+      setStyle({
+        position: 'fixed',
+        left,
+        top,
+        width: effectiveWidth,
+        maxWidth: `calc(100vw - ${margin * 2}px)`,
+        minHeight: width >= 350 ? Math.min(220, maxHeight) : undefined,
+        maxHeight,
+      });
     };
-    setStyle(newStyle);
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
   }, [isOpen, anchorRef, width]);
 
   useEffect(() => {
@@ -482,8 +538,8 @@ function PackageTooltip({ anchorRef, visible, salary, packageRange, clientName, 
   );
 }
 
-// ---- GridCell (with hover state + leave/holiday + dual position slot support) ----
-function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave }) {
+// ---- GridCell (with hover state + leave/holiday + dual position slot + calendar date support) ----
+function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave, dateShort, inMonth = true }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeSlot, setActiveSlot] = useState(1);
   const [tooltip1Visible, setTooltip1Visible] = useState(false);
@@ -494,9 +550,9 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave }
   const tooltip1TimerRef = useRef(null);
   const tooltip2TimerRef = useRef(null);
 
-  const position = dayCell?.position || null;
-  const position2 = dayCell?.position2 || null;
-  const leave = dayCell?.leave?.type ? dayCell.leave : null;
+  const position = inMonth ? (dayCell?.position || null) : null;
+  const position2 = inMonth ? (dayCell?.position2 || null) : null;
+  const leave = inMonth && dayCell?.leave?.type ? dayCell.leave : null;
 
   // Reset activeSlot & search when popover closes or when position 1 becomes empty
   useEffect(() => {
@@ -547,7 +603,7 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave }
 
   const sorted = useMemo(() => {
     if (!isOpen) return [];
-    const term = searchTerm.toLowerCase();
+    const term = searchTerm.trim().toLowerCase();
     const filtered = availablePositions.filter(p =>
       p.position?.toLowerCase().includes(term) ||
       p.client?.clientName?.toLowerCase().includes(term) ||
@@ -561,10 +617,20 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave }
     });
   }, [isOpen, searchTerm, availablePositions]);
 
+  // Out-of-month boundary cell: render muted non-editable cell so adjacent month assignments never bleed across months
+  if (!inMonth) {
+    return (
+      <div className="grid-cell-wrap grid-cell-wrap--out-of-month" title={`${dateShort} (outside selected month)`}>
+        <span className="grid-cell-date-badge grid-cell-date-badge--muted">{dateShort}</span>
+      </div>
+    );
+  }
+
   // ---- On leave / holiday: show badge, no assignment allowed ----
   if (leave) {
     return (
       <div className="grid-cell-wrap">
+        <span className="grid-cell-date-badge">{dateShort}</span>
         <button
           ref={triggerRef}
           className={`grid-pill grid-pill-leave grid-pill-leave--${leave.type}`}
@@ -574,7 +640,7 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave }
         </button>
         {isOpen && (
           <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggle} width={200}>
-            <p className="popover-heading">{leave.type === 'holiday' ? 'Holiday' : 'On leave'}</p>
+            <p className="popover-heading">{leave.type === 'holiday' ? 'Holiday' : 'On leave'} · {dateShort}</p>
             <button
               className="cell-popover-option cell-popover-option--simple cell-popover-danger"
               onClick={() => { onSetLeave(null); onToggle(); }}
@@ -589,6 +655,7 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave }
 
   return (
     <div className="grid-cell-wrap">
+      <span className="grid-cell-date-badge">{dateShort}</span>
       {position && position2 ? (
         <div className="grid-pill-split" ref={triggerRef}>
           <button
@@ -663,76 +730,86 @@ function GridCell({ dayCell, positions, isOpen, onToggle, onSelect, onSetLeave }
       )}
       {isOpen && (
         <Popover anchorRef={triggerRef} isOpen={isOpen} onClose={onToggle}>
-          <div className="slot-tabs">
-            <button
-              type="button"
-              className={`slot-tab${activeSlot === 1 ? ' slot-tab--active' : ''}`}
-              onClick={() => setActiveSlot(1)}
-            >
-              Position 1
-            </button>
-            <button
-              type="button"
-              className={`slot-tab${activeSlot === 2 ? ' slot-tab--active' : ''}`}
-              onClick={() => setActiveSlot(2)}
-              disabled={!position}
-            >
-              Position 2
-            </button>
-          </div>
-          <div className="popover-search">
-            <input
-              type="text"
-              placeholder="Search positions..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              onClick={e => e.stopPropagation()}
-            />
-          </div>
-          <button
-            className={`cell-popover-option${!currentSlotPos ? ' cell-popover-option--selected' : ''}`}
-            onClick={() => onSelect(null, activeSlot)}
-          >
-            <span className="cpo-check">{!currentSlotPos && <CheckIcon />}</span>
-            <span className="cpo-text cpo-text--muted">— None —</span>
-          </button>
-          {sorted.map(p => {
-            const selected = currentSlotPos?._id === p._id;
-            return (
+          <div className="popover-sticky-top">
+            <div className="slot-tabs">
               <button
-                className={`cell-popover-option${selected ? ' cell-popover-option--selected' : ''}`}
-                key={p._id}
-                onClick={() => onSelect(p._id, activeSlot)}
+                type="button"
+                className={`slot-tab${activeSlot === 1 ? ' slot-tab--active' : ''}`}
+                onClick={() => setActiveSlot(1)}
               >
-                <span className="cpo-check">{selected && <CheckIcon />}</span>
-                <span className={`cpo-level cpo-level--${p.pLevel}`}>{p.pLevel}</span>
-                <span className="cpo-text">
-                  <span className="cpo-client">{p.client?.clientName || '—'}</span>
-                  <span className="cpo-position">{p.position}</span>
-                </span>
+                Position 1
               </button>
-            );
-          })}
-          {sorted.length === 0 && (
-            <div className="popover-empty">No positions available</div>
-          )}
-          <div className="popover-divider" />
-          <button className="cell-popover-option cell-popover-option--simple" onClick={() => onSetLeave('leave')}>
-            <span className="cpo-text">Mark as Leave</span>
-          </button>
-          <button className="cell-popover-option cell-popover-option--simple" onClick={() => onSetLeave('holiday')}>
-            <span className="cpo-text">Mark as Holiday</span>
-          </button>
+              <button
+                type="button"
+                className={`slot-tab${activeSlot === 2 ? ' slot-tab--active' : ''}`}
+                onClick={() => setActiveSlot(2)}
+                disabled={!position}
+              >
+                Position 2
+              </button>
+            </div>
+            <div className="popover-search">
+              <input
+                type="text"
+                placeholder="Search by Job ID, client, or position..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                onClick={e => e.stopPropagation()}
+              />
+            </div>
+          </div>
+          <div className="popover-scroll-list">
+            <button
+              type="button"
+              className={`cell-popover-option cell-popover-option--none${!currentSlotPos ? ' cell-popover-option--selected' : ''}`}
+              onClick={() => onSelect(null, activeSlot)}
+            >
+              <span className="cpo-check">{!currentSlotPos && <CheckIcon />}</span>
+              <span className="cpo-text cpo-text--muted">— None —</span>
+            </button>
+            {sorted.map(p => {
+              const selected = currentSlotPos?._id === p._id;
+              return (
+                <button
+                  type="button"
+                  className={`cell-popover-option${selected ? ' cell-popover-option--selected' : ''}`}
+                  key={p._id}
+                  onClick={() => onSelect(p._id, activeSlot)}
+                >
+                  <span className="cpo-check">{selected && <CheckIcon />}</span>
+                  <span className="cpo-text cpo-text--position-item">
+                    <span className="cpo-top-row">
+                      <span className={`cpo-level cpo-level--${p.pLevel}`}>{p.pLevel}</span>
+                      <span className="cpo-sep" aria-hidden="true">|</span>
+                      <span className="cpo-client">{p.client?.clientName || '—'}</span>
+                    </span>
+                    <span className="cpo-position">{p.position}</span>
+                  </span>
+                </button>
+              );
+            })}
+            {sorted.length === 0 && (
+              <div className="popover-empty">No positions available</div>
+            )}
+            <div className="popover-divider" />
+            <button type="button" className="cell-popover-option cell-popover-option--simple" onClick={() => onSetLeave('leave')}>
+              <span className="cpo-text">Mark as Leave</span>
+            </button>
+            <button type="button" className="cell-popover-option cell-popover-option--simple" onClick={() => onSetLeave('holiday')}>
+              <span className="cpo-text">Mark as Holiday</span>
+            </button>
+          </div>
         </Popover>
       )}
     </div>
   );
 }
 
-// ---- TACard (passes weekStart, dayCell, onSetLeave) ----
+// ---- TACard (passes weekStart, dayCell, onSetLeave, selectedMonth) ----
 function TACard({
   ta,
   displayWeeks,
+  selectedMonth,
   activeColumnIndex,
   getCell,
   positions,
@@ -824,12 +901,15 @@ function TACard({
             <div className="ta-day-col" />
             {displayWeeks.map((w, idx) => (
               <div key={w.weekStart} className={`ta-week-label${idx === activeColumnIndex ? ' ta-week-label--active' : ''}`}>
-                {`WEEK ${idx + 1}`}{idx === activeColumnIndex ? ' . NOW' : ''}
+                <span className="ta-week-title">{`WEEK ${idx + 1}`}{idx === activeColumnIndex ? ' · NOW' : ''}</span>
+                {w.dateRangeLabel && (
+                  <span className="ta-week-dates">{w.dateRangeLabel}</span>
+                )}
               </div>
             ))}
           </div>
 
-                    {CARD_DAYS.map(day => (
+          {CARD_DAYS.map(day => (
             <div
               className={`ta-grid-row${day === 'sat' || day === 'sun' ? ' ta-grid-row--weekend' : ''}`}
               key={day}
@@ -837,22 +917,34 @@ function TACard({
             >
               <div className="ta-day-col">{DAY_LABELS[day].toUpperCase()}</div>
               {displayWeeks.map((w, idx) => {
-                const dayCell = getCell(ta._id, w.weekStart, day);
-                const isCurrentWeek = idx === activeColumnIndex;
+                const cellDate = getDayUTCDate(w.weekStart, day);
+                const inMonth = selectedMonth
+                  ? isDateInSelectedMonth(cellDate, selectedMonth.year, selectedMonth.monthIndex)
+                  : true;
+                const dateShort = formatUTCShortDate(cellDate);
+                const dayCell = inMonth ? getCell(ta._id, w.weekStart, day) : null;
+                const isCurrentWeek = idx === activeColumnIndex && inMonth;
                 const cellKey = `${String(ta._id)}|${w.weekStart}|${day}`;
 
                 return (
-                  <div key={cellKey} className={`ta-grid-cell ${isCurrentWeek ? 'ta-grid-cell--active' : ''}`}>
+                  <div
+                    key={cellKey}
+                    className={`ta-grid-cell ${isCurrentWeek ? 'ta-grid-cell--active' : ''} ${!inMonth ? 'ta-grid-cell--out-of-month' : ''}`}
+                  >
                     <GridCell
                       dayCell={dayCell}
                       positions={positions}
-                      isOpen={openCellKey === cellKey}
-                      onToggle={() => onCellToggle(cellKey)}
+                      isOpen={inMonth && openCellKey === cellKey}
+                      onToggle={() => {
+                        if (inMonth) onCellToggle(cellKey);
+                      }}
                       onSelect={(newId, slot) => onSelectCell(ta._id, w.weekStart, day, newId, slot)}
                       onSetLeave={(leaveType) => onSetCellLeave(ta._id, w.weekStart, day, leaveType)}
                       weekStart={w.weekStart}
                       taId={ta._id}
                       day={day}
+                      dateShort={dateShort}
+                      inMonth={inMonth}
                     />
                   </div>
                 );
@@ -1905,25 +1997,67 @@ function TABoard() {
             Mark Leave / Holiday
           </button>
           {activeView === 'grid' && (
-            <select
-              className="week-select"
-              value={selectedMonthIdx}
-              onChange={e => setSelectedMonthIdx(Number(e.target.value))}
-            >
-              {MONTH_OPTIONS.map((m, i) => (
-                <option key={`${m.year}-${m.monthIndex}`} value={i}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+            <div className="month-nav-group">
+              <button
+                type="button"
+                className="toggle-btn month-nav-btn"
+                disabled={selectedMonthIdx <= 0}
+                onClick={() => {
+                  setOpenCellKey(null);
+                  setSelectedMonthIdx(i => Math.max(0, i - 1));
+                }}
+                title="Previous month"
+                aria-label="Previous month"
+              >
+                ‹
+              </button>
+              <select
+                className="week-select"
+                value={selectedMonthIdx}
+                onChange={e => {
+                  setOpenCellKey(null);
+                  setSelectedMonthIdx(Number(e.target.value));
+                }}
+              >
+                {MONTH_OPTIONS.map((m, i) => (
+                  <option key={`${m.year}-${m.monthIndex}`} value={i}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="toggle-btn month-nav-btn"
+                disabled={selectedMonthIdx >= MONTH_OPTIONS.length - 1}
+                onClick={() => {
+                  setOpenCellKey(null);
+                  setSelectedMonthIdx(i => Math.min(MONTH_OPTIONS.length - 1, i + 1));
+                }}
+                title="Next month"
+                aria-label="Next month"
+              >
+                ›
+              </button>
+              {selectedMonthIdx !== CURRENT_MONTH_IDX && (
+                <button
+                  type="button"
+                  className="toggle-btn month-current-btn"
+                  onClick={() => {
+                    setOpenCellKey(null);
+                    setSelectedMonthIdx(CURRENT_MONTH_IDX);
+                  }}
+                >
+                  Current Month
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
 
       {activeView === 'grid' && !isActiveVisible && (
         <div className="taboard-notice">
-          You're viewing a different month -- nothing here is editable right now. Switch the
-          dropdown back to "Current" to make assignments.
+          Viewing <strong>{selectedMonth?.label?.replace(' · Current', '')}</strong> ({displayWeeks.length} calendar weeks). Only assignments scheduled on dates within {selectedMonth?.label?.replace(' · Current', '')} are shown here.
         </div>
       )}
 
@@ -1986,6 +2120,7 @@ function TABoard() {
                     key={String(ta._id)}
                     ta={ta}
                     displayWeeks={displayWeeks}
+                    selectedMonth={selectedMonth}
                     activeColumnIndex={activeColumnIndex}
                     getCell={getCell}
                     positions={positions}

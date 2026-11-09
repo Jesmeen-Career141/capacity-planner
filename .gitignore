@@ -1,10 +1,67 @@
-node_modules
-client/node_modules
-server/node_modules
+# ===================================================================
+# Career141 Capacity Planner - Root .gitignore
+# ===================================================================
+
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+/.pnp
+.pnp.js
+
+# Environment variables & secrets (keep .env.example files committed)
 .env
+.env.local
+.env.*.local
 client/.env
+client/.env.local
+client/.env.*.local
 server/.env
-dist
-client/dist
+server/.env.local
+server/.env.*.local
+!.env.example
+!client/.env.example
+!server/.env.example
+
+# Production builds
+dist/
+dist-ssr/
+client/dist/
+build/
+
+# Logs
+logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Operating System Files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
+
+# IDE & Editor Configurations
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary / Scratch Files
+*.tmp
+*.bak
+*.orig
+tmp/
+temp/

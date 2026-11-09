@@ -1,5 +1,9 @@
 .archive {
-  max-width: 100%;
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 1.5rem 2rem;
+  box-sizing: border-box;
 }
 .archive h1 {
   margin-bottom: 16px;

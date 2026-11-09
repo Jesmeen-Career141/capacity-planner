@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { updatePosition } from '../api/positions';
 import CandidateCvSection from './CandidateCvSection';
+import PositionActivityHistory from './PositionActivityHistory';
 import './PositionDetailModal.css';
 
 const CloseIcon = () => (
@@ -93,6 +94,13 @@ export default function PositionDetailModal({ position, onClose, onUpdate, tas, 
           >
             CV Tracking
           </button>
+          <button
+            type="button"
+            className={`pos-detail-tab ${activeTab === 'workActivity' ? 'pos-detail-tab--active' : ''}`}
+            onClick={() => setActiveTab('workActivity')}
+          >
+            Daily Work & Activity
+          </button>
         </div>
         <div className="modal-body">
           {activeTab === 'details' ? (
@@ -125,6 +133,34 @@ export default function PositionDetailModal({ position, onClose, onUpdate, tas, 
                 <div className="modal-summary-item">
                   <span className="modal-summary-label">Shortlist (Int/Ext)</span>
                   <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
+                </div>
+                <div className="modal-summary-item">
+                  <span className="modal-summary-label">Received Date</span>
+                  <span className="modal-summary-value">
+                    {(position.receivedDate || position.createdAt)
+                      ? new Date(position.receivedDate || position.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                      : '—'}
+                  </span>
+                </div>
+                <div className="modal-summary-item">
+                  <span className="modal-summary-label">Assigned Date</span>
+                  <span className="modal-summary-value">
+                    {Array.isArray(position.taAssignments) && position.taAssignments.length > 0
+                      ? position.taAssignments.map(a => {
+                          const tName = a.ta?.name || tas?.find(t => String(t._id) === String(a.ta?._id || a.ta))?.name || 'TA';
+                          const dtStr = a.assignedAt ? new Date(a.assignedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+                          return `${tName}: ${dtStr}`;
+                        }).join(' · ')
+                      : (position.dateAssigned ? new Date(position.dateAssigned).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')}
+                  </span>
+                </div>
+                <div className="modal-summary-item">
+                  <span className="modal-summary-label">Activation Date</span>
+                  <span className="modal-summary-value">
+                    {position.activatedAt
+                      ? new Date(position.activatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                      : 'Not yet activated'}
+                  </span>
                 </div>
               </div>
               <div className="modal-editable">
@@ -180,8 +216,12 @@ export default function PositionDetailModal({ position, onClose, onUpdate, tas, 
                 )}
               </div>
             </>
-          ) : (
+          ) : activeTab === 'cvTracking' ? (
             <CandidateCvSection position={position} tas={tas} />
+          ) : (
+            <div style={{ padding: '20px 28px' }}>
+              <PositionActivityHistory positionId={position._id} jobOrderId={position.jobOrderId} />
+            </div>
           )}
         </div>
         <div className="modal-footer">

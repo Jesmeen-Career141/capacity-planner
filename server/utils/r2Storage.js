@@ -168,6 +168,50 @@ async function generatePresignedDownloadUrl({ key, originalFileName, expiresIn =
   return await getSignedUrl(s3Client, command, { expiresIn });
 }
 
+/**
+ * Retrieves a file buffer directly from Cloudflare R2.
+ * Accepts an optional client parameter for test mocking without hitting production R2.
+ */
+async function getFileBufferFromR2({ key, client = null }) {
+  const s3Client = resolveStorageClient(client);
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key
+  });
+
+  const response = await s3Client.send(command);
+  if (!response.Body) {
+    throw new Error(`Empty file body received from storage for key: ${key}`);
+  }
+
+  // AWS SDK v3 stream to byte array
+  if (typeof response.Body.transformToByteArray === 'function') {
+    const bytes = await response.Body.transformToByteArray();
+    return Buffer.from(bytes);
+  }
+
+  // Fallback for standard readable streams
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    response.Body.on('data', chunk => chunks.push(chunk));
+    response.Body.on('error', reject);
+    response.Body.on('end', () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+/**
+ * Retrieves a readable file stream directly from Cloudflare R2.
+ * Accepts an optional client parameter for test mocking.
+ */
+async function getFileStreamFromR2({ key, client = null }) {
+  const s3Client = resolveStorageClient(client);
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key
+  });
+  return await s3Client.send(command);
+}
+
 module.exports = {
   BUCKET_NAME,
   getR2Client,
@@ -177,5 +221,8 @@ module.exports = {
   uploadFileToR2,
   deleteFileFromR2,
   generatePresignedDownloadUrl,
-  getNormalizedR2Endpoint
+  getNormalizedR2Endpoint,
+  getFileBufferFromR2,
+  getFileStreamFromR2
 };
+

@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getPositions, deletePosition, updatePosition, assignPosition } from '../api/positions';
+import { getPositions, deletePosition, updatePosition, assignPosition, bulkUpdateEngagement } from '../api/positions';
 import { getClients } from '../api/clients';
 import { getActiveTAs } from '../api/tas';
 import { getColorLegend, updateColorLegend } from '../api/colorLegend';
@@ -16,7 +16,7 @@ import './Positions.css';
 // ---- Constants ----
 const STATUS_OPTIONS = ['Yet to Activate', 'A&P', 'Fence', 'Hold', 'Paused', 'Placed', 'Lost', 'Focus', 'Client Decision'];
 const ALL_STATUS_OPTIONS = [...STATUS_OPTIONS, 'Reactivated'];
-const PLEVEL_OPTIONS = ['P1', 'P2', 'P3', 'P4', 'P5'];
+const PLEVEL_OPTIONS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'];
 const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'];
 
 const normalizeStatusParam = (status) => {
@@ -54,6 +54,7 @@ const PLEVEL_COLORS = {
   P3: { bg: '#f97316', text: '#ffffff' },
   P4: { bg: '#fdba74', text: '#7c2d12' },
   P5: { bg: '#fde047', text: '#78350f' },
+  P6: { bg: '#cbd5e1', text: '#334155' },
 };
 
 const STATUS_COLORS = {
@@ -433,10 +434,266 @@ function ParallelAssigneesPicker({ values, options, onChange, disabled = false }
   );
 }
 
+// ---- CompactAssigneesCell (Horizontal chips with popover manager) ----
+function CompactAssigneesCell({
+  pos,
+  tas,
+  onPrimaryAssign,
+  onParallelAssign,
+  disabled = false
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [direction, setDirection] = useState('down');
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const handleTogglePopover = () => {
+    if (disabled) return;
+    if (!isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const popoverHeight = 310;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      if (spaceBelow >= popoverHeight) {
+        setDirection('down');
+      } else if (spaceAbove >= popoverHeight) {
+        setDirection('up');
+      } else {
+        setDirection(spaceBelow >= spaceAbove ? 'down' : 'up');
+      }
+    }
+    setIsOpen(!isOpen);
+  };
+
+  // Primary TA
+  const primaryTA = useMemo(() => {
+    if (!pos.assignee) return null;
+    if (typeof pos.assignee === 'object' && pos.assignee._id) {
+      const match = tas.find(t => t._id === pos.assignee._id);
+      return match || pos.assignee;
+    }
+    return tas.find(t => t._id === pos.assignee) || null;
+  }, [pos.assignee, tas]);
+
+  // Current parallel IDs
+  const currentParallelIds = useMemo(() => {
+    return (pos.parallelAssignees || [])
+      .map(pa => (typeof pa === 'object' && pa?._id ? pa._id : pa))
+      .filter(Boolean);
+  }, [pos.parallelAssignees]);
+
+  // Resolved parallel TAs
+  const parallelTAs = useMemo(() => {
+    return currentParallelIds
+      .map(id => tas.find(t => t._id === id))
+      .filter(Boolean);
+  }, [currentParallelIds, tas]);
+
+  // All assigned TAs (primary first, then parallel)
+  const allAssignees = useMemo(() => {
+    const list = [];
+    if (primaryTA) {
+      list.push({ ta: primaryTA, isPrimary: true });
+    }
+    parallelTAs.forEach(pTa => {
+      if (!primaryTA || pTa._id !== primaryTA._id) {
+        list.push({ ta: pTa, isPrimary: false });
+      }
+    });
+    return list;
+  }, [primaryTA, parallelTAs]);
+
+  const handleToggleParallel = (taId) => {
+    let nextIds;
+    if (currentParallelIds.includes(taId)) {
+      nextIds = currentParallelIds.filter(id => id !== taId);
+    } else {
+      nextIds = [...currentParallelIds, taId];
+    }
+    onParallelAssign(pos, nextIds);
+  };
+
+  const handleRemoveParallel = (taId) => {
+    const nextIds = currentParallelIds.filter(id => id !== taId);
+    onParallelAssign(pos, nextIds);
+  };
+
+  // Display first 2 assignees as chips; show +N more if more than 2
+  const maxVisible = 2;
+  const visibleAssignees = allAssignees.slice(0, maxVisible);
+  const hiddenCount = allAssignees.length - maxVisible;
+
+  return (
+    <div className="compact-assignees-cell" ref={containerRef}>
+      {allAssignees.length === 0 ? (
+        <button
+          type="button"
+          className="assignee-empty-btn"
+          onClick={handleTogglePopover}
+          disabled={disabled}
+          title="Click to assign TA"
+        >
+          + Assign TA
+        </button>
+      ) : (
+        <div className="compact-assignees-row">
+          {visibleAssignees.map(({ ta, isPrimary }) => {
+            const taColor = TA_COLORS[ta.color] || { bg: '#059669', text: '#ffffff' };
+            return (
+              <span
+                key={ta._id}
+                className={`compact-ta-chip ${isPrimary ? 'compact-ta-chip--primary' : ''}`}
+                style={{ backgroundColor: taColor.bg, color: taColor.text }}
+                onClick={handleTogglePopover}
+                title={`${ta.name}${isPrimary ? ' (Primary)' : ' (Parallel)'} — click to manage`}
+              >
+                <span className="compact-ta-chip-text">{ta.name}</span>
+              </span>
+            );
+          })}
+
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              className="compact-ta-more-btn"
+              onClick={handleTogglePopover}
+              title={`${hiddenCount} more assignee${hiddenCount > 1 ? 's' : ''} — click to view`}
+            >
+              +{hiddenCount} more
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="compact-ta-add-btn"
+            onClick={handleTogglePopover}
+            title="Manage assignees"
+          >
+            +
+          </button>
+        </div>
+      )}
+
+      {isOpen && (
+        <>
+          <div className="popover-backdrop" onClick={() => setIsOpen(false)} />
+          <div className={`assignees-popover assignees-popover--${direction}`}>
+            <div className="assignees-popover-header">
+              <span className="assignees-popover-title">Manage Assignees</span>
+              <button
+                type="button"
+                className="assignees-popover-close"
+                onClick={() => setIsOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Currently Assigned List */}
+            <div className="assignees-popover-section">
+              <div className="assignees-popover-label">Current Assignees ({allAssignees.length})</div>
+              {allAssignees.length === 0 ? (
+                <div className="assignees-popover-empty">No assignees selected</div>
+              ) : (
+                <div className="assignees-popover-chips">
+                  {allAssignees.map(({ ta, isPrimary }) => {
+                    const taColor = TA_COLORS[ta.color] || { bg: '#059669', text: '#ffffff' };
+                    return (
+                      <span
+                        key={ta._id}
+                        className="assignees-popover-chip"
+                        style={{ backgroundColor: taColor.bg, color: taColor.text }}
+                      >
+                        <span className="assignees-popover-chip-text">{ta.name}</span>
+                        {isPrimary ? (
+                          <span className="assignees-primary-badge" title="Primary Assignee">Primary</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="assignees-chip-remove-btn"
+                            onClick={() => handleRemoveParallel(ta._id)}
+                            title="Remove parallel assignee"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Primary TA Selection */}
+            <div className="assignees-popover-section">
+              <div className="assignees-popover-label">Primary TA</div>
+              <select
+                className="assignees-popover-select"
+                value={primaryTA?._id || ''}
+                onChange={(e) => {
+                  const newId = e.target.value || null;
+                  onPrimaryAssign(pos, newId);
+                }}
+                disabled={disabled}
+              >
+                <option value="">— Unassigned —</option>
+                {tas.map(ta => (
+                  <option key={ta._id} value={ta._id}>
+                    {ta.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Parallel TAs Checklist */}
+            <div className="assignees-popover-section">
+              <div className="assignees-popover-label">Parallel Assignees (Collaborators)</div>
+              <div className="assignees-popover-checklist">
+                {tas.map(ta => {
+                  const isPrimary = primaryTA?._id === ta._id;
+                  const isChecked = currentParallelIds.includes(ta._id);
+                  const taColor = TA_COLORS[ta.color] || { bg: '#059669', text: '#ffffff' };
+                  return (
+                    <label
+                      key={ta._id}
+                      className={`assignees-checklist-item ${isPrimary ? 'assignees-checklist-item--disabled' : ''} ${isChecked ? 'assignees-checklist-item--checked' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={isPrimary || disabled}
+                        onChange={() => handleToggleParallel(ta._id)}
+                      />
+                      <span className="assignees-color-dot" style={{ backgroundColor: taColor.bg }} />
+                      <span className="assignees-item-name">{ta.name}</span>
+                      {isPrimary && <span className="assignees-item-tag">Primary</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ---- PositionDetailModal is now imported from ../components/PositionDetailModal ----
 
 // ---- PositionCard (grid view — Azeem's view) ----
-function PositionCard({ pos, onView, onDelete }) {
+function PositionCard({ pos, onView, onDelete, isSelectMode, isSelected, onToggleSelect }) {
   const statusColor = STATUS_COLORS[pos.status] || { bg: '#e5e7eb', text: '#374151' };
   const levelColor = PLEVEL_COLORS[pos.pLevel] || { bg: '#e5e7eb', text: '#374151' };
   const primaryName = pos.assignee?.name || 'Unassigned';
@@ -444,17 +701,39 @@ function PositionCard({ pos, onView, onDelete }) {
 
   return (
     <div
-      className="position-card"
-      style={{ borderTopColor: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : 'transparent' }}
-      onClick={() => onView(pos)}
+      className={`position-card ${isSelected ? 'selected' : ''}`}
+      onClick={() => {
+        if (isSelectMode) {
+          onToggleSelect(pos._id);
+        } else {
+          onView(pos);
+        }
+      }}
     >
-      <button
-        className="position-card-delete"
-        onClick={(e) => { e.stopPropagation(); onDelete(pos); }}
-        title="Delete position"
-      >
-        <DeleteIcon />
-      </button>
+      {isSelectMode ? (
+        <div
+          className="position-card-checkbox-wrap"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSelect(pos._id);
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={Boolean(isSelected)}
+            onChange={() => onToggleSelect(pos._id)}
+            style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
+          />
+        </div>
+      ) : (
+        <button
+          className="position-card-delete"
+          onClick={(e) => { e.stopPropagation(); onDelete(pos); }}
+          title="Delete position"
+        >
+          <DeleteIcon />
+        </button>
+      )}
 
       {/* Top row: enlarged P-Level circle only */}
       <div className="position-card-top">
@@ -486,7 +765,7 @@ function PositionCard({ pos, onView, onDelete }) {
 }
 
 // ---- PositionGroup (grid view grouping by P-Level) ----
-function PositionGroup({ pLevel, positions, onView, onDelete, labelOverride }) {
+function PositionGroup({ pLevel, positions, onView, onDelete, labelOverride, isSelectMode, selectedPositionIds, onToggleSelect }) {
   if (positions.length === 0) return null;
   const label = labelOverride || pLevel;
   const swatch = PLEVEL_COLORS[pLevel] || STATUS_COLORS[pLevel] || { bg: '#e5e7eb', text: '#374151' };
@@ -503,28 +782,36 @@ function PositionGroup({ pLevel, positions, onView, onDelete, labelOverride }) {
       </div>
       <div className="positions-grid">
         {positions.map(pos => (
-          <PositionCard key={pos._id} pos={pos} onView={onView} onDelete={onDelete} />
+          <PositionCard
+            key={pos._id}
+            pos={pos}
+            onView={onView}
+            onDelete={onDelete}
+            isSelectMode={isSelectMode}
+            isSelected={selectedPositionIds?.has(pos._id)}
+            onToggleSelect={onToggleSelect}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-const STORAGE_KEY = 'positionsPageState';
+const DEFAULT_STORAGE_KEY = 'positionsPageState';
 
 // ---- Column Configuration for Excel-Style Table ----
 const COLUMN_CONFIG = [
-  { id: 'jobOrderId', label: 'JO ID', defaultWidth: 105, minWidth: 85, maxWidth: 160, mandatory: true },
-  { id: 'client', label: 'Client', defaultWidth: 170, minWidth: 120, maxWidth: 280, mandatory: false },
-  { id: 'position', label: 'Position', defaultWidth: 230, minWidth: 160, maxWidth: 380, mandatory: true },
-  { id: 'packageRange', label: 'Package Range', defaultWidth: 160, minWidth: 130, maxWidth: 280, mandatory: false },
-  { id: 'pLevel', label: 'Level', defaultWidth: 90, minWidth: 70, maxWidth: 130, mandatory: false },
-  { id: 'status', label: 'Status', defaultWidth: 140, minWidth: 110, maxWidth: 200, mandatory: false },
-  { id: 'assignee', label: 'Assignees', defaultWidth: 190, minWidth: 140, maxWidth: 300, mandatory: false },
-  { id: 'flag', label: 'Flags', defaultWidth: 155, minWidth: 120, maxWidth: 260, mandatory: false },
-  { id: 'cvCount', label: 'Int Shortlist', defaultWidth: 100, minWidth: 75, maxWidth: 140, mandatory: false },
-  { id: 'extShortlistCount', label: 'Ext Shortlist', defaultWidth: 120, minWidth: 85, maxWidth: 160, mandatory: false },
-  { id: 'actions', label: 'Actions', defaultWidth: 135, minWidth: 115, maxWidth: 180, mandatory: true }
+  { id: 'jobOrderId', label: 'JO ID', defaultWidth: 90, minWidth: 75, maxWidth: 140, mandatory: true },
+  { id: 'client', label: 'Client', defaultWidth: 165, minWidth: 120, maxWidth: 300, mandatory: false },
+  { id: 'position', label: 'Position', defaultWidth: 260, minWidth: 180, maxWidth: 450, mandatory: true },
+  { id: 'packageRange', label: 'Package Range', defaultWidth: 135, minWidth: 105, maxWidth: 220, mandatory: false },
+  { id: 'pLevel', label: 'Level', defaultWidth: 70, minWidth: 55, maxWidth: 100, mandatory: false },
+  { id: 'status', label: 'Status', defaultWidth: 130, minWidth: 105, maxWidth: 180, mandatory: false },
+  { id: 'assignee', label: 'Assignees', defaultWidth: 185, minWidth: 140, maxWidth: 300, mandatory: false },
+  { id: 'flag', label: 'Flags', defaultWidth: 140, minWidth: 105, maxWidth: 240, mandatory: false },
+  { id: 'cvCount', label: 'Int Shortlist', defaultWidth: 90, minWidth: 70, maxWidth: 130, mandatory: false },
+  { id: 'extShortlistCount', label: 'Ext Shortlist', defaultWidth: 110, minWidth: 80, maxWidth: 160, mandatory: false },
+  { id: 'actions', label: 'Actions', defaultWidth: 68, minWidth: 60, maxWidth: 120, mandatory: true }
 ];
 
 const DEFAULT_COL_WIDTHS = Object.fromEntries(COLUMN_CONFIG.map(col => [col.id, col.defaultWidth]));
@@ -614,9 +901,9 @@ const DEFAULT_FILTERS = {
   search: ''
 };
 
-const getStoredPositionsState = () => {
+const getStoredPositionsState = (key = DEFAULT_STORAGE_KEY) => {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(key);
     if (raw) {
       return JSON.parse(raw);
     }
@@ -627,11 +914,17 @@ const getStoredPositionsState = () => {
 };
 
 // ---- Main Positions Component ----
-function Positions() {
+function Positions({ isEngagedMode = false }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   useLiveRefresh();
+
+  const storageKey = isEngagedMode ? 'engagedClientsPageState' : DEFAULT_STORAGE_KEY;
+  const positionsQueryKey = useMemo(() => ['positions', isEngagedMode ? 'engaged' : 'standard'], [isEngagedMode]);
+  const setPositionsCache = (updater) => {
+    queryClient.setQueryData(positionsQueryKey, updater);
+  };
 
   const rootRef = useRef(null);
   const tableWrapperRef = useRef(null);
@@ -645,7 +938,7 @@ function Positions() {
   const [tas, setTAs] = useState([]);
   const [legend, setLegend] = useState(COLOR_KEYS.map(key => ({ key, label: '' })));
   const [filters, setFilters] = useState(() => {
-    const stored = getStoredPositionsState();
+    const stored = getStoredPositionsState(storageKey);
     const initialFilters = {
       ...DEFAULT_FILTERS,
       ...(stored?.filters || {})
@@ -657,13 +950,13 @@ function Positions() {
     return initialFilters;
   });
   const [viewMode, setViewMode] = useState(() => {
-    const stored = getStoredPositionsState();
+    const stored = getStoredPositionsState(storageKey);
     return stored?.viewMode === 'grid' || stored?.viewMode === 'table' ? stored.viewMode : 'table';
   });
 
   // Column width & visibility state for Excel-style table
   const [colWidths, setColWidths] = useState(() => {
-    const stored = getStoredPositionsState();
+    const stored = getStoredPositionsState(storageKey);
     return {
       ...DEFAULT_COL_WIDTHS,
       ...(stored?.colWidths || {})
@@ -671,7 +964,7 @@ function Positions() {
   });
 
   const [colVisibility, setColVisibility] = useState(() => {
-    const stored = getStoredPositionsState();
+    const stored = getStoredPositionsState(storageKey);
     return {
       ...DEFAULT_COL_VISIBILITY,
       ...(stored?.colVisibility || {})
@@ -738,10 +1031,26 @@ function Positions() {
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [savingEdit, setSavingEdit] = useState(false);
-  const [colorPopoverId, setColorPopoverId] = useState(null);
+  const [activeInlineCell, setActiveInlineCell] = useState(null); // { posId, field }
+  const [inlineCellValue, setInlineCellValue] = useState('');
+  const [savingInlineCell, setSavingInlineCell] = useState(false);
   const [flagPopoverId, setFlagPopoverId] = useState(null);
   const [selectedPosition, setSelectedPosition] = useState(null);
   const [detailModalTab, setDetailModalTab] = useState('details');
+
+  // ---- Selection and Bulk Move state ----
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedPositionIds, setSelectedPositionIds] = useState(new Set());
+  const [showBulkConfirmModal, setShowBulkConfirmModal] = useState(false);
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+  const [feedbackToast, setFeedbackToast] = useState(null);
+
+  useEffect(() => {
+    if (feedbackToast?.type === 'success') {
+      const timer = setTimeout(() => setFeedbackToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [feedbackToast]);
 
   const handleOpenDetails = (pos, tab = 'details') => {
     setSelectedPosition(pos);
@@ -766,24 +1075,20 @@ function Positions() {
     isLoading: positionsLoading,
     error: positionsError,
   } = useQuery({
-    queryKey: ['positions'],
-    queryFn: () => getPositions().then(res => res.data),
+    queryKey: positionsQueryKey,
+    queryFn: () => getPositions({ engaged: isEngagedMode }).then(res => res.data),
   });
 
-  // ---- Data fetch (clients / TAs / legend — unrelated to live updates) ----
+  // ---- Data fetch (clients / TAs — unrelated to live updates) ----
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [clientRes, taRes, legendRes] = await Promise.all([
+        const [clientRes, taRes] = await Promise.all([
           getClients(),
-          getActiveTAs(),
-          getColorLegend()
+          getActiveTAs()
         ]);
         setClients(clientRes.data);
         setTAs(taRes.data);
-        if (legendRes.data?.entries?.length) {
-          setLegend(legendRes.data.entries);
-        }
       } catch (err) {
         setError(err.message);
       } finally {
@@ -796,7 +1101,7 @@ function Positions() {
   // Persist filters, viewMode, colWidths, and colVisibility to sessionStorage
   useEffect(() => {
     try {
-      const existing = getStoredPositionsState() || {};
+      const existing = getStoredPositionsState(storageKey) || {};
       const nextState = {
         ...existing,
         filters,
@@ -804,20 +1109,20 @@ function Positions() {
         colWidths,
         colVisibility
       };
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+      sessionStorage.setItem(storageKey, JSON.stringify(nextState));
     } catch (e) {
       // ignore
     }
-  }, [filters, viewMode, colWidths, colVisibility]);
+  }, [filters, viewMode, colWidths, colVisibility, storageKey]);
 
   const saveScrollState = (patch) => {
     try {
-      const existing = getStoredPositionsState() || {};
+      const existing = getStoredPositionsState(storageKey) || {};
       const nextState = {
         ...existing,
         ...patch
       };
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+      sessionStorage.setItem(storageKey, JSON.stringify(nextState));
     } catch (e) {
       // ignore
     }
@@ -891,8 +1196,6 @@ function Positions() {
     queryClient.invalidateQueries(['tas']);
   };
 
-  const legendLabel = (key) => legend.find(e => e.key === key)?.label || '';
-
   useEffect(() => {
     const statusParam = searchParams.get('status');
     if (statusParam !== null) {
@@ -960,7 +1263,6 @@ function Positions() {
 
       const matchesStatus = !filters.status || pos.status === filters.status;
       const matchesPLevel = !filters.pLevel || pos.pLevel === filters.pLevel;
-      const matchesHighlight = !filters.highlightColor || pos.highlightColor === filters.highlightColor;
       let matchesFlag = true;
       if (filters.flag) {
         const flags = pos.flags || {};
@@ -968,17 +1270,19 @@ function Positions() {
       }
 
       // Word-based matching: every word in the search box must appear
-      // somewhere across JO ID / position / client, independent of order.
-      // This is what lets "Head marketing" match "Head of Marketing".
+      // somewhere across JO ID / position / client / assignee, independent of order.
+      // This is what lets "Head marketing" match "Head of Marketing" or searching by TA name.
       const searchWords = filters.search.toLowerCase().split(/\s+/).filter(Boolean);
       const matchesSearch = searchWords.length === 0 || searchWords.every(word =>
         pos.jobOrderId.toLowerCase().includes(word) ||
         pos.position.toLowerCase().includes(word) ||
-        (pos.client?.clientName || '').toLowerCase().includes(word)
+        (pos.client?.clientName || '').toLowerCase().includes(word) ||
+        (pos.assignee?.name || '').toLowerCase().includes(word) ||
+        (pos.parallelAssignees || []).some(pa => (pa?.name || '').toLowerCase().includes(word))
       );
 
       return matchesClient && matchesAssignee && matchesStatus &&
-             matchesPLevel && matchesHighlight && matchesFlag && matchesSearch;
+             matchesPLevel && matchesFlag && matchesSearch;
     });
 
     const focus = filtered.filter(p => p.status === 'Focus');
@@ -1006,7 +1310,7 @@ function Positions() {
     if (oldAssignee === newTaId) return;
 
     setUpdatingId(pos._id);
-    queryClient.setQueryData(['positions'], prev =>
+    setPositionsCache(prev =>
       (prev || []).map(p =>
         p._id === pos._id
           ? { ...p, assignee: newTaId ? tas.find(t => t._id === newTaId) : null }
@@ -1016,7 +1320,7 @@ function Positions() {
 
     try {
       const res = await assignPosition(pos._id, newTaId, newTaId ? 'Primary assignment changed' : 'Unassigned', 'primary');
-      queryClient.setQueryData(['positions'], prev =>
+      setPositionsCache(prev =>
         (prev || []).map(p => {
           if (p._id !== pos._id) return p;
           const merged = { ...p, ...res.data };
@@ -1026,7 +1330,7 @@ function Positions() {
       );
       invalidatePositionsCache();
     } catch (err) {
-      queryClient.setQueryData(['positions'], prev =>
+      setPositionsCache(prev =>
         (prev || []).map(p =>
           p._id === pos._id
             ? { ...p, assignee: oldAssignee ? tas.find(t => t._id === oldAssignee) : null }
@@ -1046,7 +1350,7 @@ function Positions() {
     if (sortedOld.join(',') === sortedNew.join(',')) return;
 
     setUpdatingId(pos._id);
-    queryClient.setQueryData(['positions'], prev =>
+    setPositionsCache(prev =>
       (prev || []).map(p =>
         p._id === pos._id
           ? { ...p, parallelAssignees: newParallelIds.map(id => tas.find(t => t._id === id)).filter(Boolean) }
@@ -1056,7 +1360,7 @@ function Positions() {
 
     try {
       const res = await updatePosition(pos._id, { parallelAssignees: newParallelIds });
-      queryClient.setQueryData(['positions'], prev =>
+      setPositionsCache(prev =>
         (prev || []).map(p => {
           if (p._id !== pos._id) return p;
           return { ...p, ...res.data };
@@ -1064,7 +1368,7 @@ function Positions() {
       );
       invalidatePositionsCache();
     } catch (err) {
-      queryClient.setQueryData(['positions'], prev =>
+      setPositionsCache(prev =>
         (prev || []).map(p =>
           p._id === pos._id
             ? { ...p, parallelAssignees: oldParallel.map(id => tas.find(t => t._id === id)).filter(Boolean) }
@@ -1084,14 +1388,14 @@ function Positions() {
     }
     const prevValue = pos[field];
     setUpdatingId(pos._id);
-    queryClient.setQueryData(['positions'], prev =>
+    setPositionsCache(prev =>
       (prev || []).map(p =>
         p._id === pos._id ? { ...p, [field]: value } : p
       )
     );
     try {
       const res = await updatePosition(pos._id, { [field]: value });
-      queryClient.setQueryData(['positions'], prev =>
+      setPositionsCache(prev =>
         (prev || []).map(p => {
           if (p._id !== pos._id) return p;
           return { ...p, ...res.data };
@@ -1099,7 +1403,7 @@ function Positions() {
       );
       invalidatePositionsCache();
     } catch (err) {
-      queryClient.setQueryData(['positions'], prev =>
+      setPositionsCache(prev =>
         (prev || []).map(p =>
           p._id === pos._id ? { ...p, [field]: prevValue } : p
         )
@@ -1110,17 +1414,72 @@ function Positions() {
     }
   };
 
-  // ---- Color, Flag, Delete, Edit ----
-  const handleColorChange = async (pos, colorKey) => {
-    if (colorKey === pos.highlightColor) { setColorPopoverId(null); return; }
-    const prevColor = pos.highlightColor;
-    queryClient.setQueryData(['positions'], prev => (prev || []).map(p => p._id === pos._id ? { ...p, highlightColor: colorKey } : p));
-    setColorPopoverId(null);
-    try {
-      await updatePosition(pos._id, { highlightColor: colorKey });
-    } catch (err) {
-      queryClient.setQueryData(['positions'], prev => (prev || []).map(p => p._id === pos._id ? { ...p, highlightColor: prevColor } : p));
-      alert(err.response?.data?.error || 'Failed to set highlight color');
+  // ---- Direct Inline Cell Editing for Client & Position/Designation ----
+  const startInlineCellEdit = (pos, field) => {
+    if (savingInlineCell) return;
+    if (field === 'client') {
+      setActiveInlineCell({ posId: pos._id, field: 'client' });
+      setInlineCellValue(pos.client?._id || '');
+    } else if (field === 'position') {
+      setActiveInlineCell({ posId: pos._id, field: 'position' });
+      setInlineCellValue(pos.position || '');
+    }
+  };
+
+  const cancelInlineCellEdit = () => {
+    setActiveInlineCell(null);
+    setInlineCellValue('');
+  };
+
+  const saveInlineCellEdit = async (pos) => {
+    if (!activeInlineCell || activeInlineCell.posId !== pos._id) return;
+    const { field } = activeInlineCell;
+
+    if (field === 'position') {
+      const trimmed = (inlineCellValue || '').trim();
+      if (!trimmed) {
+        alert('Position / Designation title is required');
+        return;
+      }
+      if (trimmed === pos.position) {
+        cancelInlineCellEdit();
+        return;
+      }
+      setSavingInlineCell(true);
+      try {
+        const res = await updatePosition(pos._id, { position: trimmed });
+        setPositionsCache(prev =>
+          (prev || []).map(p => (p._id === pos._id ? { ...p, ...res.data } : p))
+        );
+        invalidatePositionsCache();
+        cancelInlineCellEdit();
+      } catch (err) {
+        alert(err.response?.data?.error || 'Failed to update position title');
+      } finally {
+        setSavingInlineCell(false);
+      }
+    } else if (field === 'client') {
+      if (!inlineCellValue) {
+        alert('Please select a client');
+        return;
+      }
+      if (inlineCellValue === (pos.client?._id || '')) {
+        cancelInlineCellEdit();
+        return;
+      }
+      setSavingInlineCell(true);
+      try {
+        const res = await updatePosition(pos._id, { client: inlineCellValue });
+        setPositionsCache(prev =>
+          (prev || []).map(p => (p._id === pos._id ? { ...p, ...res.data } : p))
+        );
+        invalidatePositionsCache();
+        cancelInlineCellEdit();
+      } catch (err) {
+        alert(err.response?.data?.error || 'Failed to update client');
+      } finally {
+        setSavingInlineCell(false);
+      }
     }
   };
 
@@ -1163,7 +1522,7 @@ function Positions() {
             : Number(editForm.extShortlistCount),
       };
       const res = await updatePosition(pos._id, payload);
-      queryClient.setQueryData(['positions'], prev =>
+      setPositionsCache(prev =>
         (prev || []).map(p => {
           if (p._id !== pos._id) return p;
           return { ...p, ...res.data };
@@ -1187,7 +1546,7 @@ function Positions() {
     setUpdatingId(pos._id);
     try {
       const res = await updatePosition(pos._id, { flagOverrides: nextOverrides });
-      queryClient.setQueryData(['positions'], prev => (prev || []).map(p => p._id === pos._id ? res.data : p));
+      setPositionsCache(prev => (prev || []).map(p => p._id === pos._id ? res.data : p));
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to update flag');
     } finally {
@@ -1205,7 +1564,7 @@ function Positions() {
     setDeleting(true);
     try {
       await deletePosition(deleteTarget._id);
-      queryClient.setQueryData(['positions'], prev => (prev || []).filter(p => p._id !== deleteTarget._id));
+      setPositionsCache(prev => (prev || []).filter(p => p._id !== deleteTarget._id));
       setShowDeleteModal(false);
       setDeleteTarget(null);
       invalidatePositionsCache();
@@ -1221,33 +1580,116 @@ function Positions() {
     setDeleteTarget(null);
   };
 
-  const handleLegendLabelChange = (key, value) => {
-    setLegend(prev => prev.map(e => e.key === key ? { ...e, label: value } : e));
-  };
-
-  const saveLegend = async () => {
-    try {
-      await updateColorLegend(legend);
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save legend');
-    }
-  };
-
   const refreshList = async () => {
     queryClient.invalidateQueries(['positions']);
   };
 
+  // ---- Selection and Bulk Actions Handlers ----
+  const selectedPositionsList = useMemo(() => {
+    return positions.filter(p => selectedPositionIds.has(p._id));
+  }, [positions, selectedPositionIds]);
+
+  const selectedUniqueClients = useMemo(() => {
+    const clientMap = new Map();
+    selectedPositionsList.forEach(pos => {
+      const clientId = pos.client?._id;
+      if (clientId && !clientMap.has(clientId)) {
+        clientMap.set(clientId, pos.client.clientName || 'Unknown Client');
+      }
+    });
+    return Array.from(clientMap.entries()).map(([id, name]) => ({ id, name }));
+  }, [selectedPositionsList]);
+
+  const handleToggleSelect = (id) => {
+    setSelectedPositionIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    const visibleIds = filteredPositions.map(p => p._id);
+    if (visibleIds.length === 0) return;
+    const allSelected = visibleIds.every(id => selectedPositionIds.has(id));
+    if (allSelected) {
+      setSelectedPositionIds(new Set());
+    } else {
+      setSelectedPositionIds(new Set(visibleIds));
+    }
+  };
+
+  const handleCancelSelect = () => {
+    setIsSelectMode(false);
+    setSelectedPositionIds(new Set());
+  };
+
+  const handleInitiateBulkMove = () => {
+    if (selectedPositionIds.size === 0) return;
+    setShowBulkConfirmModal(true);
+  };
+
+  const handleConfirmBulkMove = async () => {
+    if (selectedPositionIds.size === 0) return;
+    setIsBulkUpdating(true);
+    const ids = Array.from(selectedPositionIds);
+    const targetEngagement = !isEngagedMode;
+    try {
+      const res = await bulkUpdateEngagement(ids, targetEngagement);
+      queryClient.invalidateQueries(['positions']);
+      queryClient.invalidateQueries(['clients']);
+      const clientNames = res.data?.clients?.length ? res.data.clients.join(', ') : 'Selected client(s)';
+      const posCount = res.data?.modifiedPositionsCount ?? ids.length;
+      setFeedbackToast({
+        type: 'success',
+        message: isEngagedMode
+          ? `Successfully moved ${clientNames} and all ${posCount} positions back to Positions.`
+          : `Successfully marked ${clientNames} as Engaged. All ${posCount} positions are now in Engaged Clients.`
+      });
+      setIsSelectMode(false);
+      setSelectedPositionIds(new Set());
+      setShowBulkConfirmModal(false);
+    } catch (err) {
+      setFeedbackToast({
+        type: 'error',
+        message: err.response?.data?.error || err.message || 'Failed to update engagement'
+      });
+    } finally {
+      setIsBulkUpdating(false);
+    }
+  };
+
   // ---- Options ----
-  const clientOptions = clients.map(c => ({ value: c._id, label: c.clientName }));
+  const clientOptions = useMemo(() => {
+    if (isEngagedMode) {
+      const engagedClientIds = new Set(
+        clients.filter(c => c.isEngaged).map(c => c._id.toString())
+      );
+      positions.forEach(p => {
+        if (p.client?._id) engagedClientIds.add(p.client._id.toString());
+      });
+      return clients
+        .filter(c => engagedClientIds.has(c._id.toString()))
+        .map(c => ({ value: c._id, label: c.clientName }));
+    } else {
+      const engagedClientIds = new Set(
+        clients.filter(c => c.isEngaged).map(c => c._id.toString())
+      );
+      positions.forEach(p => {
+        if (p.client?.isEngaged) engagedClientIds.add(p.client._id.toString());
+      });
+      return clients
+        .filter(c => !engagedClientIds.has(c._id.toString()))
+        .map(c => ({ value: c._id, label: c.clientName }));
+    }
+  }, [clients, positions, isEngagedMode]);
+
   const assigneeOptions = [
     { value: 'unassigned', label: 'Unassigned' },
     ...tas.map(ta => ({ value: ta._id, label: ta.name }))
   ];
   const levelOptions = PLEVEL_OPTIONS.map(p => ({ value: p, label: p }));
-  const colorOptions = [
-    { value: '', label: 'None' },
-    ...COLOR_KEYS.map(key => ({ value: key, label: legendLabel(key) || key }))
-  ];
   const flagOptions = FLAG_OPTIONS.map(f => ({ value: f.value, label: f.label }));
 
   // Filter dropdown excludes archived statuses (unless one is currently selected)
@@ -1266,7 +1708,6 @@ function Positions() {
     const lc = PLEVEL_COLORS[p];
     return { value: p, label: p, bg: lc.bg, text: lc.text };
   });
-  const parallelOptions = tas.map(ta => ({ value: ta._id, label: ta.name }));
 
   if (loading || positionsLoading) return <div className="positions-loading">Loading positions...</div>;
   if (error || positionsError) return <div className="positions-error">Error: {error || positionsError?.message}</div>;
@@ -1279,8 +1720,28 @@ function Positions() {
   return (
     <div ref={rootRef} className="positions">
       <div className="positions-header">
-        <h1>Positions</h1>
+        <div>
+          <h1>{isEngagedMode ? 'Engaged Clients' : 'Positions'}</h1>
+          {isEngagedMode && (
+            <p className="positions-subtitle">
+              Clients actively participating in recruitment with responsive feedback and communication
+            </p>
+          )}
+        </div>
         <div className="header-actions">
+          <button
+            type="button"
+            className={`btn-select-toggle ${isSelectMode ? 'active' : ''}`}
+            onClick={() => {
+              if (isSelectMode) {
+                handleCancelSelect();
+              } else {
+                setIsSelectMode(true);
+              }
+            }}
+          >
+            {isSelectMode ? 'Cancel Selection' : 'Select'}
+          </button>
           <div className="view-toggle">
             <button
               type="button"
@@ -1299,24 +1760,68 @@ function Positions() {
               <GridViewIcon /> Grid
             </button>
           </div>
-          <button className="btn-primary" onClick={() => navigate('/positions/new')}>+ New Position</button>
+          {!isEngagedMode && (
+            <button className="btn-primary" onClick={() => navigate('/positions/new')}>+ New Position</button>
+          )}
         </div>
       </div>
 
-      <div className="color-legend-bar">
-        <span className="legend-bar-label">Highlight colors</span>
-        <div className="legend-swatches">
-          {COLOR_KEYS.map(key => (
-            <div className="legend-swatch-item" key={key}>
-              <span className="legend-swatch-dot" style={{ background: COLOR_HEX[key] }} />
-              <input className="legend-label-input" value={legendLabel(key)} placeholder="Unlabeled" onChange={(e) => handleLegendLabelChange(key, e.target.value)} onBlur={saveLegend} />
-            </div>
-          ))}
+      {feedbackToast && (
+        <div className={`engagement-toast ${feedbackToast.type}`}>
+          <span>{feedbackToast.type === 'success' ? '✓' : '⚠'} {feedbackToast.message}</span>
+          <button type="button" onClick={() => setFeedbackToast(null)}>×</button>
         </div>
-      </div>
+      )}
+
+      {isSelectMode && (
+        <div className="selection-action-bar">
+          <div className="selection-info">
+            <span className="selection-count">
+              <strong>{selectedPositionIds.size}</strong> of {filteredPositions.length} position{filteredPositions.length !== 1 ? 's' : ''} selected
+            </span>
+            <button
+              type="button"
+              className="btn-select-all-toggle"
+              onClick={handleSelectAll}
+            >
+              {filteredPositions.length > 0 && selectedPositionIds.size === filteredPositions.length ? 'Deselect All' : 'Select All Visible'}
+            </button>
+          </div>
+
+          <div className="selection-actions">
+            <button
+              type="button"
+              className="btn-bulk-move"
+              style={{
+                background: isEngagedMode ? '#0284c7' : '#059669'
+              }}
+              disabled={selectedPositionIds.size === 0 || isBulkUpdating}
+              onClick={handleInitiateBulkMove}
+            >
+              {isEngagedMode ? 'Move Back to Positions' : 'Move to Engaged Clients'}
+            </button>
+
+            <button
+              type="button"
+              className="btn-cancel-select"
+              disabled={isBulkUpdating}
+              onClick={handleCancelSelect}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="filters-bar">
-        <input type="text" name="search" placeholder="Search by JO ID, position, client..." value={filters.search} onChange={(e) => handleFilterChange('search', e.target.value)} className="filter-search" />
+        <input
+          type="text"
+          name="search"
+          placeholder="Search by JO ID, Client, Designation or Assignee..."
+          value={filters.search}
+          onChange={(e) => handleFilterChange('search', e.target.value)}
+          className="filter-search"
+        />
         <div className="filters-group">
           <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" showLabel searchable />
           <HeaderFilter options={filterStatusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" showLabel />
@@ -1330,7 +1835,7 @@ function Positions() {
               onResetLayout={handleResetLayout}
             />
           )}
-          {(filters.client || filters.pLevel || filters.status || filters.assignee || filters.flag || filters.highlightColor || filters.search) && (
+          {(filters.client || filters.pLevel || filters.status || filters.assignee || filters.flag || filters.search) && (
             <button
               type="button"
               className="clear-filters-btn"
@@ -1354,6 +1859,7 @@ function Positions() {
         >
           <table className="positions-table">
             <colgroup>
+              {isSelectMode && <col style={{ width: '48px' }} />}
               {COLUMN_CONFIG.map(col => {
                 if (colVisibility[col.id] === false) return null;
                 const width = colWidths[col.id] || col.defaultWidth;
@@ -1362,8 +1868,25 @@ function Positions() {
             </colgroup>
             <thead>
               <tr>
+                {isSelectMode && (
+                  <th className="th-sticky-select">
+                    <input
+                      type="checkbox"
+                      checked={filteredPositions.length > 0 && selectedPositionIds.size === filteredPositions.length}
+                      ref={el => {
+                        if (el) {
+                          el.indeterminate = selectedPositionIds.size > 0 && selectedPositionIds.size < filteredPositions.length;
+                        }
+                      }}
+                      onChange={handleSelectAll}
+                      title="Select all"
+                      style={{ cursor: 'pointer', transform: 'scale(1.15)' }}
+                    />
+                  </th>
+                )}
+
                 {colVisibility.jobOrderId !== false && (
-                  <th className="th-sticky-1">
+                  <th className="th-sticky-1" style={{ left: isSelectMode ? '48px' : '0px' }}>
                     <span className="th-content">JO ID</span>
                     <div
                       className="col-resizer"
@@ -1390,7 +1913,7 @@ function Positions() {
                 {colVisibility.position !== false && (
                   <th
                     className="th-sticky-2"
-                    style={{ left: `${colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 105) : 0}px` }}
+                    style={{ left: `${(isSelectMode ? 48 : 0) + (colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 90) : 0)}px` }}
                   >
                     <span className="th-content">Position</span>
                     <div
@@ -1491,10 +2014,9 @@ function Positions() {
                 )}
 
                 {colVisibility.actions !== false && (
-                  <th className="th-with-filter">
+                  <th>
                     <div className="th-content">
                       <span>Actions</span>
-                      <HeaderFilter options={colorOptions} value={filters.highlightColor} onChange={(v) => handleFilterChange('highlightColor', v)} allLabel="All" label="Color" />
                     </div>
                     <div
                       className="col-resizer"
@@ -1508,35 +2030,34 @@ function Positions() {
             <tbody>
               {filteredPositions.length === 0 ? (
                 <tr>
-                  <td colSpan={COLUMN_CONFIG.filter(c => colVisibility[c.id] !== false).length} className="no-rows">
+                  <td colSpan={(isSelectMode ? 1 : 0) + COLUMN_CONFIG.filter(c => colVisibility[c.id] !== false).length} className="no-rows">
                     No positions found
                   </td>
                 </tr>
               ) : (
                 filteredPositions.map(pos => {
                   const flagEntries = pos.flags ? Object.entries(pos.flags).filter(([, f]) => f !== null) : [];
-                  const isEditing = editingId === pos._id;
                   const isUpdating = updatingId === pos._id;
+                  const isEditingClient = activeInlineCell?.posId === pos._id && activeInlineCell?.field === 'client';
+                  const isEditingPosition = activeInlineCell?.posId === pos._id && activeInlineCell?.field === 'position';
 
-                  let rowClassName = '';
-                  if (pos.highlightColor === 'blue') rowClassName = 'row-tint-blue';
-                  else if (pos.highlightColor === 'red') rowClassName = 'row-tint-red';
-
-                  const currentAssigneeId = pos.assignee?._id || null;
-                  const currentParallelIds = pos.parallelAssignees?.map(a => a._id) || [];
-
-                  // Compute trigger style from primary assignee's color (if any)
-                  const primaryTA = pos.assignee;
-                  const triggerStyle = primaryTA?.color
-                    ? { backgroundColor: TA_COLORS[primaryTA.color].bg, color: TA_COLORS[primaryTA.color].text, borderColor: 'transparent' }
-                    : undefined;
-
-                  const stickyCol1Width = colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 105) : 0;
+                  const stickyCol1Width = (isSelectMode ? 48 : 0) + (colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 90) : 0);
 
                   return (
-                    <tr key={pos._id} className={rowClassName}>
+                    <tr key={pos._id} className={selectedPositionIds.has(pos._id) ? 'row-selected' : ''}>
+                      {isSelectMode && (
+                        <td className="td-sticky-select" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedPositionIds.has(pos._id)}
+                            onChange={() => handleToggleSelect(pos._id)}
+                            style={{ cursor: 'pointer', transform: 'scale(1.15)' }}
+                          />
+                        </td>
+                      )}
+
                       {colVisibility.jobOrderId !== false && (
-                        <td className="td-sticky-1">
+                        <td className="td-sticky-1" style={{ left: isSelectMode ? '48px' : '0px' }}>
                           <Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link>
                           {(pos.isReactivated || pos.status === 'Reactivated') && (
                             <span className="reactivated-tag" title="Reactivated Requirement">↻</span>
@@ -1545,67 +2066,128 @@ function Positions() {
                       )}
 
                       {colVisibility.client !== false && (
-                        <td>
-                          {isEditing ? (
-                            <select className="inline-edit-input" name="client" value={editForm.client} onChange={handleEditFormChange}>
-                              <option value="">— Select client —</option>
-                              {clientOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                            </select>
+                        <td className={`td-inline-editable ${isEditingClient ? 'td-inline-editable--active' : ''}`}>
+                          {isEditingClient ? (
+                            <div className="inline-cell-editor" onClick={(e) => e.stopPropagation()}>
+                              <select
+                                className="inline-edit-input inline-edit-select"
+                                value={inlineCellValue}
+                                autoFocus
+                                disabled={savingInlineCell}
+                                onChange={(e) => setInlineCellValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveInlineCellEdit(pos);
+                                  if (e.key === 'Escape') cancelInlineCellEdit();
+                                }}
+                              >
+                                <option value="">— Select client —</option>
+                                {clients.map(c => (
+                                  <option key={c._id} value={c._id}>{c.clientName}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="inline-cell-btn inline-cell-btn--save"
+                                onClick={() => saveInlineCellEdit(pos)}
+                                disabled={savingInlineCell}
+                                title="Save (Enter)"
+                              >
+                                ✓
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-cell-btn inline-cell-btn--cancel"
+                                onClick={cancelInlineCellEdit}
+                                disabled={savingInlineCell}
+                                title="Cancel (Esc)"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           ) : (
-                            <span className="text-ellipsis">{pos.client?.clientName || '—'}</span>
+                            <button
+                              type="button"
+                              className="inline-cell-trigger"
+                              onClick={() => startInlineCellEdit(pos, 'client')}
+                              title="Click to edit client"
+                            >
+                              <span className="text-ellipsis">{pos.client?.clientName || '—'}</span>
+                              <span className="inline-cell-hover-icon">✏️</span>
+                            </button>
                           )}
                         </td>
                       )}
 
                       {colVisibility.position !== false && (
-                        <td className="td-sticky-2" style={{ left: `${stickyCol1Width}px` }}>
-                          {isEditing ? (
-                            <input className="inline-edit-input" name="position" value={editForm.position} onChange={handleEditFormChange} placeholder="Position title" />
+                        <td
+                          className={`td-sticky-2 td-inline-editable ${isEditingPosition ? 'td-inline-editable--active' : ''}`}
+                          style={{ left: `${stickyCol1Width}px` }}
+                        >
+                          {isEditingPosition ? (
+                            <div className="inline-cell-editor" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="text"
+                                className="inline-edit-input"
+                                value={inlineCellValue}
+                                autoFocus
+                                disabled={savingInlineCell}
+                                onChange={(e) => setInlineCellValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveInlineCellEdit(pos);
+                                  if (e.key === 'Escape') cancelInlineCellEdit();
+                                }}
+                                placeholder="Position title"
+                              />
+                              <button
+                                type="button"
+                                className="inline-cell-btn inline-cell-btn--save"
+                                onClick={() => saveInlineCellEdit(pos)}
+                                disabled={savingInlineCell}
+                                title="Save (Enter)"
+                              >
+                                ✓
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-cell-btn inline-cell-btn--cancel"
+                                onClick={cancelInlineCellEdit}
+                                disabled={savingInlineCell}
+                                title="Cancel (Esc)"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           ) : (
-                            <span className="text-ellipsis" title={pos.position}>{pos.position}</span>
+                            <button
+                              type="button"
+                              className="inline-cell-trigger"
+                              onClick={() => startInlineCellEdit(pos, 'position')}
+                              title={`${pos.position} — click to edit`}
+                            >
+                              <span className="text-ellipsis">{pos.position}</span>
+                              <span className="inline-cell-hover-icon">✏️</span>
+                            </button>
                           )}
                         </td>
                       )}
 
                       {colVisibility.packageRange !== false && (
                         <td className="td-dropdown">
-                          {isEditing ? (
-                            <div className="salary-inline-cell">
-                              <button
-                                type="button"
-                                className="salary-inline-btn"
-                                onClick={() => {
-                                  setTempSalaryModalData({
-                                    salary: editForm.salary !== undefined ? editForm.salary : pos.salary,
-                                    packageRange: editForm.packageRange !== undefined ? editForm.packageRange : pos.packageRange
-                                  });
-                                  setSalaryModalPosition(pos);
-                                }}
-                                title="Click to configure structured salary package"
-                              >
-                                <span className="text-ellipsis">
-                                  {formatSalary(editForm.salary, editForm.packageRange) || 'Configure'}
-                                </span>
-                                <span className="salary-inline-btn-badge">⚙️</span>
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              className="salary-cell-view-btn"
-                              onClick={() => {
-                                setTempSalaryModalData({
-                                  salary: pos.salary,
-                                  packageRange: pos.packageRange
-                                });
-                                setSalaryModalPosition(pos);
-                              }}
-                              title="Click to view or edit salary package"
-                            >
-                              <span className="package-range-value">{formatSalary(pos.salary, pos.packageRange) || '—'}</span>
-                              <span className="salary-cell-hover-icon">✏️</span>
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className="salary-cell-view-btn"
+                            onClick={() => {
+                              setTempSalaryModalData({
+                                salary: pos.salary,
+                                packageRange: pos.packageRange
+                              });
+                              setSalaryModalPosition(pos);
+                            }}
+                            title="Click to view or edit salary package"
+                          >
+                            <span className="package-range-value">{formatSalary(pos.salary, pos.packageRange) || '—'}</span>
+                            <span className="salary-cell-hover-icon">✏️</span>
+                          </button>
                         </td>
                       )}
 
@@ -1623,48 +2205,20 @@ function Positions() {
 
                       {colVisibility.assignee !== false && (
                         <td className="td-dropdown">
-                          <div className="assignee-cell">
-                            <SingleInlineDropdown
-                              value={currentAssigneeId}
-                              options={assigneeOptions.map(opt => ({ ...opt, value: opt.value === 'unassigned' ? null : opt.value }))}
-                              onChange={(newId) => handleDirectUpdate(pos, 'assignee', newId)}
-                              disabled={isUpdating}
-                              placeholder="Assign TA"
-                              triggerStyle={triggerStyle}
-                            />
-                            <ParallelAssigneesPicker
-                              values={currentParallelIds}
-                              options={parallelOptions}
-                              onChange={(newIds) => handleParallelAssign(pos, newIds)}
-                              disabled={isUpdating}
-                            />
-                            {currentParallelIds.length > 0 && (
-                              <div className="parallel-chips">
-                                {currentParallelIds.map(id => {
-                                  const ta = tas.find(t => t._id === id);
-                                  const chipStyle = ta?.color
-                                    ? { backgroundColor: TA_COLORS[ta.color].bg, color: TA_COLORS[ta.color].text }
-                                    : undefined;
-                                  return ta ? (
-                                    <span key={id} className="parallel-chip" style={chipStyle}>
-                                      {ta.name}
-                                      <button className="parallel-chip-remove" onClick={() => {
-                                        const newIds = currentParallelIds.filter(i => i !== id);
-                                        handleParallelAssign(pos, newIds);
-                                      }} disabled={isUpdating}>×</button>
-                                    </span>
-                                  ) : null;
-                                })}
-                              </div>
-                            )}
-                          </div>
+                          <CompactAssigneesCell
+                            pos={pos}
+                            tas={tas}
+                            onPrimaryAssign={(p, newId) => handlePrimaryAssign(p, newId)}
+                            onParallelAssign={(p, newIds) => handleParallelAssign(p, newIds)}
+                            disabled={isUpdating}
+                          />
                         </td>
                       )}
 
                       {colVisibility.flag !== false && (
                         <td className="td-dropdown">
                           <div className="flags-cell">
-                            {flagEntries.map(([flagKey, flag]) => {
+                            {flagEntries.slice(0, 2).map(([flagKey, flag]) => {
                               const popoverKey = `${pos._id}:${flagKey}`;
                               const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
                               const isOpen = flagPopoverId === popoverKey;
@@ -1697,6 +2251,24 @@ function Positions() {
                                 </div>
                               );
                             })}
+                            {flagEntries.length > 2 && (
+                              <button
+                                type="button"
+                                className="flags-more-btn"
+                                onClick={(e) => {
+                                  const manageKey = `${pos._id}:manage`;
+                                  if (flagPopoverId === manageKey) setFlagPopoverId(null);
+                                  else {
+                                    const dir = computeFlagPopoverDirection(e.currentTarget);
+                                    setFlagPopoverDirection(prev => ({ ...prev, [manageKey]: dir }));
+                                    setFlagPopoverId(manageKey);
+                                  }
+                                }}
+                                title={`${flagEntries.length - 2} more flag${flagEntries.length - 2 > 1 ? 's' : ''} — click to manage`}
+                              >
+                                +{flagEntries.length - 2}
+                              </button>
+                            )}
                             <div className="flag-badge-wrap">
                               <button type="button" className="flag-add-btn" onClick={(e) => {
                                 const manageKey = `${pos._id}:manage`;
@@ -1737,42 +2309,27 @@ function Positions() {
 
                       {colVisibility.cvCount !== false && (
                         <td>
-                          {isEditing ? (
-                            <input type="number" min="0" className="inline-edit-input inline-edit-input--num" name="cvCount" value={editForm.cvCount} onChange={handleEditFormChange} />
-                          ) : (
-                            <div className="int-shortlist-cell">
-                              <span className="int-shortlist-count">{pos.cvCount ?? '—'}</span>
-                              <button
-                                type="button"
-                                className="cv-tracking-btn"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenDetails(pos, 'cvTracking');
-                                }}
-                                title="Open CV Tracking"
-                                aria-label="Open CV Tracking"
-                              >
-                                <FileText size={14} className="cv-tracking-icon" aria-hidden="true" />
-                              </button>
-                            </div>
-                          )}
+                          <div className="int-shortlist-cell">
+                            <span className="int-shortlist-count">{pos.cvCount ?? '—'}</span>
+                            <button
+                              type="button"
+                              className="cv-tracking-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenDetails(pos, 'cvTracking');
+                              }}
+                              title="Open CV Tracking"
+                              aria-label="Open CV Tracking"
+                            >
+                              <FileText size={14} className="cv-tracking-icon" aria-hidden="true" />
+                            </button>
+                          </div>
                         </td>
                       )}
 
                       {colVisibility.extShortlistCount !== false && (
                         <td>
-                          {isEditing ? (
-                            <div className="ext-shortlist-edit">
-                              <input type="text" inputMode="numeric" className="inline-edit-input inline-edit-input--num" name="extShortlistCount" value={editForm.extShortlistCount === 'Client Review' ? '' : editForm.extShortlistCount} onChange={handleEditFormChange} placeholder="Number" disabled={editForm.extShortlistCount === 'Client Review'} />
-                              <select className="ext-shortlist-select" value={editForm.extShortlistCount === 'Client Review' ? 'clientReview' : ''} onChange={(e) => {
-                                if (e.target.value === 'clientReview') setEditForm(prev => ({ ...prev, extShortlistCount: 'Client Review' }));
-                                else setEditForm(prev => ({ ...prev, extShortlistCount: '' }));
-                              }} title="Or mark as Client Review instead of a number">
-                                <option value="">#</option>
-                                <option value="clientReview">Client Review</option>
-                              </select>
-                            </div>
-                          ) : pos.extShortlistCount === 'Client Review' ? (
+                          {pos.extShortlistCount === 'Client Review' ? (
                             <span className="ext-shortlist-badge ext-shortlist-badge--review">Client Review</span>
                           ) : (pos.extShortlistCount ?? '—')}
                         </td>
@@ -1781,32 +2338,7 @@ function Positions() {
                       {colVisibility.actions !== false && (
                         <td className="td-dropdown">
                           <div className="actions-cell">
-                            <div className="color-picker-wrap">
-                              <button className="color-swatch-btn" style={{ background: pos.highlightColor ? COLOR_HEX[pos.highlightColor] : '#e5e7eb', border: pos.highlightColor ? '2px solid rgba(0,0,0,0.15)' : '2px dashed #d1d5db' }} onClick={() => setColorPopoverId(colorPopoverId === pos._id ? null : pos._id)} title="Set highlight color" />
-                              {colorPopoverId === pos._id && (
-                                <>
-                                  <div className="popover-backdrop" onClick={() => setColorPopoverId(null)} />
-                                  <div className="color-popover">
-                                    <button className="color-popover-option" onClick={() => handleColorChange(pos, null)}><span className="color-swatch-dot color-swatch-dot--none" />None</button>
-                                    {COLOR_KEYS.map(key => (
-                                      <button key={key} className="color-popover-option" onClick={() => handleColorChange(pos, key)}><span className="color-swatch-dot" style={{ background: COLOR_HEX[key] }} />{legendLabel(key) || key}</button>
-                                    ))}
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                            {isEditing ? (
-                              <>
-                                <button className="action-save" onClick={() => saveEdit(pos)} disabled={savingEdit}>Save</button>
-                                <button className="action-cancel" onClick={cancelEdit} disabled={savingEdit}>Cancel</button>
-                              </>
-                            ) : (
-                              <>
-                                <button className="action-edit" onClick={() => startEdit(pos)} title="Edit row"><EditIcon /></button>
-                                <button className="action-link" onClick={() => handleOpenDetails(pos, 'details')} title="View details"><ViewIcon /></button>
-                                <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position"><DeleteIcon /></button>
-                              </>
-                            )}
+                            <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position"><DeleteIcon /></button>
                           </div>
                         </td>
                       )}
@@ -1829,6 +2361,9 @@ function Positions() {
                 positions={fencePositions}
                 onView={(p) => handleOpenDetails(p, 'details')}
                 onDelete={handleDeleteClick}
+                isSelectMode={isSelectMode}
+                selectedPositionIds={selectedPositionIds}
+                onToggleSelect={handleToggleSelect}
               />
               {PLEVEL_OPTIONS.map(pl => (
                 <PositionGroup
@@ -1837,10 +2372,60 @@ function Positions() {
                   positions={nonFenceByLevel(pl)}
                   onView={(p) => handleOpenDetails(p, 'details')}
                   onDelete={handleDeleteClick}
+                  isSelectMode={isSelectMode}
+                  selectedPositionIds={selectedPositionIds}
+                  onToggleSelect={handleToggleSelect}
                 />
               ))}
             </>
           )}
+        </div>
+      )}
+
+      {showBulkConfirmModal && (
+        <div className="modal-overlay" onClick={() => !isBulkUpdating && setShowBulkConfirmModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2 style={{ margin: '0 0 12px', fontSize: '18px', fontWeight: '700', color: '#0f3d24' }}>
+              {isEngagedMode ? 'Move Client Back to Positions' : 'Move Client to Engaged Clients'}
+            </h2>
+            <p style={{ margin: '0 0 20px', fontSize: '14px', color: '#4b5563', lineHeight: '1.5' }}>
+              {isEngagedMode ? (
+                <>
+                  Do you want to move the entire client{selectedUniqueClients.length > 1 ? 's' : ''}{selectedUniqueClients.length > 0 ? <> (<strong>{selectedUniqueClients.map(c => c.name).join(', ')}</strong>)</> : ''} back to the normal Positions page? This will remove all positions belonging to {selectedUniqueClients.length > 1 ? 'these clients' : 'this client'} from Engaged Clients.
+                </>
+              ) : (
+                <>
+                  Do you want to move the entire client{selectedUniqueClients.length > 1 ? 's' : ''}{selectedUniqueClients.length > 0 ? <> (<strong>{selectedUniqueClients.map(c => c.name).join(', ')}</strong>)</> : ''} to Engaged Clients? This will classify {selectedUniqueClients.length > 1 ? 'these clients' : 'this client'} as Engaged and automatically display all belonging positions in Engaged Clients.
+                </>
+              )}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn-cancel-select"
+                disabled={isBulkUpdating}
+                onClick={() => setShowBulkConfirmModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{
+                  background: isEngagedMode ? '#0284c7' : '#059669',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                disabled={isBulkUpdating}
+                onClick={handleConfirmBulkMove}
+              >
+                {isBulkUpdating
+                  ? 'Moving...'
+                  : (isEngagedMode ? 'Move Entire Client Back' : 'Move to Engaged Clients')}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1929,7 +2514,7 @@ function Positions() {
                           packageRange: tempSalaryModalData.packageRange || ''
                         };
                         const res = await updatePosition(salaryModalPosition._id, payload);
-                        queryClient.setQueryData(['positions'], prev =>
+                        setPositionsCache(prev =>
                           (prev || []).map(p => {
                             if (p._id !== salaryModalPosition._id) return p;
                             return { ...p, ...res.data };

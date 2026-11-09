@@ -1,0 +1,579 @@
+/* ============================================================
+   TA Activity Dashboard Stylesheet
+   Follows Career141 Forest Green Design System
+   ============================================================ */
+
+.tad-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 1.5rem 2rem;
+  box-sizing: border-box;
+}
+
+/* Header */
+.tad-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.tad-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 24px;
+  font-weight: 700;
+  color: #1b4332;
+  margin: 0;
+}
+
+.tad-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 4px 0 0 0;
+  max-width: 820px;
+}
+
+.tad-readonly-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Global Filter Bar */
+.tad-filter-bar {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.tad-filter-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tad-filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tad-filter-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.tad-filter-input,
+.tad-filter-select {
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1e293b;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.tad-filter-input:focus,
+.tad-filter-select:focus {
+  border-color: #2d6a4f;
+}
+
+.tad-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tad-reset-btn:hover {
+  background: #fecaca;
+}
+
+/* 3 Summary Cards Grid */
+.tad-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 16px;
+}
+
+.tad-summary-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.tad-summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tad-summary-category {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tad-summary-rate {
+  font-size: 12px;
+  font-weight: 700;
+  color: #15803d;
+  background: #dcfce7;
+  padding: 2px 8px;
+  border-radius: 9999px;
+}
+
+.tad-summary-tag {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.tad-summary-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.tad-summary-total {
+  font-size: 30px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.1;
+}
+
+.tad-summary-total-label {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.tad-progress-track {
+  width: 100%;
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.tad-progress-bar {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.tad-submetrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.tad-submetric {
+  display: flex;
+  flex-direction: column;
+}
+
+.tad-submetric-val {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.tad-submetric-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+/* Tabs */
+.tad-tab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid #e2e8f0;
+  overflow-x: auto;
+}
+
+.tad-tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.tad-tab-btn:hover {
+  color: #0f172a;
+}
+
+.tad-tab-btn.active {
+  color: #1b4332;
+  border-bottom-color: #2d6a4f;
+  font-weight: 700;
+}
+
+/* Table Section Card */
+.tad-section-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.tad-section-header {
+  padding: 14px 20px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.tad-section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.tad-section-subtitle {
+  margin: 3px 0 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.tad-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.tad-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.tad-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+  padding: 11px 16px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.tad-table td {
+  padding: 11px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.tad-table tr:hover td {
+  background: #f8fafc;
+}
+
+.tad-loading,
+.tad-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+}
+
+/* Badges & Pills */
+.tad-ta-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: #f1f5f9;
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.tad-code-pill {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 700;
+  background: #eff6ff;
+  color: #1e40af;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #bfdbfe;
+}
+
+.tad-count-pill {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 12px;
+  color: #15803d;
+  background: #dcfce7;
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+.tad-set-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  background: #dcfce7;
+  color: #166534;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #bbf7d0;
+}
+
+.tad-worktype-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tad-worktype--100work {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.tad-worktype--followup {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.tad-worktype--addon {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+.tad-status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tad-status--assigned {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.tad-status--inprogress {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.tad-status--completed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.tad-status--missed {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.tad-completion-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+/* Visual Analytics & Charts */
+.tad-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  gap: 16px;
+}
+
+.tad-chart-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.tad-chart-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.tad-chart-box {
+  min-height: 180px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.tad-chart-empty {
+  color: #94a3b8;
+  font-size: 13px;
+  margin: auto;
+}
+
+.tad-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* SVG Bar Chart */
+.tad-svg-chart-container {
+  width: 100%;
+  height: 170px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.tad-bars-wrapper {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  width: 100%;
+  height: 100%;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.tad-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 24px;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.tad-bar-value {
+  font-size: 10px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 2px;
+}
+
+.tad-bar-track {
+  width: 100%;
+  max-width: 32px;
+  height: 120px;
+  background: #f1f5f9;
+  border-radius: 4px 4px 0 0;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.tad-bar-fill {
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  transition: height 0.3s ease;
+}
+
+.tad-bar-label {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60px;
+}
+
+/* Funnel */
+.tad-funnel-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tad-funnel-step {
+  display: flex;
+  flex-direction: column;
+}
+
+.tad-funnel-track {
+  width: 100%;
+  height: 12px;
+  background: #f1f5f9;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.tad-funnel-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+/* Modals */
+.tad-modal {
+  width: min(92vw, 560px);
+  max-width: min(92vw, 560px);
+}
+
+.tad-modal--lg {
+  width: min(94vw, 1000px);
+  max-width: min(94vw, 1000px);
+}

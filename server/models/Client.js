@@ -11,6 +11,15 @@ const clientSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true
+  },
+  isEngaged: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  engagedAt: {
+    type: Date,
+    default: null
   }
 }, { timestamps: true });
 

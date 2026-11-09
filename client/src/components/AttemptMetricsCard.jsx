@@ -25,6 +25,9 @@ export default function AttemptMetricsCard({
   const clientShortlistedCount = safeSubmissions.filter(
     s => s && s.sentToClient === true && s.clientShortlistStatus === 'Shortlisted'
   ).length;
+  const withdrawnCount = safeSubmissions.filter(
+    s => s && s.internalShortlistStatus === 'Shortlisted' && s.isWithdrawn === true
+  ).length;
 
   const goodCvGap = Math.max(0, target - goodCount);
   const rawAchievement = target > 0 ? (goodCount / target) * 100 : 0;
@@ -77,6 +80,14 @@ export default function AttemptMetricsCard({
           <small className="cv-demo3-stat-sub">Confirmed client decisions</small>
         </div>
         <strong className="cv-demo3-stat-value">{clientShortlistedCount}</strong>
+      </div>
+
+      <div className="cv-demo3-stat cv-demo3-stat--withdrawn">
+        <div className="cv-demo3-stat-info">
+          <span className="cv-demo3-stat-label">Withdrawn</span>
+          <small className="cv-demo3-stat-sub">After client shortlist</small>
+        </div>
+        <strong className="cv-demo3-stat-value">{withdrawnCount}</strong>
       </div>
     </div>
   );

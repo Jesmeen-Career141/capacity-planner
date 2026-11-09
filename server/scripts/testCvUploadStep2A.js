@@ -919,6 +919,13 @@ async function runAllTests() {
     const origFindOne = PositionAttempt.findOne;
     const origFindByIdAttempt = PositionAttempt.findById;
     const origCreate = PositionAttempt.create;
+    const origAllocate = PositionAttempt.allocateNextAttempt;
+
+    PositionAttempt.allocateNextAttempt = () => Promise.resolve({
+      attemptNumber: 1,
+      attemptId: 'ATT-0001',
+      attemptNumberFormatted: 'Attempt 01'
+    });
 
     Position.findById = () => Promise.resolve({ _id: 'pos_123', assignee: null });
     PositionAttempt.findOne = (query) => {
@@ -958,6 +965,7 @@ async function runAllTests() {
     PositionAttempt.findOne = origFindOne;
     PositionAttempt.findById = origFindByIdAttempt;
     PositionAttempt.create = origCreate;
+    PositionAttempt.allocateNextAttempt = origAllocate;
   });
 
   // Test 9.4: createAttempt rejects invalid or negative requiredGoodCvTarget

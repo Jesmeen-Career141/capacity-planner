@@ -33,3 +33,14 @@ export const deleteSubmission = (submissionId) =>
 
 export const updateSubmissionStatus = (submissionId, data) =>
   api.patch(`/cvs/submissions/${submissionId}/status`, data);
+
+export const getSubmissionFileBlob = (submissionId, params = {}) =>
+  api.get(`/cvs/submissions/${submissionId}/file`, { responseType: 'blob', params });
+
+export const downloadAllAttemptCvs = (positionId, attemptId) =>
+  api.get(`/cvs/positions/${positionId}/attempts/${attemptId}/download-all`, { responseType: 'blob' });
+
+export const withdrawCandidate = (submissionId, data) =>
+  api.post(`/cvs/submissions/${submissionId}/withdraw`, data);
+
+

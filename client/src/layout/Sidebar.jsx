@@ -4,6 +4,9 @@ import { motion } from "framer-motion";
 import {
   LayoutDashboard,
   ClipboardList,
+  CalendarCheck,
+  Layers,
+  BarChart3,
   Briefcase,
   Users,
   UserCheck,
@@ -12,12 +15,19 @@ import {
   HelpCircle,
   LogOut,
   ListChecks,
+  CalendarDays,
+  Handshake,
 } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/ta-activity-dashboard", label: "TA Dashboard", icon: BarChart3 },
+  { to: "/interview-tracker", label: "Interviews", icon: CalendarDays },
+  { to: "/daily-action-board", label: "Daily Action Board", icon: CalendarCheck },
+  { to: "/submission-sets", label: "Submission Sets", icon: Layers },
   { to: "/ta-board", label: "TA Board", icon: ClipboardList },
   { to: "/positions", label: "Positions", icon: Briefcase },
+  { to: "/engaged-clients", label: "Engaged Clients", icon: Handshake },
   { to: "/strategies", label: "Strategies", icon: ListChecks },
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/tas", label: "TAs", icon: UserCheck },

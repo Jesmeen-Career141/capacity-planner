@@ -23,6 +23,7 @@ function NewPosition() {
     pipelineStage: 'Hunting',
     assignee: '',
     transferParallel: 'New',
+    receivedDate: new Date().toISOString().split('T')[0],
     expectedCloseDate: '',
     packageRange: '',
     salary: null,
@@ -124,6 +125,7 @@ function NewPosition() {
         packageRange: formData.packageRange || '',
         lsCount: formData.lsCount ? Number(formData.lsCount) : null,
         cvCount: formData.cvCount ? Number(formData.cvCount) : null,
+        receivedDate: formData.receivedDate || new Date().toISOString().split('T')[0],
         expectedCloseDate: formData.expectedCloseDate || null,
         assignee: formData.assignee || null
         // completionPercent is intentionally omitted
@@ -185,6 +187,7 @@ function NewPosition() {
               <option value="P3">P3</option>
               <option value="P4">P4</option>
               <option value="P5">P5</option>
+              <option value="P6">P6</option>
             </select>
           </div>
         </div>
@@ -280,6 +283,15 @@ function NewPosition() {
 
         <div className="form-row">
           <div className="form-group">
+            <label>Received Date</label>
+            <input
+              type="date"
+              name="receivedDate"
+              value={formData.receivedDate}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="form-group">
             <label>Expected Close Date</label>
             <input
               type="date"
@@ -287,10 +299,6 @@ function NewPosition() {
               value={formData.expectedCloseDate}
               onChange={handleChange}
             />
-          </div>
-          {/* Completion % removed */}
-          <div className="form-group">
-            {/* empty placeholder to keep layout */}
           </div>
         </div>
 

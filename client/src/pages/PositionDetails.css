@@ -391,3 +391,280 @@
   gap: 12px;
   justify-content: flex-end;
 }
+
+/* ============================================================== */
+/* REDESIGNED POSITION DETAILS LAYOUT (MOCKUP COMPLIANT)          */
+/* ============================================================== */
+
+.pd-redesign-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 0.5rem;
+}
+
+.pd-crumb {
+  color: #778697;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.pd-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.pd-head-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pd-head h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #172b45;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pd-pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #edf2f7;
+  font-size: 12px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.pd-pill-jo {
+  background: #f1f5f9;
+  color: #0f3d24;
+  border: 1px solid #cbd5e1;
+  font-family: ui-monospace, monospace;
+}
+
+.pd-pill-p1 { background: #ffebeb; color: #b63838; }
+.pd-pill-p2 { background: #fee2e2; color: #dc2626; }
+.pd-pill-p3 { background: #ffedd5; color: #ea580c; }
+.pd-pill-p4 { background: #fef3c7; color: #d97706; }
+.pd-pill-p5 { background: #fef9c3; color: #ca8a04; }
+.pd-pill-p6 { background: #f1f5f9; color: #475569; }
+
+.pd-pill-status {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pd-sub {
+  color: #718096;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pd-head-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Quick Metrics Row */
+.pd-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.pd-metric-card {
+  background: #ffffff;
+  border: 1px solid #e1e8ee;
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.pd-metric-card small {
+  color: #718096;
+  font-size: 13px;
+  font-weight: 500;
+  display: block;
+}
+
+.pd-metric-card strong {
+  display: block;
+  font-size: 26px;
+  font-weight: 700;
+  color: #172b45;
+  margin-top: 6px;
+}
+
+/* 5 Main Tabs */
+.pd-tabs-bar {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid #dfe6eb;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
+.pd-tab-btn {
+  border: none;
+  background: transparent;
+  padding: 10px 18px;
+  border-radius: 8px 8px 0 0;
+  color: #526477;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pd-tab-btn:hover {
+  color: #145c3d;
+  background: rgba(22, 101, 52, 0.04);
+}
+
+.pd-tab-btn.active {
+  background: #e6f2eb;
+  color: #145c3d;
+  font-weight: 700;
+}
+
+.pd-tab-btn.active:after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #145c3d;
+}
+
+.pd-tab-count {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.08);
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: inherit;
+}
+
+/* Tab Panels */
+.pd-tab-content {
+  margin-top: 8px;
+}
+
+/* Tab 5: Assignments Section */
+.pd-assignments-panel {
+  background: #ffffff;
+  border: 1px solid #e1e8ee;
+  border-radius: 12px;
+  padding: 22px;
+}
+
+.pd-assignments-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.pd-assignments-header h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #172b45;
+  margin: 0;
+}
+
+.pd-assignments-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.pd-assignments-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.pd-assignments-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pd-assignments-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.pd-assignments-table tr:hover td {
+  background: #f8fafc;
+}
+
+.pd-asg-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pd-asg-btn-sm {
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s;
+}
+
+.pd-asg-btn-sm:hover {
+  background: #f1f5f9;
+  color: #0f3d24;
+}
+
+.pd-asg-btn-sm.danger:hover {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+@media (max-width: 768px) {
+  .pd-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+

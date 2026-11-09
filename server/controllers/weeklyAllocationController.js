@@ -1,7 +1,34 @@
 const WeeklyAllocation = require('../models/WeeklyAllocation');
 const TA = require('../models/TA');
 const Position = require('../models/Position');
+const PositionHistory = require('../models/PositionHistory');
 const liveEvents = require('../utils/liveEvents');
+
+// Record Activation Date automatically ONLY when a position first appears on the TA Board.
+// Never resets or overwrites an existing activatedAt timestamp.
+async function markPositionActivatedIfFirstTime(positionId) {
+  if (!positionId) return;
+  try {
+    const now = new Date();
+    const updatedPos = await Position.findOneAndUpdate(
+      { _id: positionId, $or: [{ activatedAt: null }, { activatedAt: { $exists: false } }] },
+      { $set: { activatedAt: now } },
+      { new: true }
+    );
+    if (updatedPos) {
+      await PositionHistory.create({
+        position: positionId,
+        field: 'activatedAt',
+        oldValue: '',
+        newValue: now.toISOString()
+      });
+      liveEvents.emit('positions:changed');
+    }
+  } catch (err) {
+    // Non-fatal: do not block TA Board cell assignment
+    console.error('Error recording position activatedAt:', err.message);
+  }
+}
 
 const defaultDays = {
   mon: { position: null, position2: null, isAutoFilled: false },
@@ -279,6 +306,10 @@ async function updateCell(req, res) {
       return res.status(404).json({ error: 'Weekly allocation not found for this TA and week.' });
     }
 
+    if (targetPosId && leaveType === undefined) {
+      await markPositionActivatedIfFirstTime(targetPosId);
+    }
+
     liveEvents.emit('weeklyAllocations:changed');
     res.json(updated);
   } catch (err) {
@@ -346,6 +377,7 @@ async function autofillWeek(req, res) {
 
         if (changed) {
           await allocation.save();
+          await markPositionActivatedIfFirstTime(posId);
         }
       }
     }));

@@ -18,8 +18,17 @@ const positionSchema = new mongoose.Schema({
   },
   pLevel: {
     type: String,
-    enum: ['P1', 'P2', 'P3', 'P4', 'P5'],
+    enum: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'],
     required: true
+  },
+  isEngaged: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  engagedAt: {
+    type: Date,
+    default: null
   },
   status: {
     type: String,
@@ -54,50 +63,70 @@ const positionSchema = new mongoose.Schema({
     enum: ['New', 'Transfer', 'Parallel'],
     default: 'New'
   },
-  dateAssigned: {
-    type: Date,
-    default: null
-  },
-  expectedCloseDate: {
-    type: Date,
-    default: null
-  },
-  placedAt: {
-    type: Date,
-    default: null
-  },
-  completionPercent: {
-    type: Number,
-    enum: [0, 25, 50, 75, 100],
-    default: 0
-  },
-  cvCount: {
-    type: Number,
-    default: null
-  },
-  targetCvCount: {
-    type: Number,
-    default: null
-  },
-  interviewedCount: {
-    type: Number,
-    default: null
-  },
-  secondInterviewCount: {
-    type: Number,
-    default: null
-  },
-  packageRange: {
-    type: String,
-    default: ''
-  },
-  salary: {
-    type: new mongoose.Schema({
-      currency: {
-        type: String,
-        enum: ['USD', 'LKR', 'SAR', 'BDT', 'AED', 'EUR', 'GBP', 'QAR', 'Other'],
-        default: 'USD'
-      },
+    dateAssigned: {
+      type: Date,
+      default: null
+    },
+    receivedDate: {
+      type: Date,
+      default: Date.now
+    },
+    activatedAt: {
+      type: Date,
+      default: null
+    },
+    taAssignments: [{
+      ta: { type: mongoose.Schema.Types.ObjectId, ref: 'TA' },
+      role: { type: String, enum: ['Primary', 'Parallel'], default: 'Primary' },
+      assignedAt: { type: Date, default: Date.now }
+    }],
+    assignmentHistory: [{
+      ta: { type: mongoose.Schema.Types.ObjectId, ref: 'TA' },
+      role: { type: String, enum: ['Primary', 'Parallel'], default: 'Primary' },
+      assignedAt: { type: Date, default: Date.now },
+      unassignedAt: { type: Date, default: null },
+      action: { type: String, default: 'Assigned' }
+    }],
+    expectedCloseDate: {
+      type: Date,
+      default: null
+    },
+    placedAt: {
+      type: Date,
+      default: null
+    },
+    completionPercent: {
+      type: Number,
+      enum: [0, 25, 50, 75, 100],
+      default: 0
+    },
+    cvCount: {
+      type: Number,
+      default: null
+    },
+    targetCvCount: {
+      type: Number,
+      default: null
+    },
+    interviewedCount: {
+      type: Number,
+      default: null
+    },
+    secondInterviewCount: {
+      type: Number,
+      default: null
+    },
+    packageRange: {
+      type: String,
+      default: ''
+    },
+    salary: {
+      type: new mongoose.Schema({
+        currency: {
+          type: String,
+          enum: ['USD', 'LKR', 'SAR', 'BDT', 'AED', 'EUR', 'GBP', 'QAR', 'Other'],
+          default: 'LKR'
+        },
       salaryType: {
         type: String,
         enum: ['range', 'fixed', 'negotiable', 'confidential', 'tbc'],

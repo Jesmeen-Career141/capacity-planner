@@ -251,7 +251,7 @@ function Dashboard() {
   });
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-8 p-6 lg:p-8 max-w-7xl mx-auto w-full">
       <h1 className="font-display text-2xl font-semibold text-forest-900">
         Dashboard
       </h1>

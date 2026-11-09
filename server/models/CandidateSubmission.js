@@ -13,6 +13,23 @@ const candidateSubmissionSchema = new mongoose.Schema({
     required: [true, 'PositionAttempt reference is required'],
     index: true
   },
+  submissionSet: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SubmissionSet',
+    default: null,
+    index: true
+  },
+  submissionSetId: {
+    type: String,
+    default: null,
+    trim: true,
+    index: true
+  },
+  setNumber: {
+    type: String,
+    default: null,
+    trim: true
+  },
   originalFileName: {
     type: String,
     required: [true, 'Original filename is required'],
@@ -48,6 +65,11 @@ const candidateSubmissionSchema = new mongoose.Schema({
     trim: true
   },
   submittedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TA',
+    default: null
+  },
+  sourcedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'TA',
     default: null
@@ -110,6 +132,49 @@ const candidateSubmissionSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: ''
+  },
+
+  // Workflow Event 5: Candidate Withdrawal (only permitted after client shortlisting)
+  isWithdrawn: {
+    type: Boolean,
+    default: false
+  },
+  withdrawalDate: {
+    type: Date,
+    default: null
+  },
+  withdrawalReason: {
+    type: String,
+    enum: [
+      'Candidate withdrew',
+      'Candidate declined the opportunity',
+      'Candidate no longer available',
+      'Other',
+      null,
+      ''
+    ],
+    default: null
+  },
+  withdrawalExplanation: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+
+  // Workflow Event 6: Candidate Placement
+  isPlaced: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  placementDate: {
+    type: Date,
+    default: null
+  },
+  placement: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Placement',
+    default: null
   }
 }, { timestamps: true });
 
@@ -121,17 +186,23 @@ candidateSubmissionSchema.index({ r2StorageKey: 1 }, { unique: true });
 
 // Index for querying all submissions under a position and attempt
 candidateSubmissionSchema.index({ position: 1, attempt: 1 });
+candidateSubmissionSchema.index({ position: 1, submissionSet: 1 });
 
 // Model validations enforcing workflow rules
 candidateSubmissionSchema.pre('validate', function() {
-  // Quality rating invariant: cannot be Good or Optional unless internally shortlisted
-  if (this.internalShortlistStatus !== 'Shortlisted' && this.qualityRating !== 'Not Rated') {
-    this.invalidate('qualityRating', 'Quality rating can only be assigned to internally shortlisted candidates');
-  }
-
   // Client shortlist invariant: cannot be evaluated unless sent to client
   if (!this.sentToClient && this.clientShortlistStatus !== 'Pending') {
     this.invalidate('clientShortlistStatus', 'Client shortlist status cannot be evaluated before the CV is sent to the client');
+  }
+
+  // Withdrawal invariant: candidate can only be withdrawn after being client-shortlisted
+  if (this.isWithdrawn && this.clientShortlistStatus !== 'Shortlisted') {
+    this.invalidate('isWithdrawn', 'Candidate can only be withdrawn after being client-shortlisted');
+  }
+
+  // Withdrawal explanation required when reason is Other
+  if (this.isWithdrawn && this.withdrawalReason === 'Other' && (!this.withdrawalExplanation || !this.withdrawalExplanation.trim())) {
+    this.invalidate('withdrawalExplanation', 'An explanation is required when "Other" is selected as the withdrawal reason');
   }
 });
 

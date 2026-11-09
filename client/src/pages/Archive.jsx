@@ -29,6 +29,7 @@ const PLEVEL_COLORS = {
   P3: { bg: '#f97316', text: '#ffffff' },
   P4: { bg: '#fdba74', text: '#7c2d12' },
   P5: { bg: '#fde047', text: '#78350f' },
+  P6: { bg: '#cbd5e1', text: '#334155' },
 };
 
 // ---- Icons ----

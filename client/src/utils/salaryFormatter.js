@@ -36,7 +36,7 @@ export function formatNumberWithCommas(num) {
  * @param {Object} [options={}] - Formatting options
  * @returns {string} Formatted salary string
  */
-export function formatSalary(salary, fallbackText = '', options = {}) {
+export function formatSalary(salary, fallbackText = '', _options = {}) {
   if (!salary || typeof salary !== 'object') {
     return fallbackText || '';
   }

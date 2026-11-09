@@ -3,9 +3,14 @@ import { Routes, Route } from 'react-router-dom';
 import Layout from './layout/Layout';
 import Dashboard from './pages/Dashboard';
 import TABoard from './pages/TABoard';
+import DailyActionBoard from './pages/DailyActionBoard';
+import SubmissionSets from './pages/SubmissionSets';
+import TAActivityDashboard from './pages/TAActivityDashboard';
+import InterviewTracker from './pages/InterviewTracker';
 import Positions from './pages/Positions';
 import PositionDetails from './pages/PositionDetails';
 import NewPosition from './pages/NewPosition';
+import EngagedClients from './pages/EngagedClients';
 import Clients from './pages/Clients';
 import TAs from './pages/TAs';
 import Archive from './pages/Archive';
@@ -27,8 +32,18 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
+          <Route path="daily-action-board" element={<DailyActionBoard />} />
+          <Route path="action-board" element={<DailyActionBoard />} />
+          <Route path="work-board" element={<DailyActionBoard />} />
+          <Route path="daily-activity" element={<DailyActionBoard />} />
+          <Route path="submission-sets" element={<SubmissionSets />} />
+          <Route path="ta-activity-dashboard" element={<TAActivityDashboard />} />
+          <Route path="ta-dashboard" element={<TAActivityDashboard />} />
+          <Route path="interview-tracker" element={<InterviewTracker />} />
+          <Route path="interviews" element={<InterviewTracker />} />
           <Route path="ta-board" element={<TABoard />} />
           <Route path="positions" element={<Positions />} />
+          <Route path="engaged-clients" element={<EngagedClients />} />
           <Route path="positions/new" element={<NewPosition />} />
           <Route path="positions/:id" element={<PositionDetails />} />
           <Route path="clients" element={<Clients />} />

@@ -65,7 +65,7 @@ export default function SalaryPackagePicker({
   });
 
   const [salaryData, setSalaryData] = useState(() => ({
-    currency: value?.currency || 'USD',
+    currency: value?.currency || 'LKR',
     salaryType: value?.salaryType || 'range',
     minAmount: value?.minAmount != null ? value.minAmount : null,
     maxAmount: value?.maxAmount != null ? value.maxAmount : null,
@@ -78,7 +78,7 @@ export default function SalaryPackagePicker({
   useEffect(() => {
     if (value) {
       setSalaryData({
-        currency: value.currency || 'USD',
+        currency: value.currency || 'LKR',
         salaryType: value.salaryType || 'range',
         minAmount: value.minAmount != null ? value.minAmount : null,
         maxAmount: value.maxAmount != null ? value.maxAmount : null,

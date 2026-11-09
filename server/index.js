@@ -12,25 +12,69 @@ const weeklyAllocationRoutes = require('./routes/weeklyAllocationRoutes');
 const eventRoutes = require('./routes/eventRoutes');
 const strategyTrackerRoutes = require('./routes/strategyTrackerRoutes');
 const cvRoutes = require('./routes/cvRoutes');
+const workBoardRoutes = require('./routes/workBoardRoutes');
+const actionBoardRoutes = require('./routes/actionBoardRoutes');
+const dailyActivityRoutes = require('./routes/dailyActivityRoutes');
+const submissionSetRoutes = require('./routes/submissionSetRoutes');
+const taActivityDashboardRoutes = require('./routes/taActivityDashboardRoutes');
+const interviewRoutes = require('./routes/interviewRoutes');
+const attemptRoutes = require('./routes/attemptRoutes');
+const placementRoutes = require('./routes/placementRoutes');
 
 
 const app = express();
 
-const rawClientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
-const normalizedClientUrl = rawClientUrl.replace(/\/+$/, '');
-const allowedOrigins = Array.from(new Set([normalizedClientUrl, 'http://localhost:5173', 'http://localhost:3000'])).filter(Boolean);
+// Parse configured origins from CLIENT_URL (supports comma-separated list of URLs)
+const configuredOrigins = (process.env.CLIENT_URL || '')
+  .split(',')
+  .map(url => url.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 
-app.use(cors({
+// Default development origins
+const defaultDevOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://127.0.0.1:5175',
+  'http://127.0.0.1:3000'
+];
+
+const allowedOriginsSet = new Set([...configuredOrigins, ...defaultDevOrigins]);
+
+function isOriginAllowed(origin) {
+  if (!origin) return true; // Non-browser or same-origin requests
+  const normalizedOrigin = origin.replace(/\/+$/, '');
+
+  if (allowedOriginsSet.has(normalizedOrigin) || allowedOriginsSet.has(origin)) {
+    return true;
+  }
+
+  // Securely allow any localhost or 127.0.0.1 port in local development environments
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalizedOrigin)) {
+    return true;
+  }
+
+  return false;
+}
+
+const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    const normalizedOrigin = origin.replace(/\/+$/, '');
-    if (allowedOrigins.includes(normalizedOrigin) || allowedOrigins.includes(origin)) {
+    if (isOriginAllowed(origin)) {
       return callback(null, true);
     }
-    return callback(new Error('Not allowed by CORS'));
+    console.warn(`[CORS] Blocked request from unauthorized origin: ${origin}`);
+    return callback(new Error(`Not allowed by CORS: Origin ${origin} is not authorized`));
   },
-  credentials: true
-}));
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
 
 app.use(express.json());
 
@@ -48,6 +92,23 @@ app.use('/api/events', eventRoutes);
 app.use('/api/color-legend', require('./routes/colorLegend'));
 app.use('/api/strategy-tracker', strategyTrackerRoutes);
 app.use('/api/cvs', cvRoutes);
+app.use('/api/action-board', actionBoardRoutes);
+app.use('/api/daily-action-board', actionBoardRoutes);
+app.use('/api/work-board', workBoardRoutes);
+app.use('/api/daily-activity', dailyActivityRoutes);
+app.use('/api/submission-sets', submissionSetRoutes);
+app.use('/api/ta-dashboard', taActivityDashboardRoutes);
+app.use('/api/interviews', interviewRoutes);
+app.use('/api/attempts', attemptRoutes);
+app.use('/api/placements', placementRoutes);
+
+// Centralized error handler for CORS & uncaught API errors
+app.use((err, req, res, next) => {
+  if (err && err.message && err.message.startsWith('Not allowed by CORS')) {
+    return res.status(403).json({ error: err.message });
+  }
+  next(err);
+});
 
 const PORT = process.env.PORT || 5000;
 

@@ -7,10 +7,13 @@ const {
   updatePosition,
   assignPosition,
   setFlagOverride,
-  deletePosition
+  deletePosition,
+  bulkUpdateEngagement
 } = require('../controllers/positionController');
 
 router.get('/', getAllPositions);
+router.patch('/bulk-engagement', bulkUpdateEngagement);
+router.put('/bulk-engagement', bulkUpdateEngagement);
 router.get('/:id', getPositionById);
 router.post('/', createPosition);
 router.put('/:id', updatePosition);
