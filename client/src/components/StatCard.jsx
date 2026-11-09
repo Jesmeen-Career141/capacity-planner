@@ -81,7 +81,7 @@ function StatCard({ label, value, accent = 'leaf', onClick }) {
 
       <div
         className={[
-          'relative w-full overflow-hidden rounded-2xl border p-7 shadow-[0_4px_20px_rgba(0,0,0,0.06)]',
+          'relative w-full h-full overflow-hidden rounded-2xl border p-5 xl:p-6 shadow-[0_4px_20px_rgba(0,0,0,0.06)]',
           'backdrop-blur-sm transition-shadow group-hover:shadow-[0_8px_30px_rgba(0,0,0,0.10)]',
           isGold
             ? 'border-amber-200/60 bg-white/85'
@@ -118,7 +118,7 @@ function StatCard({ label, value, accent = 'leaf', onClick }) {
         >
           {label}
         </span>
-        <span className="relative mt-2 block font-display text-4xl font-semibold text-forest-900">
+        <span className="relative mt-2 block font-display text-3xl xl:text-4xl font-semibold text-forest-900">
           {value}
         </span>
       </div>

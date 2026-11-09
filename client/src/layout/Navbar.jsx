@@ -36,7 +36,7 @@ function Navbar() {
   }, []);
 
   return (
-    <header className="relative z-30 flex h-14 shrink-0 items-center justify-between gap-4 px-5 border-b border-forest-200/50 bg-white/75 backdrop-blur-md shadow-xs">
+    <header className="app-navbar relative z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-forest-200/50 bg-white/75 backdrop-blur-md shadow-xs">
       {/* Brand logo & name on the left */}
       <div className="flex items-center gap-3 shrink-0">
         <Link to="/" className="flex items-center gap-2.5 group">
@@ -53,7 +53,7 @@ function Navbar() {
       </div>
 
       {/* Main navigation links across the top */}
-      <nav className="flex items-center gap-3.5 2xl:gap-5 overflow-x-auto no-scrollbar py-1">
+      <nav className="flex items-center gap-2.5 xl:gap-4 2xl:gap-5 overflow-x-auto no-scrollbar py-1">
         {navItems.map((item) => (
           <NavLink
             key={item.to}

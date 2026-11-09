@@ -1,9 +1,12 @@
 /* Daily Action Board Styles - Career141 Design System */
 
 .dab-container {
-  padding: 1.5rem 2rem;
-  max-width: 1560px;
+  width: 100%;
+  max-width: var(--app-max-width, 1920px);
   margin: 0 auto;
+  padding: var(--app-pad-y, 1.5rem) var(--app-pad-x, 2rem);
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 /* Header */

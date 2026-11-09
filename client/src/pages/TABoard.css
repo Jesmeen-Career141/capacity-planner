@@ -7,10 +7,11 @@
   flex-direction: column;
   gap: 20px;
   width: 100%;
-  max-width: 1560px;
+  max-width: var(--app-max-width, 1920px);
   margin: 0 auto;
-  padding: 1.5rem 2rem;
+  padding: var(--app-pad-y, 1.5rem) var(--app-pad-x, 2rem);
   box-sizing: border-box;
+  min-width: 0;
 }
 
 /* ---- Header ---- */
@@ -59,6 +60,12 @@
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 16px;
+}
+
+@media (max-width: 1280px) {
+  .tb-stats-row {
+    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+  }
 }
 
 .tb-stat-card {

@@ -1,5 +1,9 @@
 .new-position {
-  max-width: 800px;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--app-pad-y, 1.5rem) var(--app-pad-x, 2rem);
+  box-sizing: border-box;
 }
 .new-position h1 {
   margin-bottom: 20px;
@@ -8,7 +12,7 @@
 .new-position-form {
   background: var(--color-surface);
   border-radius: var(--radius);
-  padding: 24px;
+  padding: 24px 28px;
   box-shadow: var(--shadow-sm);
 }
 
@@ -17,6 +21,12 @@
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-bottom: 16px;
+}
+
+@media (max-width: 680px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
 }
 .form-group.full-width {
   grid-column: 1 / -1;

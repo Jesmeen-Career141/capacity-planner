@@ -251,14 +251,14 @@ function Dashboard() {
   });
 
   return (
-    <div className="flex flex-col gap-8 p-6 lg:p-8 max-w-7xl mx-auto w-full">
+    <div className="app-page-container flex flex-col gap-7">
       <h1 className="font-display text-2xl font-semibold text-forest-900">
         Dashboard
       </h1>
 
       <div
-        className="grid gap-6"
-        style={{ gridTemplateColumns: `repeat(${cards.length}, minmax(0, 1fr))` }}
+        className="dashboard-stats-grid"
+        style={{ '--dashboard-card-count': cards.length }}
       >
         {cards.map((c, i) => (
           <StatCard

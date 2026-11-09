@@ -397,9 +397,12 @@
 /* ============================================================== */
 
 .pd-redesign-container {
-  max-width: 1400px;
+  width: 100%;
+  max-width: var(--app-max-width, 1920px);
   margin: 0 auto;
-  padding: 0 0.5rem;
+  padding: var(--app-pad-y, 1.5rem) var(--app-pad-x, 2rem);
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .pd-crumb {

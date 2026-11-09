@@ -2,6 +2,17 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
+  LayoutDashboard,
+  ShieldCheck,
+  RefreshCw,
+  X,
+  ArrowUpDown,
+  Eye,
+  Calendar,
+  ExternalLink,
+  AlertCircle
+} from 'lucide-react';
+import {
   getDashboardSummary,
   getDailyActivitiesOverview,
   getTaProductivityOverview,
@@ -106,7 +117,8 @@ export default function TAActivityDashboard() {
   // 2. Fetch Dashboard Summary
   const {
     data: summaryRes,
-    isLoading: loadingSummary,
+    isError: isSummaryError,
+    error: summaryError,
     refetch: refetchSummary
   } = useQuery({
     queryKey: ['ta-dashboard-summary', filterParams],
@@ -127,6 +139,8 @@ export default function TAActivityDashboard() {
   const {
     data: dailyActRes,
     isLoading: loadingDailyAct,
+    isError: isDailyActError,
+    error: dailyActError,
     refetch: refetchDailyAct
   } = useQuery({
     queryKey: ['ta-dashboard-daily', filterParams, sortField, sortOrder],
@@ -142,6 +156,8 @@ export default function TAActivityDashboard() {
   const {
     data: productivityRes,
     isLoading: loadingProductivity,
+    isError: isProductivityError,
+    error: productivityError,
     refetch: refetchProductivity
   } = useQuery({
     queryKey: ['ta-dashboard-productivity', filterParams],
@@ -153,6 +169,8 @@ export default function TAActivityDashboard() {
   const {
     data: posOverviewRes,
     isLoading: loadingPosOverview,
+    isError: isPosOverviewError,
+    error: posOverviewError,
     refetch: refetchPosOverview
   } = useQuery({
     queryKey: ['ta-dashboard-positions', filterParams],
@@ -164,6 +182,8 @@ export default function TAActivityDashboard() {
   const {
     data: plannedVsActualRes,
     isLoading: loadingPlannedVsActual,
+    isError: isPlannedVsActualError,
+    error: plannedVsActualError,
     refetch: refetchPlannedVsActual
   } = useQuery({
     queryKey: ['ta-dashboard-planned-vs-actual', filterParams],
@@ -175,6 +195,8 @@ export default function TAActivityDashboard() {
   const {
     data: setsOverviewRes,
     isLoading: loadingSetsOverview,
+    isError: isSetsOverviewError,
+    error: setsOverviewError,
     refetch: refetchSetsOverview
   } = useQuery({
     queryKey: ['ta-dashboard-sets', filterParams],
@@ -186,6 +208,8 @@ export default function TAActivityDashboard() {
   const {
     data: trendsRes,
     isLoading: loadingTrends,
+    isError: isTrendsError,
+    error: trendsError,
     refetch: refetchTrends
   } = useQuery({
     queryKey: ['ta-dashboard-trends', filterParams],
@@ -198,6 +222,15 @@ export default function TAActivityDashboard() {
     workloadByTa: Array.isArray(trendsRes?.data?.workloadByTa) ? trendsRes.data.workloadByTa : [],
     funnel: trendsRes?.data?.funnel || {}
   };
+
+  const activeError =
+    (isSummaryError && summaryError) ||
+    (activeTab === 'daily' && isDailyActError && dailyActError) ||
+    (activeTab === 'productivity' && isProductivityError && productivityError) ||
+    (activeTab === 'positions' && isPosOverviewError && posOverviewError) ||
+    (activeTab === 'plannedVsActual' && isPlannedVsActualError && plannedVsActualError) ||
+    (activeTab === 'submissionSets' && isSetsOverviewError && setsOverviewError) ||
+    (activeTab === 'analytics' && isTrendsError && trendsError);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -251,6 +284,20 @@ export default function TAActivityDashboard() {
           </button>
         </div>
       </div>
+
+      {activeError && (
+        <div className="tad-error-banner" role="alert">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} />
+            <span>
+              Unable to load dashboard data: {activeError?.response?.data?.message || activeError?.message || 'Network or server error'}
+            </span>
+          </div>
+          <button type="button" className="btn-secondary btn-sm" onClick={handleRefreshAll}>
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Global Filter Bar */}
       <div className="tad-filter-bar">
@@ -667,21 +714,21 @@ export default function TAActivityDashboard() {
                       <td>
                         <strong className="text-gray-900">{item.name}</strong>
                       </td>
-                      <td style={{ textAlign: 'right' }}>{item.workload.totalAssigned}</td>
-                      <td style={{ textAlign: 'right' }} className="text-emerald-700 font-semibold">{item.workload.completed}</td>
-                      <td style={{ textAlign: 'right' }} className="text-red-600">{item.workload.missed}</td>
+                      <td style={{ textAlign: 'right' }}>{item.workload?.totalAssigned ?? 0}</td>
+                      <td style={{ textAlign: 'right' }} className="text-emerald-700 font-semibold">{item.workload?.completed ?? 0}</td>
+                      <td style={{ textAlign: 'right' }} className="text-red-600">{item.workload?.missed ?? 0}</td>
                       <td style={{ textAlign: 'right' }}>
-                        <span className="tad-completion-badge">{item.workload.completionRate}%</span>
+                        <span className="tad-completion-badge">{item.workload?.completionRate ?? 0}%</span>
                       </td>
-                      <td style={{ textAlign: 'right' }}><strong>{item.sourcing.profilesSearched}</strong></td>
-                      <td style={{ textAlign: 'right' }}>{item.sourcing.additionalProfiles}</td>
-                      <td style={{ textAlign: 'right' }}>{item.sourcing.followUps}</td>
-                      <td style={{ textAlign: 'right' }}>{item.sourcing.responsesReceived}</td>
+                      <td style={{ textAlign: 'right' }}><strong>{item.sourcing?.profilesSearched ?? 0}</strong></td>
+                      <td style={{ textAlign: 'right' }}>{item.sourcing?.additionalProfiles ?? 0}</td>
+                      <td style={{ textAlign: 'right' }}>{item.sourcing?.followUps ?? 0}</td>
+                      <td style={{ textAlign: 'right' }}>{item.sourcing?.responsesReceived ?? 0}</td>
                       <td style={{ textAlign: 'right' }}>
-                        <span className="tad-count-pill">{item.recruitment.cvsShared}</span>
+                        <span className="tad-count-pill">{item.recruitment?.cvsShared ?? 0}</span>
                       </td>
-                      <td style={{ textAlign: 'right' }} className="text-indigo-700 font-semibold">{item.recruitment.goodCvs}</td>
-                      <td style={{ textAlign: 'right' }} className="text-emerald-700 font-bold">{item.recruitment.clientShortlisted}</td>
+                      <td style={{ textAlign: 'right' }} className="text-indigo-700 font-semibold">{item.recruitment?.goodCvs ?? 0}</td>
+                      <td style={{ textAlign: 'right' }} className="text-emerald-700 font-bold">{item.recruitment?.clientShortlisted ?? 0}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -728,55 +775,58 @@ export default function TAActivityDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {positionOverview.map(pos => (
-                    <tr key={pos._id}>
-                      <td>
-                        <Link to={`/positions/${pos._id}`} className="font-semibold text-forest-700 hover:underline">
-                          {pos.jobOrderId}
-                        </Link>
-                        <div className="text-xs text-gray-500">{pos.position}</div>
-                      </td>
-                      <td>
-                        <span className="text-sm text-gray-700">{pos.client}</span>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-1 flex-wrap max-w-[180px]">
-                          {pos.assignedTAs.length === 0 ? (
-                            <span className="text-xs text-gray-400">Unassigned</span>
-                          ) : (
-                            pos.assignedTAs.map(t => (
-                              <span key={t._id} className="tad-ta-pill text-xs">
-                                {t.name}
-                              </span>
-                            ))
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>{pos.totalAssignments}</td>
-                      <td style={{ textAlign: 'right' }}>{pos.profilesSearched}</td>
-                      <td style={{ textAlign: 'right' }}>{pos.additionalProfiles}</td>
-                      <td style={{ textAlign: 'right' }}>{pos.followUps}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        <span className="tad-count-pill">{pos.cvsShared}</span>
-                      </td>
-                      <td style={{ textAlign: 'right' }}><strong>{pos.uniqueCandidates}</strong></td>
-                      <td style={{ textAlign: 'right' }} className="text-indigo-700 font-semibold">{pos.goodCvs}</td>
-                      <td style={{ textAlign: 'right' }} className="text-emerald-700 font-bold">{pos.clientShortlisted}</td>
-                      <td>
-                        <span className="text-xs text-gray-500">{formatShortDate(pos.latestActivityDate)}</span>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          className="btn-secondary btn-sm"
-                          onClick={() => setViewPositionHistoryModal({ positionId: pos._id, jobOrderId: pos.jobOrderId })}
-                          title="View complete historical work & daily activity"
-                        >
-                          <Eye size={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {positionOverview.map(pos => {
+                    const assignedTAs = Array.isArray(pos.assignedTAs) ? pos.assignedTAs : [];
+                    return (
+                      <tr key={pos._id}>
+                        <td>
+                          <Link to={`/positions/${pos._id}`} className="font-semibold text-forest-700 hover:underline">
+                            {pos.jobOrderId}
+                          </Link>
+                          <div className="text-xs text-gray-500">{pos.position}</div>
+                        </td>
+                        <td>
+                          <span className="text-sm text-gray-700">{pos.client}</span>
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-1 flex-wrap max-w-[220px]">
+                            {assignedTAs.length === 0 ? (
+                              <span className="text-xs text-gray-400">Unassigned</span>
+                            ) : (
+                              assignedTAs.map(t => (
+                                <span key={t._id} className="tad-ta-pill text-xs">
+                                  {t.name}
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>{pos.totalAssignments ?? 0}</td>
+                        <td style={{ textAlign: 'right' }}>{pos.profilesSearched ?? 0}</td>
+                        <td style={{ textAlign: 'right' }}>{pos.additionalProfiles ?? 0}</td>
+                        <td style={{ textAlign: 'right' }}>{pos.followUps ?? 0}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <span className="tad-count-pill">{pos.cvsShared ?? 0}</span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}><strong>{pos.uniqueCandidates ?? 0}</strong></td>
+                        <td style={{ textAlign: 'right' }} className="text-indigo-700 font-semibold">{pos.goodCvs ?? 0}</td>
+                        <td style={{ textAlign: 'right' }} className="text-emerald-700 font-bold">{pos.clientShortlisted ?? 0}</td>
+                        <td>
+                          <span className="text-xs text-gray-500">{formatShortDate(pos.latestActivityDate)}</span>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            className="btn-secondary btn-sm"
+                            onClick={() => setViewPositionHistoryModal({ positionId: pos._id, jobOrderId: pos.jobOrderId })}
+                            title="View complete historical work & daily activity"
+                          >
+                            <Eye size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -837,26 +887,26 @@ export default function TAActivityDashboard() {
                       </td>
                       <td>
                         <div className="text-xs">
-                          {item.planned.targetProfiles > 0 && <div>{item.planned.targetProfiles} Profiles</div>}
-                          {item.planned.targetCvsShared > 0 && <div>{item.planned.targetCvsShared} CVs Shared</div>}
-                          {item.planned.targetFollowUps > 0 && <div>{item.planned.targetFollowUps} Follow-ups</div>}
-                          {item.planned.summary && <div className="text-gray-400 italic">{item.planned.summary}</div>}
+                          {(item.planned?.targetProfiles ?? 0) > 0 && <div>{item.planned.targetProfiles} Profiles</div>}
+                          {(item.planned?.targetCvsShared ?? 0) > 0 && <div>{item.planned.targetCvsShared} CVs Shared</div>}
+                          {(item.planned?.targetFollowUps ?? 0) > 0 && <div>{item.planned.targetFollowUps} Follow-ups</div>}
+                          {item.planned?.summary && <div className="text-gray-400 italic">{item.planned.summary}</div>}
                         </div>
                       </td>
                       <td>
                         <div className="text-xs font-semibold text-emerald-800">
-                          {item.actual.profilesSearched > 0 && <div>{item.actual.profilesSearched} Profiles Searched</div>}
-                          {item.actual.additionalProfiles > 0 && <div>{item.actual.additionalProfiles} Add-on Profiles</div>}
-                          {item.actual.cvsShared > 0 && <div>{item.actual.cvsShared} CVs Shared</div>}
-                          {item.actual.followUps > 0 && <div>{item.actual.followUps} Follow-ups</div>}
+                          {(item.actual?.profilesSearched ?? 0) > 0 && <div>{item.actual.profilesSearched} Profiles Searched</div>}
+                          {(item.actual?.additionalProfiles ?? 0) > 0 && <div>{item.actual.additionalProfiles} Add-on Profiles</div>}
+                          {(item.actual?.cvsShared ?? 0) > 0 && <div>{item.actual.cvsShared} CVs Shared</div>}
+                          {(item.actual?.followUps ?? 0) > 0 && <div>{item.actual.followUps} Follow-ups</div>}
                         </div>
                       </td>
                       <td>
                         <div className="text-xs text-amber-800 font-medium">
-                          {item.remaining.profiles > 0 && <div>{item.remaining.profiles} Profiles left</div>}
-                          {item.remaining.cvs > 0 && <div>{item.remaining.cvs} CVs left</div>}
-                          {item.remaining.followUps > 0 && <div>{item.remaining.followUps} Follow-ups left</div>}
-                          {item.remaining.profiles === 0 && item.remaining.cvs === 0 && item.remaining.followUps === 0 && (
+                          {(item.remaining?.profiles ?? 0) > 0 && <div>{item.remaining.profiles} Profiles left</div>}
+                          {(item.remaining?.cvs ?? 0) > 0 && <div>{item.remaining.cvs} CVs left</div>}
+                          {(item.remaining?.followUps ?? 0) > 0 && <div>{item.remaining.followUps} Follow-ups left</div>}
+                          {(item.remaining?.profiles ?? 0) === 0 && (item.remaining?.cvs ?? 0) === 0 && (item.remaining?.followUps ?? 0) === 0 && (
                             <span className="text-emerald-600 font-bold">✓ Target Reached</span>
                           )}
                         </div>
@@ -960,6 +1010,11 @@ export default function TAActivityDashboard() {
 
       {/* 6. Visual Analytics & Charts */}
       {activeTab === 'analytics' && (
+        loadingTrends ? (
+          <div className="tad-section-card">
+            <div className="tad-loading">Loading visual analytics & trends...</div>
+          </div>
+        ) : (
         <div className="tad-charts-grid">
           {/* Chart 1: Daily Sourcing Trend */}
           <div className="tad-chart-card">
@@ -1073,6 +1128,7 @@ export default function TAActivityDashboard() {
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* Modal: Activity Details */}

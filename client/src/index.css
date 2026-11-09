@@ -50,6 +50,11 @@
 
   --font-display: "Archivo Black", "Segoe UI", sans-serif;
   --font-body: "Inter", "Segoe UI", sans-serif;
+
+  /* Standardized Wide-Screen Layout Tokens (~95-96% viewport width on desktop) */
+  --app-max-width: 1920px;
+  --app-pad-x: clamp(1rem, 2.2vw, 2.25rem);
+  --app-pad-y: clamp(1rem, 1.5vw, 1.5rem);
 }
 
 /* Additional hues for role/title-based coloring (weekly grid pills) */
@@ -85,4 +90,38 @@ a {
 button {
   font-family: var(--font-body);
   cursor: pointer;
+}
+
+/* ============================================================
+   Shared Wide-Screen Application Containers & Responsive Grids
+   ============================================================ */
+.app-navbar {
+  padding-inline: var(--app-pad-x);
+}
+
+.app-page-container {
+  width: 100%;
+  max-width: var(--app-max-width);
+  margin-inline: auto;
+  padding: var(--app-pad-y) var(--app-pad-x);
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.dashboard-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--dashboard-card-count, 7), minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+@media (max-width: 1280px) {
+  .dashboard-stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
