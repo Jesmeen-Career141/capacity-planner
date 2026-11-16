@@ -985,14 +985,16 @@ export default function InterviewTracker() {
                               >
                                 <CheckCircle2 size={13} />
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => setHistoryCandidateId(candidateSubId)}
-                                className="it-btn-icon text-forest-700 hover:bg-forest-50"
-                                title="View Candidate Interview Journey"
-                              >
-                                <History size={13} />
-                              </button>
+                              {candidateSubId && (
+                                <button
+                                  type="button"
+                                  onClick={() => setHistoryCandidateId(candidateSubId)}
+                                  className="it-btn-icon text-forest-700 hover:bg-forest-50"
+                                  title="View Candidate Interview Journey"
+                                >
+                                  <History size={13} />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>

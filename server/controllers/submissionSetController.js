@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const SubmissionSet = require('../models/SubmissionSet');
+const { ActivityCounter } = require('../models/ActivityCounter');
 const Position = require('../models/Position');
 const PositionAttempt = require('../models/PositionAttempt');
 const CandidateSubmission = require('../models/CandidateSubmission');
@@ -14,6 +15,7 @@ const {
   uploadFileToR2,
   deleteFileFromR2
 } = require('../utils/r2Storage');
+const { syncPositionCvCounts } = require('../utils/cvSync');
 
 const SET_POPULATE = [
   {
@@ -54,7 +56,7 @@ function computeSetMetrics(submissions = []) {
     if (sub.unverifiedLabel) uniqueNames.add(sub.unverifiedLabel.trim().toLowerCase());
     if (sub.fileHash) uniqueHashes.add(sub.fileHash);
 
-    if (sub.internalShortlistStatus === 'Shortlisted') internallyShortlisted++;
+    if (sub.internalShortlistStatus !== 'Rejected') internallyShortlisted++;
     if (sub.qualityRating === 'Good') goodCvs++;
     if (sub.qualityRating === 'Optional') optionalCvs++;
     if (sub.qualityRating === 'Not Rated') notRated++;
@@ -120,13 +122,22 @@ async function getSubmissionSets(req, res) {
 
     if (search && search.trim()) {
       const q = search.trim().toLowerCase();
-      sets = sets.filter(s =>
-        (s.jobOrderId && s.jobOrderId.toLowerCase().includes(q)) ||
-        (s.setNumber && s.setNumber.toLowerCase().includes(q)) ||
-        (s.submissionSetId && s.submissionSetId.toLowerCase().includes(q)) ||
-        (s.position?.position && s.position.position.toLowerCase().includes(q)) ||
-        (s.position?.client?.clientName && s.position.client.clientName.toLowerCase().includes(q))
-      );
+      sets = sets.filter(s => {
+        const clientName = (s.position?.client?.clientName || '').toLowerCase();
+        const posName = (s.position?.position || '').toLowerCase();
+        const setNum = (s.setNumber || '').toLowerCase();
+        const setSeqStr = s.setSequence ? `set ${s.setSequence}` : '';
+        const combined = `${clientName} ${posName} ${setNum} ${setSeqStr}`;
+        return (
+          clientName.includes(q) ||
+          posName.includes(q) ||
+          setNum.includes(q) ||
+          setSeqStr.includes(q) ||
+          combined.includes(q) ||
+          (s.jobOrderId && s.jobOrderId.toLowerCase().includes(q)) ||
+          (s.submissionSetId && s.submissionSetId.toLowerCase().includes(q))
+        );
+      });
     }
 
     res.json(sets);
@@ -278,6 +289,23 @@ async function createSubmissionSet(req, res) {
       createdBy: req.body.createdBy || validUploadedBy || (parsedSourcingTAs[0] || null)
     });
 
+    // Populate Position's Activation Date when the first submission set is created
+    // (unless the user has manually overridden the Activation Date)
+    if (!position.activationDateManuallyOverridden) {
+      const priorSetCount = await SubmissionSet.countDocuments({
+        position: position._id,
+        _id: { $ne: set._id }
+      });
+      if (priorSetCount === 0 || allocation.setSequence === 1) {
+        await Position.updateOne(
+          { _id: position._id, activationDateManuallyOverridden: { $ne: true } },
+          { $set: { activatedAt: sentDate } }
+        );
+      }
+    }
+
+    await syncPositionCvCounts(position._id);
+
     const populated = await SubmissionSet.findById(set._id)
       .populate(SET_POPULATE)
       .lean();
@@ -355,8 +383,16 @@ async function uploadCvsToSet(req, res, injectedClient = null) {
       sourcedBy = req.body.sourcedBy;
     }
 
-    // Default internal shortlist status: Pending unless explicitly rated
-    const internalShortlistStatus = req.body.internalShortlistStatus || 'Pending';
+    // Default internal shortlist status: Shortlisted for CVs included in a client submission set
+    const rawShortlistStatus = req.body.internalShortlistStatus || 'Shortlisted';
+    const internalShortlistStatus =
+      rawShortlistStatus === 'Internally Shortlisted'
+        ? 'Shortlisted'
+        : rawShortlistStatus === 'Not Shortlisted'
+        ? 'Pending'
+        : ['Pending', 'Shortlisted', 'Rejected'].includes(rawShortlistStatus)
+        ? rawShortlistStatus
+        : 'Shortlisted';
     const qualityRating = req.body.qualityRating || 'Not Rated';
 
     for (const file of files) {
@@ -458,11 +494,27 @@ async function uploadCvsToSet(req, res, injectedClient = null) {
       });
     }
 
-    // Update set cvCount atomically
+    // Update set cvCount atomically and sync Position CV counts
     if (successful.length > 0) {
       set.cvCount += successful.length;
       if (!set.attempt) set.attempt = targetAttempt._id;
       await set.save();
+      // Populate Position's Activation Date when the first submission set is created
+      // (unless the user has manually overridden the Activation Date)
+      if (!position.activationDateManuallyOverridden) {
+        const priorSetCount = await SubmissionSet.countDocuments({
+          position: position._id,
+          _id: { $ne: set._id }
+        });
+        if (priorSetCount === 0 || set.setSequence === 1) {
+          await Position.updateOne(
+            { _id: position._id, activationDateManuallyOverridden: { $ne: true } },
+            { $set: { activatedAt: set.sentToClientAt } }
+          );
+        }
+      }
+
+      await syncPositionCvCounts(position._id);
     }
 
     const summary = {
@@ -606,7 +658,7 @@ async function createSetWithUpload(req, res, injectedClient = null) {
     const successful = [];
     const failed = [];
 
-    const internalShortlistStatus = req.body.internalShortlistStatus || 'Pending';
+    const internalShortlistStatus = req.body.internalShortlistStatus || 'Shortlisted';
     const qualityRating = req.body.qualityRating || 'Not Rated';
 
     for (const file of files) {
@@ -670,8 +722,8 @@ async function createSetWithUpload(req, res, injectedClient = null) {
           uploadedAt: now,
           sentToClient: true,
           sentToClientDate: sentDate,
-          internalShortlistStatus: 'Pending',
-          internalShortlistDate: null,
+          internalShortlistStatus,
+          internalShortlistDate: internalShortlistStatus === 'Shortlisted' ? now : null,
           qualityRating: qualityRating || 'Not Rated',
           clientShortlistStatus: 'Pending'
         });
@@ -695,6 +747,22 @@ async function createSetWithUpload(req, res, injectedClient = null) {
     if (successful.length > 0) {
       set.cvCount = successful.length;
       await set.save();
+      // Populate Position's Activation Date when the first submission set is created
+    // (unless the user has manually overridden the Activation Date)
+    if (!position.activationDateManuallyOverridden) {
+      const priorSetCount = await SubmissionSet.countDocuments({
+        position: position._id,
+        _id: { $ne: set._id }
+      });
+      if (priorSetCount === 0 || allocation.setSequence === 1) {
+        await Position.updateOne(
+          { _id: position._id, activationDateManuallyOverridden: { $ne: true } },
+          { $set: { activatedAt: sentDate } }
+        );
+      }
+    }
+
+    await syncPositionCvCounts(position._id);
     } else {
       // All files failed: delete empty set and rollback sequence
       await SubmissionSet.findByIdAndDelete(set._id);
@@ -749,25 +817,168 @@ async function getPositionSets(req, res) {
 
 /**
  * DELETE /api/submission-sets/:id
- * Deletes an empty submission set or unlinks submissions safely
+ * Deletes a submission set and either deletes its CVs (default, deleteCvs=true)
+ * or unlinks them into unassigned CVs (deleteCvs=false), then syncs position counts.
  */
 async function deleteSubmissionSet(req, res) {
   try {
     const { id } = req.params;
+    const deleteCvsParam = req.query?.deleteCvs ?? req.body?.deleteCvs;
+    const shouldDeleteCvs =
+      deleteCvsParam === undefined ||
+      deleteCvsParam === true ||
+      String(deleteCvsParam).toLowerCase() === 'true';
+
     const set = await SubmissionSet.findById(id);
     if (!set) {
       return res.status(404).json({ error: 'Submission set not found' });
     }
 
-    const linkedCount = await CandidateSubmission.countDocuments({ submissionSet: set._id });
-    if (linkedCount > 0) {
-      return res.status(400).json({
-        error: `Cannot delete submission set: it still contains ${linkedCount} candidate submission(s).`
-      });
+    const linkedSubmissions = await CandidateSubmission.find({
+      $or: [
+        { submissionSet: set._id },
+        { position: set.position, setNumber: set.setNumber }
+      ]
+    }).lean();
+
+    let deletedCvCount = 0;
+    let unlinkedCvCount = 0;
+
+    if (linkedSubmissions.length > 0) {
+      const subIds = linkedSubmissions.map(s => s._id);
+      if (shouldDeleteCvs) {
+        // Best-effort cleanup of R2 storage files
+        for (const sub of linkedSubmissions) {
+          if (sub.r2StorageKey) {
+            try {
+              await deleteFileFromR2(sub.r2StorageKey);
+            } catch (_) {
+              // Continue deleting DB records even if R2 object is already absent or unconfigured
+            }
+          }
+        }
+        const delRes = await CandidateSubmission.deleteMany({ _id: { $in: subIds } });
+        deletedCvCount = delRes.deletedCount || linkedSubmissions.length;
+      } else {
+        const updRes = await CandidateSubmission.updateMany(
+          { _id: { $in: subIds } },
+          {
+            $set: {
+              submissionSet: null,
+              submissionSetId: null,
+              setNumber: null
+            }
+          }
+        );
+        unlinkedCvCount = updRes.modifiedCount || linkedSubmissions.length;
+      }
     }
 
+    const positionId = set.position;
     await SubmissionSet.findByIdAndDelete(set._id);
-    res.json({ message: 'Submission set deleted successfully' });
+
+    // Sync the position's sequential set counter to the highest remaining setSequence
+    try {
+      const latestRemaining = await SubmissionSet.findOne({ position: positionId })
+        .sort({ setSequence: -1 })
+        .lean();
+      const maxRemainingSeq = latestRemaining ? (Number(latestRemaining.setSequence) || 0) : 0;
+      await ActivityCounter.findOneAndUpdate(
+        { name: `submission_set_${positionId}` },
+        { $set: { seq: maxRemainingSeq } },
+        { upsert: true }
+      );
+    } catch (_) {}
+
+    await syncPositionCvCounts(positionId);
+
+    res.json({
+      message: shouldDeleteCvs
+        ? `Deleted ${set.setNumber} and ${deletedCvCount} CV(s) successfully`
+        : `Deleted ${set.setNumber} and kept ${unlinkedCvCount} CV(s) as unassigned`,
+      deletedSetId: set._id,
+      setNumber: set.setNumber,
+      deletedCvCount,
+      unlinkedCvCount
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * PUT / PATCH /api/submission-sets/:id
+ * Updates a submission set (e.g. sentToClientAt, notes, sourcingTAs).
+ * If the first submission set's sentToClientAt is modified and the position's Activation Date
+ * has not been manually overridden, updates the position's Activation Date accordingly.
+ */
+async function updateSubmissionSet(req, res) {
+  try {
+    const { id } = req.params;
+    const { sentToClientAt, notes, sourcingTAs } = req.body;
+
+    const query = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { submissionSetId: id };
+    const set = await SubmissionSet.findOne(query);
+    if (!set) {
+      return res.status(404).json({ error: 'Submission set not found' });
+    }
+
+    if (sentToClientAt !== undefined) {
+      const sentDate = new Date(sentToClientAt);
+      if (isNaN(sentDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid date provided for sentToClientAt.' });
+      }
+      set.sentToClientAt = sentDate;
+
+      // Update linked candidate submissions' sentToClientDate
+      await CandidateSubmission.updateMany(
+        { submissionSet: set._id },
+        { $set: { sentToClientDate: sentDate } }
+      );
+
+      // Check if this is the first submission set for the position
+      const firstSet = await SubmissionSet.findOne({ position: set.position })
+        .sort({ setSequence: 1, createdAt: 1 })
+        .select('_id')
+        .lean();
+
+      const isFirstSet = set.setSequence === 1 || (firstSet && String(firstSet._id) === String(set._id));
+      if (isFirstSet) {
+        const position = await Position.findById(set.position).select('_id activationDateManuallyOverridden').lean();
+        if (position && !position.activationDateManuallyOverridden) {
+          await Position.updateOne(
+            { _id: set.position, activationDateManuallyOverridden: { $ne: true } },
+            { $set: { activatedAt: sentDate } }
+          );
+        }
+      }
+    }
+
+    if (notes !== undefined) {
+      set.notes = notes;
+    }
+
+    if (sourcingTAs !== undefined) {
+      let parsed = [];
+      if (Array.isArray(sourcingTAs)) {
+        parsed = sourcingTAs;
+      } else if (typeof sourcingTAs === 'string') {
+        try {
+          const jsonParsed = JSON.parse(sourcingTAs);
+          if (Array.isArray(jsonParsed)) parsed = jsonParsed;
+        } catch (_) {}
+      }
+      set.sourcingTAs = [...new Set(parsed.filter(taId => mongoose.Types.ObjectId.isValid(taId)))];
+    }
+
+    await set.save();
+    await syncPositionCvCounts(set.position);
+
+    const populated = await SubmissionSet.findById(set._id)
+      .populate(SET_POPULATE)
+      .lean();
+
+    res.json(populated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -780,6 +991,7 @@ module.exports = {
   uploadCvsToSet,
   createSetWithUpload,
   getPositionSets,
+  updateSubmissionSet,
   deleteSubmissionSet,
   computeSetMetrics
 };

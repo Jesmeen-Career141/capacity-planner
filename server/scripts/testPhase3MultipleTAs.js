@@ -463,10 +463,10 @@ async function runTests() {
       );
 
       assert(
-        cardCode.includes('Sourced by: {sourcedByName}') &&
-          cardCode.includes('{sourcedByName && !isEditingSource && (') &&
-          cardCode.includes('cv-demo3-source-change-link'),
-        'Test 9a: CandidateCard renders "Sourced by: [TA name]" + Change link only when attribution is recorded'
+        !cardCode.includes('Sourced by:') &&
+          cardCode.includes('{displaySourcedName && !isEditingSource && (') &&
+          cardCode.includes('<span>{displaySourcedName}</span>'),
+        'Test 9a: CandidateCard renders TA name directly without "Sourced by:" prefix only when attribution is recorded'
       );
 
       assert(

@@ -529,59 +529,60 @@ function CompactAssigneesCell({
     onParallelAssign(pos, nextIds);
   };
 
-  // Display first 2 assignees as chips; show +N more if more than 2
-  const maxVisible = 2;
+  // Display first assignee as chip; show +N if additional assignees exist
+  const maxVisible = 1;
   const visibleAssignees = allAssignees.slice(0, maxVisible);
   const hiddenCount = allAssignees.length - maxVisible;
+  const hiddenNames = allAssignees.slice(maxVisible).map(a => a.ta.name).join(', ');
 
   return (
     <div className="compact-assignees-cell" ref={containerRef}>
       {allAssignees.length === 0 ? (
         <button
           type="button"
-          className="assignee-empty-btn"
+          className="compact-ta-add-btn"
           onClick={handleTogglePopover}
           disabled={disabled}
           title="Click to assign TA"
         >
-          + Assign TA
+          +
         </button>
       ) : (
         <div className="compact-assignees-row">
           {visibleAssignees.map(({ ta, isPrimary }) => {
-            const taColor = TA_COLORS[ta.color] || { bg: '#059669', text: '#ffffff' };
+            const taColor = TA_COLORS[ta.color] || { bg: '#07956c', text: '#ffffff' };
             return (
               <span
                 key={ta._id}
                 className={`compact-ta-chip ${isPrimary ? 'compact-ta-chip--primary' : ''}`}
                 style={{ backgroundColor: taColor.bg, color: taColor.text }}
                 onClick={handleTogglePopover}
-                title={`${ta.name}${isPrimary ? ' (Primary)' : ' (Parallel)'} — click to manage`}
+                title={`${ta.name}${isPrimary ? ' (Primary)' : ' (Parallel)'} — click to view/manage assignees`}
               >
                 <span className="compact-ta-chip-text">{ta.name}</span>
               </span>
             );
           })}
 
-          {hiddenCount > 0 && (
+          {hiddenCount > 0 ? (
             <button
               type="button"
               className="compact-ta-more-btn"
               onClick={handleTogglePopover}
-              title={`${hiddenCount} more assignee${hiddenCount > 1 ? 's' : ''} — click to view`}
+              title={`Additional assigned TAs (${hiddenCount}): ${hiddenNames} — click to view all`}
             >
-              +{hiddenCount} more
+              +{hiddenCount}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="compact-ta-add-btn"
+              onClick={handleTogglePopover}
+              title="Manage assignees"
+            >
+              +
             </button>
           )}
-
-          <button
-            type="button"
-            className="compact-ta-add-btn"
-            onClick={handleTogglePopover}
-            title="Manage assignees"
-          >
-            +
-          </button>
         </div>
       )}
 
@@ -798,20 +799,21 @@ function PositionGroup({ pLevel, positions, onView, onDelete, labelOverride, isS
 }
 
 const DEFAULT_STORAGE_KEY = 'positionsPageState';
+const LAYOUT_VERSION = 3;
 
-// ---- Column Configuration for Excel-Style Table ----
+// ---- Column Configuration for Optimised Positions Table ----
 const COLUMN_CONFIG = [
-  { id: 'jobOrderId', label: 'JO ID', defaultWidth: 90, minWidth: 75, maxWidth: 140, mandatory: true },
-  { id: 'client', label: 'Client', defaultWidth: 165, minWidth: 120, maxWidth: 300, mandatory: false },
-  { id: 'position', label: 'Position', defaultWidth: 260, minWidth: 180, maxWidth: 450, mandatory: true },
-  { id: 'packageRange', label: 'Package Range', defaultWidth: 135, minWidth: 105, maxWidth: 220, mandatory: false },
-  { id: 'pLevel', label: 'Level', defaultWidth: 70, minWidth: 55, maxWidth: 100, mandatory: false },
-  { id: 'status', label: 'Status', defaultWidth: 130, minWidth: 105, maxWidth: 180, mandatory: false },
-  { id: 'assignee', label: 'Assignees', defaultWidth: 185, minWidth: 140, maxWidth: 300, mandatory: false },
-  { id: 'flag', label: 'Flags', defaultWidth: 140, minWidth: 105, maxWidth: 240, mandatory: false },
-  { id: 'cvCount', label: 'Int Shortlist', defaultWidth: 90, minWidth: 70, maxWidth: 130, mandatory: false },
-  { id: 'extShortlistCount', label: 'Ext Shortlist', defaultWidth: 110, minWidth: 80, maxWidth: 160, mandatory: false },
-  { id: 'actions', label: 'Actions', defaultWidth: 68, minWidth: 60, maxWidth: 120, mandatory: true }
+  { id: 'jobOrderId', label: 'JO ID', defaultWidth: 82, minWidth: 72, maxWidth: 140, mandatory: true },
+  { id: 'client', label: 'Client', defaultWidth: 155, minWidth: 120, maxWidth: 300, mandatory: false },
+  { id: 'position', label: 'Position', defaultWidth: 235, minWidth: 170, maxWidth: 450, mandatory: true },
+  { id: 'packageRange', label: 'Package Range', defaultWidth: 205, minWidth: 140, maxWidth: 340, mandatory: false },
+  { id: 'pLevel', label: 'Level', defaultWidth: 72, minWidth: 58, maxWidth: 100, mandatory: false },
+  { id: 'status', label: 'Status', defaultWidth: 105, minWidth: 90, maxWidth: 170, mandatory: false },
+  { id: 'assignee', label: 'Assignees', defaultWidth: 145, minWidth: 120, maxWidth: 260, mandatory: false },
+  { id: 'flag', label: 'Flags', defaultWidth: 105, minWidth: 85, maxWidth: 220, mandatory: false },
+  { id: 'cvCount', label: 'INT', defaultWidth: 58, minWidth: 52, maxWidth: 130, mandatory: false },
+  { id: 'extShortlistCount', label: 'EXT', defaultWidth: 58, minWidth: 52, maxWidth: 130, mandatory: false },
+  { id: 'serviceContributionScore', label: 'SC %', defaultWidth: 125, minWidth: 110, maxWidth: 180, mandatory: false }
 ];
 
 const DEFAULT_COL_WIDTHS = Object.fromEntries(COLUMN_CONFIG.map(col => [col.id, col.defaultWidth]));
@@ -954,9 +956,12 @@ function Positions({ isEngagedMode = false }) {
     return stored?.viewMode === 'grid' || stored?.viewMode === 'table' ? stored.viewMode : 'table';
   });
 
-  // Column width & visibility state for Excel-style table
+  // Column width & visibility state for Optimised table
   const [colWidths, setColWidths] = useState(() => {
     const stored = getStoredPositionsState(storageKey);
+    if (stored?.layoutVersion !== LAYOUT_VERSION) {
+      return { ...DEFAULT_COL_WIDTHS };
+    }
     return {
       ...DEFAULT_COL_WIDTHS,
       ...(stored?.colWidths || {})
@@ -965,6 +970,9 @@ function Positions({ isEngagedMode = false }) {
 
   const [colVisibility, setColVisibility] = useState(() => {
     const stored = getStoredPositionsState(storageKey);
+    if (stored?.layoutVersion !== LAYOUT_VERSION) {
+      return { ...DEFAULT_COL_VISIBILITY };
+    }
     return {
       ...DEFAULT_COL_VISIBILITY,
       ...(stored?.colVisibility || {})
@@ -1065,6 +1073,7 @@ function Positions({ isEngagedMode = false }) {
   const [salaryModalPosition, setSalaryModalPosition] = useState(null);
   const [tempSalaryModalData, setTempSalaryModalData] = useState(null);
   const [savingSalaryModal, setSavingSalaryModal] = useState(false);
+  const [localScScores, setLocalScScores] = useState({});
 
   // ---- Positions now live in the shared TanStack Query cache instead of
   // local state. This is what lets useLiveRefresh() (SSE-driven) and every
@@ -1104,6 +1113,7 @@ function Positions({ isEngagedMode = false }) {
       const existing = getStoredPositionsState(storageKey) || {};
       const nextState = {
         ...existing,
+        layoutVersion: LAYOUT_VERSION,
         filters,
         viewMode,
         colWidths,
@@ -1192,8 +1202,8 @@ function Positions({ isEngagedMode = false }) {
   }, [loading, positionsLoading]);
 
   const invalidatePositionsCache = () => {
-    queryClient.invalidateQueries(['positions']);
-    queryClient.invalidateQueries(['tas']);
+    queryClient.invalidateQueries({ queryKey: ['positions'] });
+    queryClient.invalidateQueries({ queryKey: ['tas'] });
   };
 
   useEffect(() => {
@@ -1230,11 +1240,14 @@ function Positions({ isEngagedMode = false }) {
   };
 
   const computeFlagPopoverDirection = (triggerElement) => {
-    if (!triggerElement) return 'up';
+    if (!triggerElement) return 'down';
     const rect = triggerElement.getBoundingClientRect();
+    const wrapperRect = tableWrapperRef.current?.getBoundingClientRect();
+    const topBound = wrapperRect ? Math.max(0, wrapperRect.top) : 0;
+    const bottomBound = wrapperRect ? Math.min(window.innerHeight, wrapperRect.bottom) : window.innerHeight;
     const popoverHeight = 220;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
+    const spaceBelow = bottomBound - rect.bottom;
+    const spaceAbove = rect.top - topBound;
     if (spaceBelow >= popoverHeight) return 'down';
     else if (spaceAbove >= popoverHeight) return 'up';
     else return spaceBelow >= spaceAbove ? 'down' : 'up';
@@ -1414,6 +1427,78 @@ function Positions({ isEngagedMode = false }) {
     }
   };
 
+  // ---- Manual SC % (Service Contribution Score) Handlers ----
+  const handleScScoreInputChange = (pos, rawVal) => {
+    if (rawVal === '') {
+      setLocalScScores(prev => ({ ...prev, [pos._id]: '' }));
+      return;
+    }
+    const parsed = Number(rawVal);
+    if (isNaN(parsed)) return;
+    if (parsed < 0 || parsed > 100) return;
+    setLocalScScores(prev => ({ ...prev, [pos._id]: rawVal }));
+  };
+
+  const handleScScoreSave = async (pos, rawVal) => {
+    const trimmed = String(rawVal ?? '').trim();
+    let finalScore = null;
+    if (trimmed !== '') {
+      const num = Number(trimmed);
+      if (isNaN(num) || num < 0 || num > 100) {
+        alert('SC % must be between 0 and 100.');
+        setLocalScScores(prev => {
+          const next = { ...prev };
+          delete next[pos._id];
+          return next;
+        });
+        return;
+      }
+      finalScore = Math.round(num);
+    }
+
+    const existingScore = pos.serviceContributionScore ?? null;
+    if (finalScore === existingScore) {
+      setLocalScScores(prev => {
+        const next = { ...prev };
+        delete next[pos._id];
+        return next;
+      });
+      return;
+    }
+
+    const prevScore = pos.serviceContributionScore ?? null;
+    setPositionsCache(prev =>
+      (prev || []).map(p =>
+        p._id === pos._id ? { ...p, serviceContributionScore: finalScore } : p
+      )
+    );
+
+    try {
+      const res = await updatePosition(pos._id, { serviceContributionScore: finalScore });
+      setPositionsCache(prev =>
+        (prev || []).map(p => (p._id === pos._id ? { ...p, ...res.data } : p))
+      );
+      setLocalScScores(prev => {
+        const next = { ...prev };
+        delete next[pos._id];
+        return next;
+      });
+      invalidatePositionsCache();
+    } catch (err) {
+      setPositionsCache(prev =>
+        (prev || []).map(p =>
+          p._id === pos._id ? { ...p, serviceContributionScore: prevScore } : p
+        )
+      );
+      setLocalScScores(prev => {
+        const next = { ...prev };
+        delete next[pos._id];
+        return next;
+      });
+      alert(err.response?.data?.error || 'Failed to save SC % score');
+    }
+  };
+
   // ---- Direct Inline Cell Editing for Client & Position/Designation ----
   const startInlineCellEdit = (pos, field) => {
     if (savingInlineCell) return;
@@ -1546,7 +1631,10 @@ function Positions({ isEngagedMode = false }) {
     setUpdatingId(pos._id);
     try {
       const res = await updatePosition(pos._id, { flagOverrides: nextOverrides });
-      setPositionsCache(prev => (prev || []).map(p => p._id === pos._id ? res.data : p));
+      setPositionsCache(prev =>
+        (prev || []).map(p => (p._id === pos._id ? { ...p, ...res.data } : p))
+      );
+      invalidatePositionsCache();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to update flag');
     } finally {
@@ -1581,7 +1669,7 @@ function Positions({ isEngagedMode = false }) {
   };
 
   const refreshList = async () => {
-    queryClient.invalidateQueries(['positions']);
+    queryClient.invalidateQueries({ queryKey: ['positions'] });
   };
 
   // ---- Selection and Bulk Actions Handlers ----
@@ -1637,8 +1725,8 @@ function Positions({ isEngagedMode = false }) {
     const targetEngagement = !isEngagedMode;
     try {
       const res = await bulkUpdateEngagement(ids, targetEngagement);
-      queryClient.invalidateQueries(['positions']);
-      queryClient.invalidateQueries(['clients']);
+      queryClient.invalidateQueries({ queryKey: ['positions'] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
       const clientNames = res.data?.clients?.length ? res.data.clients.join(', ') : 'Selected client(s)';
       const posCount = res.data?.modifiedPositionsCount ?? ids.length;
       setFeedbackToast({
@@ -1721,12 +1809,7 @@ function Positions({ isEngagedMode = false }) {
     <div ref={rootRef} className="positions">
       <div className="positions-header">
         <div>
-          <h1>{isEngagedMode ? 'Engaged Clients' : 'Positions'}</h1>
-          {isEngagedMode && (
-            <p className="positions-subtitle">
-              Clients actively participating in recruitment with responsive feedback and communication
-            </p>
-          )}
+          <h1>{isEngagedMode ? 'Engaged Positions' : 'Positions'}</h1>
         </div>
         <div className="header-actions">
           <button
@@ -1848,414 +1931,465 @@ function Positions({ isEngagedMode = false }) {
       </div>
 
       {viewMode === 'table' ? (
-        <div
-          ref={tableWrapperRef}
-          className="table-wrapper"
-          onScroll={(e) => {
-            throttledSaveScroll({
-              tableScroll: { top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft }
-            });
-          }}
-        >
-          <table className="positions-table">
-            <colgroup>
-              {isSelectMode && <col style={{ width: '48px' }} />}
-              {COLUMN_CONFIG.map(col => {
-                if (colVisibility[col.id] === false) return null;
-                const width = colWidths[col.id] || col.defaultWidth;
-                return <col key={col.id} style={{ width: `${width}px` }} />;
-              })}
-            </colgroup>
-            <thead>
-              <tr>
-                {isSelectMode && (
-                  <th className="th-sticky-select">
-                    <input
-                      type="checkbox"
-                      checked={filteredPositions.length > 0 && selectedPositionIds.size === filteredPositions.length}
-                      ref={el => {
-                        if (el) {
-                          el.indeterminate = selectedPositionIds.size > 0 && selectedPositionIds.size < filteredPositions.length;
-                        }
-                      }}
-                      onChange={handleSelectAll}
-                      title="Select all"
-                      style={{ cursor: 'pointer', transform: 'scale(1.15)' }}
-                    />
-                  </th>
-                )}
-
-                {colVisibility.jobOrderId !== false && (
-                  <th className="th-sticky-1" style={{ left: isSelectMode ? '48px' : '0px' }}>
-                    <span className="th-content">JO ID</span>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'jobOrderId')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-
-                {colVisibility.client !== false && (
-                  <th className="th-with-filter">
-                    <div className="th-content">
-                      <span>Client</span>
-                      <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" />
-                    </div>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'client')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-
-                {colVisibility.position !== false && (
-                  <th
-                    className="th-sticky-2"
-                    style={{ left: `${(isSelectMode ? 48 : 0) + (colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 90) : 0)}px` }}
-                  >
-                    <span className="th-content">Position</span>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'position')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-
-                {colVisibility.packageRange !== false && (
-                  <th>
-                    <span className="th-content">Package Range</span>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'packageRange')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-
-                {colVisibility.pLevel !== false && (
-                  <th className="th-with-filter">
-                    <div className="th-content">
-                      <span>Level</span>
-                      <HeaderFilter options={levelOptions} value={filters.pLevel} onChange={(v) => handleFilterChange('pLevel', v)} allLabel="All" label="Level" />
-                    </div>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'pLevel')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-
-                {colVisibility.status !== false && (
-                  <th className="th-with-filter">
-                    <div className="th-content">
-                      <span>Status</span>
-                      <HeaderFilter options={filterStatusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" />
-                    </div>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'status')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-
-                {colVisibility.assignee !== false && (
-                  <th className="th-with-filter">
-                    <div className="th-content">
-                      <span>Assignees</span>
-                      <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" />
-                    </div>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'assignee')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-
-                {colVisibility.flag !== false && (
-                  <th className="th-with-filter">
-                    <div className="th-content">
-                      <span>Flags</span>
-                      <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" />
-                    </div>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'flag')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-
-                {colVisibility.cvCount !== false && (
-                  <th>
-                    <span className="th-content">Int Shortlist</span>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'cvCount')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-
-                {colVisibility.extShortlistCount !== false && (
-                  <th>
-                    <span className="th-content">Ext Shortlist</span>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'extShortlistCount')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-
-                {colVisibility.actions !== false && (
-                  <th>
-                    <div className="th-content">
-                      <span>Actions</span>
-                    </div>
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => handleStartResize(e, 'actions')}
-                      title="Drag to resize"
-                    />
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPositions.length === 0 ? (
+        <div className="positions-table-panel">
+          <div
+            ref={tableWrapperRef}
+            className="table-wrapper"
+            onScroll={(e) => {
+              throttledSaveScroll({
+                tableScroll: { top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft }
+              });
+            }}
+          >
+            <table className="positions-table">
+              <colgroup>
+                {isSelectMode && <col style={{ width: '48px' }} />}
+                {COLUMN_CONFIG.map(col => {
+                  if (colVisibility[col.id] === false) return null;
+                  const width = colWidths[col.id] || col.defaultWidth;
+                  return <col key={col.id} style={{ width: `${width}px` }} />;
+                })}
+              </colgroup>
+              <thead>
                 <tr>
-                  <td colSpan={(isSelectMode ? 1 : 0) + COLUMN_CONFIG.filter(c => colVisibility[c.id] !== false).length} className="no-rows">
-                    No positions found
-                  </td>
+                  {isSelectMode && (
+                    <th className="th-sticky-select">
+                      <input
+                        type="checkbox"
+                        checked={filteredPositions.length > 0 && selectedPositionIds.size === filteredPositions.length}
+                        ref={el => {
+                          if (el) {
+                            el.indeterminate = selectedPositionIds.size > 0 && selectedPositionIds.size < filteredPositions.length;
+                          }
+                        }}
+                        onChange={handleSelectAll}
+                        title="Select all"
+                        style={{ cursor: 'pointer', transform: 'scale(1.15)' }}
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.jobOrderId !== false && (
+                    <th className="th-sticky-1" style={{ left: isSelectMode ? '48px' : '0px' }}>
+                      <span className="th-content">JO ID</span>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'jobOrderId')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.client !== false && (
+                    <th
+                      className="th-sticky-2 th-with-filter"
+                      style={{
+                        left: `${(isSelectMode ? 48 : 0) + (colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 82) : 0)}px`
+                      }}
+                    >
+                      <div className="th-content">
+                        <span>Client</span>
+                        <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" />
+                      </div>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'client')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.position !== false && (
+                    <th
+                      className="th-sticky-3"
+                      style={{
+                        left: `${
+                          (isSelectMode ? 48 : 0) +
+                          (colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 82) : 0) +
+                          (colVisibility.client !== false ? (colWidths.client || 155) : 0)
+                        }px`
+                      }}
+                    >
+                      <span className="th-content">Position</span>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'position')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.packageRange !== false && (
+                    <th>
+                      <span className="th-content">Package Range</span>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'packageRange')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.pLevel !== false && (
+                    <th className="th-with-filter">
+                      <div className="th-content">
+                        <span>Level</span>
+                        <HeaderFilter options={levelOptions} value={filters.pLevel} onChange={(v) => handleFilterChange('pLevel', v)} allLabel="All" label="Level" />
+                      </div>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'pLevel')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.status !== false && (
+                    <th className="th-with-filter">
+                      <div className="th-content">
+                        <span>Status</span>
+                        <HeaderFilter options={filterStatusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" />
+                      </div>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'status')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.assignee !== false && (
+                    <th className="th-with-filter">
+                      <div className="th-content">
+                        <span>Assignees</span>
+                        <HeaderFilter options={assigneeOptions} value={filters.assignee} onChange={(v) => handleFilterChange('assignee', v)} allLabel="All" label="Assignee" />
+                      </div>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'assignee')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.flag !== false && (
+                    <th className="th-with-filter">
+                      <div className="th-content">
+                        <span>Flags</span>
+                        <HeaderFilter options={flagOptions} value={filters.flag} onChange={(v) => handleFilterChange('flag', v)} allLabel="All" label="Flag" />
+                      </div>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'flag')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.cvCount !== false && (
+                    <th>
+                      <span className="th-content">INT</span>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'cvCount')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.extShortlistCount !== false && (
+                    <th>
+                      <span className="th-content">EXT</span>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'extShortlistCount')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
+
+                  {colVisibility.serviceContributionScore !== false && (
+                    <th
+                      title="Manual Service Contribution score. Enter a percentage based on how well the team has served this client."
+                    >
+                      <span className="th-content">SC %</span>
+                      <div
+                        className="col-resizer"
+                        onMouseDown={(e) => handleStartResize(e, 'serviceContributionScore')}
+                        title="Drag to resize"
+                      />
+                    </th>
+                  )}
                 </tr>
-              ) : (
-                filteredPositions.map(pos => {
-                  const flagEntries = pos.flags ? Object.entries(pos.flags).filter(([, f]) => f !== null) : [];
-                  const isUpdating = updatingId === pos._id;
-                  const isEditingClient = activeInlineCell?.posId === pos._id && activeInlineCell?.field === 'client';
-                  const isEditingPosition = activeInlineCell?.posId === pos._id && activeInlineCell?.field === 'position';
+              </thead>
+              <tbody>
+                {filteredPositions.length === 0 ? (
+                  <tr>
+                    <td colSpan={(isSelectMode ? 1 : 0) + COLUMN_CONFIG.filter(c => colVisibility[c.id] !== false).length} className="no-rows">
+                      No positions found
+                    </td>
+                  </tr>
+                ) : (
+                  filteredPositions.map(pos => {
+                    const flagEntries = pos.flags ? Object.entries(pos.flags).filter(([, f]) => f !== null) : [];
+                    const isUpdating = updatingId === pos._id;
+                    const isEditingClient = activeInlineCell?.posId === pos._id && activeInlineCell?.field === 'client';
+                    const isEditingPosition = activeInlineCell?.posId === pos._id && activeInlineCell?.field === 'position';
 
-                  const stickyCol1Width = (isSelectMode ? 48 : 0) + (colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 90) : 0);
+                    const selectLeft = isSelectMode ? 48 : 0;
+                    const stickyClientLeft = selectLeft + (colVisibility.jobOrderId !== false ? (colWidths.jobOrderId || 82) : 0);
+                    const stickyPosLeft = stickyClientLeft + (colVisibility.client !== false ? (colWidths.client || 155) : 0);
 
-                  return (
-                    <tr key={pos._id} className={selectedPositionIds.has(pos._id) ? 'row-selected' : ''}>
-                      {isSelectMode && (
-                        <td className="td-sticky-select" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={selectedPositionIds.has(pos._id)}
-                            onChange={() => handleToggleSelect(pos._id)}
-                            style={{ cursor: 'pointer', transform: 'scale(1.15)' }}
-                          />
-                        </td>
-                      )}
+                    const formattedPkg = formatSalary(pos.salary, pos.packageRange) || '—';
+                    const rawScInput = localScScores[pos._id] !== undefined
+                      ? localScScores[pos._id]
+                      : (pos.serviceContributionScore !== null && pos.serviceContributionScore !== undefined ? String(pos.serviceContributionScore) : '');
+                    const scNumericVal = rawScInput !== '' && !isNaN(Number(rawScInput))
+                      ? Math.max(0, Math.min(100, Number(rawScInput)))
+                      : 0;
+                    const scFillClass = rawScInput === ''
+                      ? ''
+                      : scNumericVal < 50
+                      ? 'sc-fill--low'
+                      : scNumericVal < 70
+                      ? 'sc-fill--mid'
+                      : '';
 
-                      {colVisibility.jobOrderId !== false && (
-                        <td className="td-sticky-1" style={{ left: isSelectMode ? '48px' : '0px' }}>
-                          <Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link>
-                          {(pos.isReactivated || pos.status === 'Reactivated') && (
-                            <span className="reactivated-tag" title="Reactivated Requirement">↻</span>
-                          )}
-                        </td>
-                      )}
+                    const setSummaryTooltip = Array.isArray(pos.submissionSets) && pos.submissionSets.length > 0
+                      ? ` (${pos.submissionSets.map(s => `${s.setNumber}: ${s.cvCount ?? 0}`).join(', ')})`
+                      : '';
 
-                      {colVisibility.client !== false && (
-                        <td className={`td-inline-editable ${isEditingClient ? 'td-inline-editable--active' : ''}`}>
-                          {isEditingClient ? (
-                            <div className="inline-cell-editor" onClick={(e) => e.stopPropagation()}>
-                              <select
-                                className="inline-edit-input inline-edit-select"
-                                value={inlineCellValue}
-                                autoFocus
-                                disabled={savingInlineCell}
-                                onChange={(e) => setInlineCellValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') saveInlineCellEdit(pos);
-                                  if (e.key === 'Escape') cancelInlineCellEdit();
-                                }}
-                              >
-                                <option value="">— Select client —</option>
-                                {clients.map(c => (
-                                  <option key={c._id} value={c._id}>{c.clientName}</option>
-                                ))}
-                              </select>
-                              <button
-                                type="button"
-                                className="inline-cell-btn inline-cell-btn--save"
-                                onClick={() => saveInlineCellEdit(pos)}
-                                disabled={savingInlineCell}
-                                title="Save (Enter)"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                type="button"
-                                className="inline-cell-btn inline-cell-btn--cancel"
-                                onClick={cancelInlineCellEdit}
-                                disabled={savingInlineCell}
-                                title="Cancel (Esc)"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              className="inline-cell-trigger"
-                              onClick={() => startInlineCellEdit(pos, 'client')}
-                              title="Click to edit client"
-                            >
-                              <span className="text-ellipsis">{pos.client?.clientName || '—'}</span>
-                              <span className="inline-cell-hover-icon">✏️</span>
-                            </button>
-                          )}
-                        </td>
-                      )}
+                    return (
+                      <tr key={pos._id} className={selectedPositionIds.has(pos._id) ? 'row-selected' : ''}>
+                        {isSelectMode && (
+                          <td className="td-sticky-select" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedPositionIds.has(pos._id)}
+                              onChange={() => handleToggleSelect(pos._id)}
+                              style={{ cursor: 'pointer', transform: 'scale(1.15)' }}
+                            />
+                          </td>
+                        )}
 
-                      {colVisibility.position !== false && (
-                        <td
-                          className={`td-sticky-2 td-inline-editable ${isEditingPosition ? 'td-inline-editable--active' : ''}`}
-                          style={{ left: `${stickyCol1Width}px` }}
-                        >
-                          {isEditingPosition ? (
-                            <div className="inline-cell-editor" onClick={(e) => e.stopPropagation()}>
-                              <input
-                                type="text"
-                                className="inline-edit-input"
-                                value={inlineCellValue}
-                                autoFocus
-                                disabled={savingInlineCell}
-                                onChange={(e) => setInlineCellValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') saveInlineCellEdit(pos);
-                                  if (e.key === 'Escape') cancelInlineCellEdit();
-                                }}
-                                placeholder="Position title"
-                              />
-                              <button
-                                type="button"
-                                className="inline-cell-btn inline-cell-btn--save"
-                                onClick={() => saveInlineCellEdit(pos)}
-                                disabled={savingInlineCell}
-                                title="Save (Enter)"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                type="button"
-                                className="inline-cell-btn inline-cell-btn--cancel"
-                                onClick={cancelInlineCellEdit}
-                                disabled={savingInlineCell}
-                                title="Cancel (Esc)"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              className="inline-cell-trigger"
-                              onClick={() => startInlineCellEdit(pos, 'position')}
-                              title={`${pos.position} — click to edit`}
-                            >
-                              <span className="text-ellipsis">{pos.position}</span>
-                              <span className="inline-cell-hover-icon">✏️</span>
-                            </button>
-                          )}
-                        </td>
-                      )}
+                        {colVisibility.jobOrderId !== false && (
+                          <td className="td-sticky-1" style={{ left: `${selectLeft}px` }}>
+                            <Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link>
+                            {(pos.isReactivated || pos.status === 'Reactivated') && (
+                              <span className="reactivated-tag" title="Reactivated Requirement">↻</span>
+                            )}
+                          </td>
+                        )}
 
-                      {colVisibility.packageRange !== false && (
-                        <td className="td-dropdown">
-                          <button
-                            type="button"
-                            className="salary-cell-view-btn"
-                            onClick={() => {
-                              setTempSalaryModalData({
-                                salary: pos.salary,
-                                packageRange: pos.packageRange
-                              });
-                              setSalaryModalPosition(pos);
-                            }}
-                            title="Click to view or edit salary package"
+                        {colVisibility.client !== false && (
+                          <td
+                            className={`td-sticky-2 td-inline-editable ${isEditingClient ? 'td-inline-editable--active' : ''}`}
+                            style={{ left: `${stickyClientLeft}px` }}
                           >
-                            <span className="package-range-value">{formatSalary(pos.salary, pos.packageRange) || '—'}</span>
-                            <span className="salary-cell-hover-icon">✏️</span>
-                          </button>
-                        </td>
-                      )}
+                            {isEditingClient ? (
+                              <div className="inline-cell-editor" onClick={(e) => e.stopPropagation()}>
+                                <select
+                                  className="inline-edit-input inline-edit-select"
+                                  value={inlineCellValue}
+                                  autoFocus
+                                  disabled={savingInlineCell}
+                                  onChange={(e) => setInlineCellValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') saveInlineCellEdit(pos);
+                                    if (e.key === 'Escape') cancelInlineCellEdit();
+                                  }}
+                                >
+                                  <option value="">— Select client —</option>
+                                  {clients.map(c => (
+                                    <option key={c._id} value={c._id}>{c.clientName}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  className="inline-cell-btn inline-cell-btn--save"
+                                  onClick={() => saveInlineCellEdit(pos)}
+                                  disabled={savingInlineCell}
+                                  title="Save (Enter)"
+                                >
+                                  ✓
+                                </button>
+                                <button
+                                  type="button"
+                                  className="inline-cell-btn inline-cell-btn--cancel"
+                                  onClick={cancelInlineCellEdit}
+                                  disabled={savingInlineCell}
+                                  title="Cancel (Esc)"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="inline-cell-trigger client-name-trigger"
+                                onClick={() => startInlineCellEdit(pos, 'client')}
+                                title={`${pos.client?.clientName || '—'} — click to edit client`}
+                              >
+                                <span className="text-ellipsis client-name-text">{pos.client?.clientName || '—'}</span>
+                                <span className="inline-cell-hover-icon">✏️</span>
+                              </button>
+                            )}
+                          </td>
+                        )}
 
-                      {colVisibility.pLevel !== false && (
-                        <td className="td-dropdown">
-                          <InlineDropdown value={pos.pLevel} options={rowLevelOptions} onChange={(v) => handleDirectUpdate(pos, 'pLevel', v)} disabled={isUpdating} shape="circle" />
-                        </td>
-                      )}
+                        {colVisibility.position !== false && (
+                          <td
+                            className={`td-sticky-3 td-inline-editable ${isEditingPosition ? 'td-inline-editable--active' : ''}`}
+                            style={{ left: `${stickyPosLeft}px` }}
+                          >
+                            {isEditingPosition ? (
+                              <div className="inline-cell-editor" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="text"
+                                  className="inline-edit-input"
+                                  value={inlineCellValue}
+                                  autoFocus
+                                  disabled={savingInlineCell}
+                                  onChange={(e) => setInlineCellValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') saveInlineCellEdit(pos);
+                                    if (e.key === 'Escape') cancelInlineCellEdit();
+                                  }}
+                                  placeholder="Position title"
+                                />
+                                <button
+                                  type="button"
+                                  className="inline-cell-btn inline-cell-btn--save"
+                                  onClick={() => saveInlineCellEdit(pos)}
+                                  disabled={savingInlineCell}
+                                  title="Save (Enter)"
+                                >
+                                  ✓
+                                </button>
+                                <button
+                                  type="button"
+                                  className="inline-cell-btn inline-cell-btn--cancel"
+                                  onClick={cancelInlineCellEdit}
+                                  disabled={savingInlineCell}
+                                  title="Cancel (Esc)"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="inline-cell-trigger position-name-trigger"
+                                onClick={() => startInlineCellEdit(pos, 'position')}
+                                title={`${pos.position} — click to edit`}
+                              >
+                                <span className="text-ellipsis position-name-text">{pos.position}</span>
+                                <span className="inline-cell-hover-icon">✏️</span>
+                              </button>
+                            )}
+                          </td>
+                        )}
 
-                      {colVisibility.status !== false && (
-                        <td className="td-dropdown">
-                          <InlineDropdown value={pos.status} options={rowStatusOptions} onChange={(v) => handleDirectUpdate(pos, 'status', v)} disabled={isUpdating} shape="pill" />
-                        </td>
-                      )}
+                        {colVisibility.packageRange !== false && (
+                          <td className="td-package-range">
+                            <button
+                              type="button"
+                              className="salary-cell-view-btn"
+                              onClick={() => {
+                                setTempSalaryModalData({
+                                  salary: pos.salary,
+                                  packageRange: pos.packageRange
+                                });
+                                setSalaryModalPosition(pos);
+                              }}
+                              title={formattedPkg !== '—' ? `${formattedPkg} — click to view or edit salary package` : 'Click to view or edit salary package'}
+                            >
+                              <span className="package-range-value">{formattedPkg}</span>
+                              <span className="salary-cell-hover-icon">✏️</span>
+                            </button>
+                          </td>
+                        )}
 
-                      {colVisibility.assignee !== false && (
-                        <td className="td-dropdown">
-                          <CompactAssigneesCell
-                            pos={pos}
-                            tas={tas}
-                            onPrimaryAssign={(p, newId) => handlePrimaryAssign(p, newId)}
-                            onParallelAssign={(p, newIds) => handleParallelAssign(p, newIds)}
-                            disabled={isUpdating}
-                          />
-                        </td>
-                      )}
+                        {colVisibility.pLevel !== false && (
+                          <td className="td-dropdown">
+                            <InlineDropdown value={pos.pLevel} options={rowLevelOptions} onChange={(v) => handleDirectUpdate(pos, 'pLevel', v)} disabled={isUpdating} shape="circle" />
+                          </td>
+                        )}
 
-                      {colVisibility.flag !== false && (
-                        <td className="td-dropdown">
-                          <div className="flags-cell">
-                            {flagEntries.slice(0, 2).map(([flagKey, flag]) => {
-                              const popoverKey = `${pos._id}:${flagKey}`;
-                              const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
-                              const isOpen = flagPopoverId === popoverKey;
-                              const direction = flagPopoverDirection[popoverKey] || 'up';
-                              return (
-                                <div className="flag-badge-wrap" key={flagKey}>
-                                  <button type="button" className="flag-badge-btn" onClick={(e) => {
-                                    if (flagPopoverId === popoverKey) setFlagPopoverId(null);
+                        {colVisibility.status !== false && (
+                          <td className="td-dropdown">
+                            <InlineDropdown value={pos.status} options={rowStatusOptions} onChange={(v) => handleDirectUpdate(pos, 'status', v)} disabled={isUpdating} shape="pill" />
+                          </td>
+                        )}
+
+                        {colVisibility.assignee !== false && (
+                          <td className="td-dropdown">
+                            <CompactAssigneesCell
+                              pos={pos}
+                              tas={tas}
+                              onPrimaryAssign={(p, newId) => handlePrimaryAssign(p, newId)}
+                              onParallelAssign={(p, newIds) => handleParallelAssign(p, newIds)}
+                              disabled={isUpdating}
+                            />
+                          </td>
+                        )}
+
+                        {colVisibility.flag !== false && (
+                          <td className="td-dropdown">
+                            <div className="flags-cell">
+                              {flagEntries.slice(0, 1).map(([flagKey, flag]) => {
+                                const popoverKey = `${pos._id}:${flagKey}`;
+                                const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
+                                const isOpen = flagPopoverId === popoverKey;
+                                const direction = flagPopoverDirection[popoverKey] || 'down';
+                                return (
+                                  <div className="flag-badge-wrap" key={flagKey}>
+                                    <button type="button" className="flag-badge-btn" onClick={(e) => {
+                                      if (flagPopoverId === popoverKey) setFlagPopoverId(null);
+                                      else {
+                                        const dir = computeFlagPopoverDirection(e.currentTarget);
+                                        setFlagPopoverDirection(prev => ({ ...prev, [popoverKey]: dir }));
+                                        setFlagPopoverId(popoverKey);
+                                      }
+                                    }} title={`${flag.label} — click to change`}>
+                                      <FlagBadge flag={flag} />
+                                    </button>
+                                    {isOpen && (
+                                      <>
+                                        <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
+                                        <div className={`flag-popover flag-popover--${direction}`}>
+                                          <div className="flag-popover-title">{flag.label}</div>
+                                          {['auto', 'on', 'off'].map(mode => (
+                                            <button key={mode} className={`flag-popover-option ${currentMode === mode ? 'selected' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
+                                              {mode === 'auto' ? 'Auto (default)' : mode === 'on' ? 'Force On' : 'Turn Off'}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {flagEntries.length > 1 && (
+                                <button
+                                  type="button"
+                                  className="flags-more-btn"
+                                  onClick={(e) => {
+                                    const manageKey = `${pos._id}:manage`;
+                                    if (flagPopoverId === manageKey) setFlagPopoverId(null);
                                     else {
                                       const dir = computeFlagPopoverDirection(e.currentTarget);
-                                      setFlagPopoverDirection(prev => ({ ...prev, [popoverKey]: dir }));
-                                      setFlagPopoverId(popoverKey);
+                                      setFlagPopoverDirection(prev => ({ ...prev, [manageKey]: dir }));
+                                      setFlagPopoverId(manageKey);
                                     }
-                                  }} title={`${flag.label} — click to change`}>
-                                    <FlagBadge flag={flag} />
-                                  </button>
-                                  {isOpen && (
-                                    <>
-                                      <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
-                                      <div className={`flag-popover flag-popover--${direction}`}>
-                                        <div className="flag-popover-title">{flag.label}</div>
-                                        {['auto', 'on', 'off'].map(mode => (
-                                          <button key={mode} className={`flag-popover-option ${currentMode === mode ? 'selected' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
-                                            {mode === 'auto' ? 'Auto (default)' : mode === 'on' ? 'Force On' : 'Turn Off'}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              );
-                            })}
-                            {flagEntries.length > 2 && (
-                              <button
-                                type="button"
-                                className="flags-more-btn"
-                                onClick={(e) => {
+                                  }}
+                                  title={`${flagEntries.length - 1} more flag${flagEntries.length - 1 > 1 ? 's' : ''} (${flagEntries.slice(1).map(([, f]) => f.label).join(', ')}) — click to view all`}
+                                >
+                                  +{flagEntries.length - 1}
+                                </button>
+                              )}
+                              <div className="flag-badge-wrap">
+                                <button type="button" className="flag-add-btn" onClick={(e) => {
                                   const manageKey = `${pos._id}:manage`;
                                   if (flagPopoverId === manageKey) setFlagPopoverId(null);
                                   else {
@@ -2263,91 +2397,103 @@ function Positions({ isEngagedMode = false }) {
                                     setFlagPopoverDirection(prev => ({ ...prev, [manageKey]: dir }));
                                     setFlagPopoverId(manageKey);
                                   }
-                                }}
-                                title={`${flagEntries.length - 2} more flag${flagEntries.length - 2 > 1 ? 's' : ''} — click to manage`}
-                              >
-                                +{flagEntries.length - 2}
-                              </button>
-                            )}
-                            <div className="flag-badge-wrap">
-                              <button type="button" className="flag-add-btn" onClick={(e) => {
-                                const manageKey = `${pos._id}:manage`;
-                                if (flagPopoverId === manageKey) setFlagPopoverId(null);
-                                else {
-                                  const dir = computeFlagPopoverDirection(e.currentTarget);
-                                  setFlagPopoverDirection(prev => ({ ...prev, [manageKey]: dir }));
-                                  setFlagPopoverId(manageKey);
-                                }
-                              }} title="Manage all flags">+</button>
-                              {flagPopoverId === `${pos._id}:manage` && (
-                                <>
-                                  <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
-                                  <div className={`flag-popover flag-popover--manage flag-popover--${flagPopoverDirection[`${pos._id}:manage`] || 'up'}`}>
-                                    <div className="flag-popover-title">Manage Flags</div>
-                                    {FLAG_OPTIONS.map(({ value: flagKey, label }) => {
-                                      const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
-                                      return (
-                                        <div className="flag-manage-row" key={flagKey}>
-                                          <span className="flag-manage-label">{label}</span>
-                                          <div className="flag-manage-btns">
-                                            {['auto', 'on', 'off'].map(mode => (
-                                              <button key={mode} className={`flag-mode-btn ${currentMode === mode ? 'active' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
-                                                {mode === 'auto' ? 'Auto' : mode === 'on' ? 'On' : 'Off'}
-                                              </button>
-                                            ))}
+                                }} title="Manage all flags">+</button>
+                                {flagPopoverId === `${pos._id}:manage` && (
+                                  <>
+                                    <div className="popover-backdrop" onClick={() => setFlagPopoverId(null)} />
+                                    <div className={`flag-popover flag-popover--manage flag-popover--${flagPopoverDirection[`${pos._id}:manage`] || 'down'}`}>
+                                      <div className="flag-popover-title">Manage Flags</div>
+                                      {FLAG_OPTIONS.map(({ value: flagKey, label }) => {
+                                        const currentMode = pos.flagOverrides?.[flagKey] || 'auto';
+                                        return (
+                                          <div className="flag-manage-row" key={flagKey}>
+                                            <span className="flag-manage-label">{label}</span>
+                                            <div className="flag-manage-btns">
+                                              {['auto', 'on', 'off'].map(mode => (
+                                                <button key={mode} className={`flag-mode-btn ${currentMode === mode ? 'active' : ''}`} onClick={() => handleFlagOverrideChange(pos, flagKey, mode)}>
+                                                  {mode === 'auto' ? 'Auto' : mode === 'on' ? 'On' : 'Off'}
+                                                </button>
+                                              ))}
+                                            </div>
                                           </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </>
-                              )}
+                                        );
+                                      })}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </td>
-                      )}
+                          </td>
+                        )}
 
-                      {colVisibility.cvCount !== false && (
-                        <td>
-                          <div className="int-shortlist-cell">
-                            <span className="int-shortlist-count">{pos.cvCount ?? '—'}</span>
-                            <button
-                              type="button"
-                              className="cv-tracking-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenDetails(pos, 'cvTracking');
-                              }}
-                              title="Open CV Tracking"
-                              aria-label="Open CV Tracking"
-                            >
-                              <FileText size={14} className="cv-tracking-icon" aria-hidden="true" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
+                        {colVisibility.cvCount !== false && (
+                          <td
+                            className="count-cell count-cell--clickable"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDetails(pos, 'cvTracking');
+                            }}
+                            title={`Internal Shortlist: ${pos.cvCount ?? '—'}${setSummaryTooltip} — click to open CV Tracking`}
+                          >
+                            {pos.cvCount ?? '—'}
+                          </td>
+                        )}
 
-                      {colVisibility.extShortlistCount !== false && (
-                        <td>
-                          {pos.extShortlistCount === 'Client Review' ? (
-                            <span className="ext-shortlist-badge ext-shortlist-badge--review">Client Review</span>
-                          ) : (pos.extShortlistCount ?? '—')}
-                        </td>
-                      )}
+                        {colVisibility.extShortlistCount !== false && (
+                          <td
+                            className="count-cell count-cell--clickable"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDetails(pos, 'cvTracking');
+                            }}
+                            title={`External Shortlist: ${pos.extShortlistCount ?? '—'} — click to open CV Tracking`}
+                          >
+                            {pos.extShortlistCount === 'Client Review' ? (
+                              <span className="ext-shortlist-badge ext-shortlist-badge--review">Review</span>
+                            ) : (pos.extShortlistCount ?? '—')}
+                          </td>
+                        )}
 
-                      {colVisibility.actions !== false && (
-                        <td className="td-dropdown">
-                          <div className="actions-cell">
-                            <button className="action-delete" onClick={() => handleDeleteClick(pos)} title="Delete position"><DeleteIcon /></button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                        {colVisibility.serviceContributionScore !== false && (
+                          <td className="td-sc-score">
+                            <div className="sc-satisfaction">
+                              <input
+                                className="sc-score-input"
+                                type="number"
+                                min="0"
+                                max="100"
+                                placeholder="—"
+                                aria-label="Manual SC percentage"
+                                value={rawScInput}
+                                onChange={(e) => handleScScoreInputChange(pos, e.target.value)}
+                                onBlur={(e) => handleScScoreSave(pos, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.currentTarget.blur();
+                                  }
+                                }}
+                              />
+                              <span className="sc-percent-sign">%</span>
+                              <span className="sc-track">
+                                <span
+                                  className={`sc-fill ${scFillClass}`}
+                                  style={{ width: `${scNumericVal}%` }}
+                                />
+                              </span>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="positions-table-legend">
+            <span>INT = Internal shortlist · EXT = External shortlist</span>
+            <span>SC % is entered and maintained manually by the team.</span>
+          </div>
         </div>
       ) : (
         <div className="positions-grouped">
@@ -2449,6 +2595,7 @@ function Positions({ isEngagedMode = false }) {
           onClose={handleCloseDetails}
           onUpdate={refreshList}
           tas={tas}
+          clients={clients}
         />
       )}
 

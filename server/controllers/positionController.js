@@ -4,6 +4,7 @@ const PositionHistory = require('../models/PositionHistory');
 const { computeFlags } = require('../utils/flagLogic');
 const liveEvents = require('../utils/liveEvents');
 const { formatSalary, validateSalary } = require('../utils/salaryFormatter');
+const { enrichPositionsWithCvAndSetMetrics } = require('../utils/cvSync');
 // GET all positions
 async function getAllPositions(req, res) {
   try {
@@ -25,7 +26,9 @@ async function getAllPositions(req, res) {
       .sort({ createdAt: -1 })
       .lean();
 
-    const withFlags = positions.map(p => ({
+    const enrichedPositions = await enrichPositionsWithCvAndSetMetrics(positions);
+
+    const withFlags = enrichedPositions.map(p => ({
       ...p,
       flags: computeFlags(p)
     }));
@@ -51,7 +54,8 @@ async function getPositionById(req, res) {
       return res.status(404).json({ error: 'Position not found' });
     }
 
-    res.json({ ...position, flags: computeFlags(position) });
+    const [enriched] = await enrichPositionsWithCvAndSetMetrics([position]);
+    res.json({ ...enriched, flags: computeFlags(enriched) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -273,6 +277,44 @@ async function updatePosition(req, res) {
       }
     }
 
+    // Validate activatedAt and activationDateManuallyOverridden if provided
+    if (updates.activatedAt !== undefined) {
+      if (updates.activatedAt === null || updates.activatedAt === '') {
+        updates.activatedAt = null;
+        if (updates.activationDateManuallyOverridden === undefined) {
+          updates.activationDateManuallyOverridden = true;
+        }
+      } else {
+        const parsedActivated = new Date(updates.activatedAt);
+        if (isNaN(parsedActivated.getTime())) {
+          return res.status(400).json({ error: 'Invalid activatedAt format' });
+        }
+        updates.activatedAt = parsedActivated;
+        const oldActStr = existing.activatedAt ? new Date(existing.activatedAt).toISOString().split('T')[0] : '';
+        const newActStr = parsedActivated.toISOString().split('T')[0];
+        if (updates.activationDateManuallyOverridden !== undefined) {
+          updates.activationDateManuallyOverridden = Boolean(updates.activationDateManuallyOverridden);
+        } else if (oldActStr !== newActStr) {
+          updates.activationDateManuallyOverridden = true;
+        }
+      }
+    } else if (updates.activationDateManuallyOverridden !== undefined) {
+      updates.activationDateManuallyOverridden = Boolean(updates.activationDateManuallyOverridden);
+    }
+
+    // Validate serviceContributionScore (SC %) if provided
+    if (updates.serviceContributionScore !== undefined) {
+      if (updates.serviceContributionScore === null || updates.serviceContributionScore === '') {
+        updates.serviceContributionScore = null;
+      } else {
+        const scNum = Number(updates.serviceContributionScore);
+        if (isNaN(scNum) || scNum < 0 || scNum > 100) {
+          return res.status(400).json({ error: 'SC % must be a number between 0 and 100' });
+        }
+        updates.serviceContributionScore = scNum;
+      }
+    }
+
     const oldStatus = existing.status;
     const isStatusProvided = updates.status !== undefined;
     const newStatus = isStatusProvided ? updates.status : oldStatus;
@@ -483,8 +525,9 @@ async function updatePosition(req, res) {
       await PositionHistory.insertMany(historyEntries);
     }
 
+    const [enriched] = await enrichPositionsWithCvAndSetMetrics([updatedPosition]);
     liveEvents.emit('positions:changed');   // ADD THIS LINE
-    res.json({ ...updatedPosition, flags: computeFlags(updatedPosition) });
+    res.json({ ...enriched, flags: computeFlags(enriched) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -606,8 +649,9 @@ async function assignPosition(req, res) {
       .populate('assignmentHistory.ta', 'name status color')
       .lean();
 
+    const [enriched] = await enrichPositionsWithCvAndSetMetrics([populated]);
     liveEvents.emit('positions:changed');   // ADD THIS LINE — currently missing
-    res.json({ ...populated, flags: computeFlags(populated) });
+    res.json({ ...enriched, flags: computeFlags(enriched) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -655,8 +699,9 @@ async function setFlagOverride(req, res) {
       });
     }
 
+    const [enriched] = await enrichPositionsWithCvAndSetMetrics([updatedPosition]);
     liveEvents.emit('positions:changed');   // ADD THIS LINE
-    res.json({ ...updatedPosition, flags: computeFlags(updatedPosition) });
+    res.json({ ...enriched, flags: computeFlags(enriched) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

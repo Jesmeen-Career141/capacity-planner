@@ -13,8 +13,8 @@ export function useLiveRefresh() {
       es = new EventSource(streamUrl, { withCredentials: true });
 
       es.onmessage = (e) => {
-        if (e.data === 'positions') queryClient.invalidateQueries(['positions']);
-        if (e.data === 'weeklyAllocations') queryClient.invalidateQueries(['weeklyAllocations']);
+        if (e.data === 'positions') queryClient.invalidateQueries({ queryKey: ['positions'] });
+        if (e.data === 'weeklyAllocations') queryClient.invalidateQueries({ queryKey: ['weeklyAllocations'] });
       };
 
       es.onerror = () => {

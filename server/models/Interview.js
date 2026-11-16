@@ -87,7 +87,7 @@ const interviewSchema = new mongoose.Schema({
   candidateSubmission: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CandidateSubmission',
-    required: [true, 'Candidate submission reference is required'],
+    default: null,
     index: true
   },
   candidateName: {

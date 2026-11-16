@@ -14,17 +14,17 @@
   --cv-muted: #66736c;
 }
 
-/* ---- Attempt Controls Row ---- */
+/* ---- Attempt Controls Row (Toolbar) ---- */
 .attempt-nav-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: 10px;
-  background: #f8faf8;
+  flex-wrap: nowrap;
+  background: #f7faf8;
   border: 1px solid var(--cv-line);
   border-radius: 9px;
   padding: 10px 14px;
+  min-height: 58px;
 }
 
 .attempt-selector-group {
@@ -34,43 +34,78 @@
   gap: 8px;
 }
 
-.attempt-selector-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--cv-muted);
-}
-
 .attempt-select {
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 6px;
-  border: 1px solid var(--cv-line);
+  width: auto;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: 7px;
+  border: 1px solid #cbd9d0;
   background: #ffffff;
-  color: var(--color-text);
+  color: #24332b;
   outline: none;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.attempt-select:hover {
+  border-color: #9eb8a8;
 }
 
 .attempt-select:focus {
   border-color: var(--cv-g);
+  box-shadow: 0 0 0 2px rgba(23, 107, 69, 0.1);
+}
+
+.cv-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  border: 1px solid #bcd3c5;
+  background: #ffffff;
+  color: #176b45;
+  padding: 0 13px;
+  border-radius: 7px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.cv-toolbar-add-attempt-btn {
+  width: 36px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.cv-toolbar-btn:hover:not(:disabled) {
+  background: #f1f8f4;
+  border-color: #9ec2ad;
+}
+
+.cv-toolbar-spacer {
+  flex: 1;
 }
 
 .attempt-status-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
+  padding: 5px 10px;
+  font-size: 12px;
   font-weight: 700;
   border-radius: 20px;
   white-space: nowrap;
 }
 
 .attempt-status-badge--active {
-  background: #e4f4e9;
-  color: var(--cv-g);
+  background: #e3f3e9;
+  color: #176b45;
 }
 
 .attempt-status-badge--completed {
@@ -83,36 +118,30 @@
   color: #92400e;
 }
 
-.attempt-ta-summary {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--cv-muted);
-  padding-left: 6px;
-  border-left: 1px solid var(--cv-line);
-}
-
-.attempt-ta-item strong {
-  color: #202a24;
-  font-weight: 600;
-}
-
-.attempt-ta-edit-link {
-  background: none;
-  border: none;
-  padding: 0 2px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--cv-g);
+.ta-names {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  white-space: nowrap;
   cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  transition: background 0.15s;
 }
 
-.attempt-ta-edit-link:hover {
-  color: #0f442c;
+.ta-names:hover {
+  background: #eaf3ed;
+}
+
+.ta-primary {
+  font-size: 14px;
+  font-weight: 700;
+  color: #34463c;
+}
+
+.ta-parallel {
+  font-size: 12px;
+  color: #87958d;
 }
 
 .cv-supporting-tas-selector {
@@ -313,93 +342,67 @@
   padding-left: 18px;
 }
 
-/* ---- Demo 3 4-Card Summary Stats ---- */
+/* ---- 4-Card Summary Stats ---- */
 .cv-demo3-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  gap: 12px;
 }
 
 .cv-demo3-stat {
-  border: 1px solid var(--cv-line);
+  border: 1px solid #d8e4dc;
   border-radius: 9px;
-  padding: 12px 14px;
+  padding: 13px 15px;
   background: #ffffff;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 68px;
   gap: 10px;
 }
 
 .cv-demo3-stat--good {
-  background: #f4fbf6;
-  border-color: #cce9d5;
+  background: #f4faf6;
+  border-color: #c9e5d3;
+}
+
+.cv-demo3-stat--good .cv-demo3-stat-value {
+  color: #176b45;
+}
+
+.cv-demo3-stat--clickable {
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.cv-demo3-stat--clickable:hover {
+  filter: brightness(0.98);
 }
 
 .cv-demo3-stat--withdrawn {
-  background: #fffdfa;
-  border-color: #fde68a;
+  background: #ffffff;
+  border-color: #f2d58c;
 }
 
 .cv-demo3-stat--withdrawn .cv-demo3-stat-value {
-  color: #b45309;
-}
-
-.cv-demo3-stat-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.cv-demo3-stat-label-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  color: #b85b00;
 }
 
 .cv-demo3-stat-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #202a24;
-}
-
-.cv-demo3-stat-sub {
-  display: block;
-  color: var(--cv-muted);
-  margin-top: 4px;
-  font-size: 11px;
-  line-height: 1.3;
+  font-size: 14px;
+  font-weight: 700;
+  color: #24332b;
 }
 
 .cv-demo3-stat-value {
-  font-size: 21px;
+  font-size: 23px;
   font-weight: 700;
-  color: #202a24;
+  color: #24332b;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
-.cv-demo3-edit-target-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 6px;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--cv-g);
-  background: #e4f4e9;
-  border: 1px solid #cce9d5;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.cv-demo3-edit-target-btn:hover {
-  background: #d1ebd9;
-}
-
-/* ---- Demo 3 Section & Search/Filter Toolbar ---- */
+/* ---- All Tracked CVs Section & Search/Filter Toolbar ---- */
 .cv-demo3-section {
   display: flex;
   flex-direction: column;
@@ -410,23 +413,17 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
   margin: 2px 0;
 }
 
 .cv-demo3-title {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   margin: 0;
-  color: #202a24;
+  color: #24332b;
   font-family: var(--font-body);
-}
-
-.cv-demo3-subtitle {
-  font-size: 12px;
-  color: var(--cv-muted);
-  margin: 3px 0 0 0;
 }
 
 .cv-demo3-toolbar-actions {
@@ -440,20 +437,19 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--cv-g);
+  padding: 9px 13px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #176b45;
   background: #ffffff;
-  border: 1px solid #cbd8cf;
+  border: 1px solid #bcd3c5;
   border-radius: 7px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: filter 0.15s;
 }
 
 .cv-demo3-download-all-btn:hover:not(:disabled) {
-  background: #f4fbf6;
-  border-color: var(--cv-g);
+  filter: brightness(0.97);
 }
 
 .cv-demo3-download-all-btn:disabled {
@@ -515,22 +511,21 @@
   color: var(--cv-muted);
 }
 
-
 .cv-demo3-filters-row {
   display: flex;
-  gap: 8px;
+  gap: 9px;
   flex-wrap: wrap;
 }
 
 .cv-demo3-search-input {
   flex: 1;
-  min-width: 200px;
-  border: 1px solid var(--cv-line);
+  min-width: 220px;
+  border: 1px solid #cbd9d0;
   border-radius: 6px;
-  padding: 7px 10px;
+  padding: 9px 11px;
   background: #ffffff;
-  font-size: 12px;
-  color: #202a24;
+  font-size: 14px;
+  color: #24332b;
   outline: none;
   transition: border-color 0.15s;
 }
@@ -540,15 +535,15 @@
 }
 
 .cv-demo3-filter-select {
-  border: 1px solid var(--cv-line);
+  border: 1px solid #cbd9d0;
   border-radius: 6px;
-  padding: 7px 10px;
+  padding: 9px 11px;
   background: #ffffff;
-  font-size: 12px;
-  color: #202a24;
+  font-size: 14px;
+  color: #24332b;
   outline: none;
   cursor: pointer;
-  min-width: 150px;
+  min-width: 155px;
   transition: border-color 0.15s;
 }
 
@@ -693,12 +688,18 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #4b5563;
-  font-size: 11px;
+  color: #66766d;
+  font-size: 12px;
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.cv-form-hint {
+  font-size: 12px;
+  color: #718078;
+  margin-top: 3px;
 }
 
 .cv-demo3-source-change-link {
@@ -1050,6 +1051,16 @@
 }
 
 /* ---- Responsive Layout ---- */
+@media (max-width: 900px) {
+  .attempt-nav-bar {
+    flex-wrap: wrap;
+  }
+
+  .cv-toolbar-spacer {
+    display: none;
+  }
+}
+
 @media (max-width: 850px) {
   .cv-demo3-stats {
     grid-template-columns: repeat(2, 1fr);

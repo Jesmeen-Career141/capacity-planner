@@ -1037,14 +1037,39 @@ function PositionDetails() {
                       )}
                     </div>
                   </div>
-                  <div className="detail-row">
-                    <span>Activation Date (TA Board)</span>
-                    <span>
+                  <div className="detail-row detail-row--inline">
+                    <span>Activation Date</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                       {position.activatedAt ? (
                         <strong style={{ color: '#065f46' }}>{formatDateShort(position.activatedAt)}</strong>
                       ) : (
-                        <span style={{ color: '#64748b', fontStyle: 'italic' }}>Not yet activated on TA Board</span>
+                        <span style={{ color: '#64748b', fontStyle: 'italic' }}>Not yet activated</span>
                       )}
+                      <input
+                        type="date"
+                        value={(position.activatedAt || '').split('T')[0]}
+                        onChange={async (e) => {
+                          const nextVal = e.target.value || null;
+                          try {
+                            const res = await updatePosition(id, {
+                              activatedAt: nextVal,
+                              activationDateManuallyOverridden: true
+                            });
+                            setPosition(res.data);
+                            setFormData(res.data);
+                          } catch (err) {
+                            alert(err.response?.data?.error || 'Failed to update Activation Date');
+                          }
+                        }}
+                        style={{
+                          padding: '2px 6px',
+                          fontSize: '12px',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '4px',
+                          color: '#334155'
+                        }}
+                        title="Edit Activation Date"
+                      />
                     </span>
                   </div>
                   <div className="detail-row">
@@ -1055,9 +1080,48 @@ function PositionDetails() {
                     <span>LS Count</span>
                     <span>{position.lsCount ?? '—'}</span>
                   </div>
-                  <div className="detail-row">
-                    <span>CV Count</span>
-                    <span>{position.cvCount ?? '—'}</span>
+                  <div className="detail-row" style={{ alignItems: 'flex-start' }}>
+                    <span>CV Count (Int Shortlist)</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                      <strong>{position.cvCount ?? '—'}</strong>
+                      {Array.isArray(position.submissionSets) && position.submissionSets.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'flex-end' }}>
+                          {position.submissionSets.map(set => (
+                            <span
+                              key={set._id || set.submissionSetId || set.setNumber}
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                padding: '1px 6px',
+                                borderRadius: '999px',
+                                backgroundColor: '#ecfdf5',
+                                color: '#065f46',
+                                border: '1px solid #a7f3d0'
+                              }}
+                              title={`${set.submissionSetId || set.setNumber} — ${set.cvCount || 0} CVs`}
+                            >
+                              {set.setNumber}: {set.cvCount || 0}
+                            </span>
+                          ))}
+                          {position.unassignedCvCount > 0 && (
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 500,
+                                padding: '1px 6px',
+                                borderRadius: '999px',
+                                backgroundColor: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #cbd5e1'
+                              }}
+                              title="CVs not assigned to a specific Submission Set"
+                            >
+                              Other: {position.unassignedCvCount}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div className="detail-row">
                     <span>Ext Shortlist</span>
@@ -1148,7 +1212,7 @@ function PositionDetails() {
       {/* ============================================================== */}
       {activeTab === 'cvs' && (
         <div className="pd-tab-content">
-          <CandidateCvSection position={position} tas={tas} />
+          <CandidateCvSection position={position} tas={tas} onUpdate={fetchData} />
         </div>
       )}
 

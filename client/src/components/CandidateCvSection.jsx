@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
   Lock,
@@ -12,7 +13,8 @@ import {
   AlertTriangle,
   Layers,
   Calendar,
-  ExternalLink
+  ExternalLink,
+  Trash2
 } from 'lucide-react';
 import {
   getAttempts,
@@ -27,7 +29,9 @@ import {
 } from '../api/cvs';
 import {
   getPositionSets,
-  createSubmissionSet
+  createSubmissionSet,
+  createSetWithUpload,
+  deleteSubmissionSet
 } from '../api/submissionSets';
 import AttemptMetricsCard from './AttemptMetricsCard';
 import CvUploadDropzone from './CvUploadDropzone';
@@ -38,7 +42,19 @@ import './CandidateCvSection.css';
  * CandidateCvSection
  * Main container for the CV Tracking tab inside PositionDetailModal.
  */
-export default function CandidateCvSection({ position, tas = [] }) {
+export default function CandidateCvSection({ position, tas = [], onUpdate }) {
+  const queryClient = useQueryClient();
+
+  const notifyParentAndRefreshCache = useCallback(() => {
+    try {
+      queryClient.invalidateQueries({ queryKey: ['positions'] });
+      queryClient.invalidateQueries({ queryKey: ['submission-sets'] });
+    } catch (_) {}
+    if (typeof onUpdate === 'function') {
+      onUpdate();
+    }
+  }, [queryClient, onUpdate]);
+
   // Attempt state
   const [attempts, setAttempts] = useState([]);
   const [selectedAttemptId, setSelectedAttemptId] = useState(null);
@@ -57,7 +73,22 @@ export default function CandidateCvSection({ position, tas = [] }) {
   // Submission Sets state
   const [positionSets, setPositionSets] = useState([]);
   const [selectedSetFilter, setSelectedSetFilter] = useState('ALL');
-  const [targetUploadSetId, setTargetUploadSetId] = useState('');
+  const [targetUploadSetId, setTargetUploadSetId] = useState('NEW_SET');
+  const [newSetSentDate, setNewSetSentDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [creatingEmptySet, setCreatingEmptySet] = useState(false);
+
+  // Create Submission Set modal state
+  const [showCreateSetModal, setShowCreateSetModal] = useState(false);
+  const [createSetData, setCreateSetData] = useState({
+    sentToClientAt: new Date().toISOString().split('T')[0],
+    sourcingTAs: [],
+    qualityRating: 'Not Rated',
+    notes: ''
+  });
+  const [createSetFiles, setCreateSetFiles] = useState([]);
+  const [createSetClientErrors, setCreateSetClientErrors] = useState([]);
+  const [createSetServerError, setCreateSetServerError] = useState(null);
+  const [creatingSetWithUpload, setCreatingSetWithUpload] = useState(false);
 
   // Modal dialog states
   const [showTargetModal, setShowTargetModal] = useState(false);
@@ -90,6 +121,12 @@ export default function CandidateCvSection({ position, tas = [] }) {
 
   const [deleteModalCandidate, setDeleteModalCandidate] = useState(null);
   const [deletingCandidate, setDeletingCandidate] = useState(false);
+
+  // Delete Submission Set modal state
+  const [deleteTargetSet, setDeleteTargetSet] = useState(null);
+  const [deleteSetWithCvs, setDeleteSetWithCvs] = useState(true);
+  const [deletingSet, setDeletingSet] = useState(false);
+  const [deleteSetError, setDeleteSetError] = useState(null);
 
   // Withdrawal modal state
   const [withdrawalModalCandidate, setWithdrawalModalCandidate] = useState(null);
@@ -257,12 +294,14 @@ export default function CandidateCvSection({ position, tas = [] }) {
     if (isReadOnly || !selectedAttempt) return;
     const currentPrimary = selectedAttempt.primaryTA
       ? String(selectedAttempt.primaryTA._id || selectedAttempt.primaryTA)
-      : '';
-    const currentSupporting = Array.isArray(selectedAttempt.supportingTAs)
-      ? selectedAttempt.supportingTAs
-          .map(t => String(t?._id || t))
-          .filter(id => id && id !== currentPrimary)
-      : [];
+      : (position?.assignee?._id ? String(position.assignee._id) : '');
+    const rawSup =
+      Array.isArray(selectedAttempt.supportingTAs) && selectedAttempt.supportingTAs.length > 0
+        ? selectedAttempt.supportingTAs
+        : (Array.isArray(position?.parallelAssignees) ? position.parallelAssignees : []);
+    const currentSupporting = rawSup
+      .map(t => String(t?._id || t))
+      .filter(id => id && id !== currentPrimary);
     setEditTasData({
       primaryTA: currentPrimary,
       supportingTAs: currentSupporting
@@ -355,6 +394,9 @@ export default function CandidateCvSection({ position, tas = [] }) {
     }
     if (targetUploadSetId) {
       formData.append('submissionSetId', targetUploadSetId);
+      if (targetUploadSetId === 'NEW_SET' && newSetSentDate) {
+        formData.append('sentToClientAt', newSetSentDate);
+      }
     }
 
     try {
@@ -364,11 +406,16 @@ export default function CandidateCvSection({ position, tas = [] }) {
       // Reload fresh submissions and sets from backend to ensure consistent population
       await loadSubmissions();
       await loadPositionSets();
+      if (data?.set?._id) {
+        setTargetUploadSetId(data.set._id);
+      }
+      notifyParentAndRefreshCache();
 
       setUploadFeedback({
         successfulCount: data.successful?.length || 0,
         failedCount: data.failed?.length || 0,
-        failed: data.failed || []
+        failed: data.failed || [],
+        setNumber: data?.set?.setNumber || null
       });
     } catch (err) {
       const responseData = err.response?.data;
@@ -402,6 +449,128 @@ export default function CandidateCvSection({ position, tas = [] }) {
     }
   };
 
+  // 5b. Handle Create Submission Set Modal ("+ Create Next Set")
+  const handleOpenCreateSetModal = () => {
+    if (isReadOnly) return;
+    setCreateSetServerError(null);
+    setCreateSetClientErrors([]);
+    setCreateSetFiles([]);
+    setCreateSetData({
+      sentToClientAt: new Date().toISOString().split('T')[0],
+      sourcingTAs: [],
+      qualityRating: 'Not Rated',
+      notes: ''
+    });
+    setShowCreateSetModal(true);
+  };
+
+  const handleAddCreateSetSourcingTA = (taId) => {
+    if (!taId) return;
+    setCreateSetData(prev => {
+      if (prev.sourcingTAs.includes(taId)) return prev;
+      return { ...prev, sourcingTAs: [...prev.sourcingTAs, taId] };
+    });
+  };
+
+  const handleRemoveCreateSetSourcingTA = (taId) => {
+    setCreateSetData(prev => ({
+      ...prev,
+      sourcingTAs: prev.sourcingTAs.filter(id => id !== taId)
+    }));
+  };
+
+  const handleCreateSetFilesChange = (e) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    const allowedExts = ['.pdf', '.doc', '.docx'];
+    const allowedMimes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    const maxBytes = 10 * 1024 * 1024;
+    const valid = [];
+    const errors = [];
+
+    Array.from(fileList).forEach(file => {
+      const ext = '.' + file.name.split('.').pop().toLowerCase();
+      const isExtAllowed = allowedExts.includes(ext);
+      const isMimeAllowed = !file.type || allowedMimes.includes(file.type);
+      if (!isExtAllowed || !isMimeAllowed) {
+        errors.push(`${file.name}: Invalid format. Allowed: PDF, DOC, DOCX.`);
+        return;
+      }
+      if (file.size > maxBytes) {
+        errors.push(`${file.name}: Exceeds 10 MB limit (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
+        return;
+      }
+      valid.push(file);
+    });
+
+    setCreateSetClientErrors(errors);
+    if (valid.length > 0) {
+      setCreateSetFiles(prev => [...prev, ...valid]);
+    }
+  };
+
+  const handleRemoveCreateSetFile = (index) => {
+    setCreateSetFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmitCreateSet = async (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    if (!position?._id) return;
+    if (!createSetData.sentToClientAt) {
+      setCreateSetServerError('Please specify the date CVs were sent to the client.');
+      return;
+    }
+    if (createSetFiles.length === 0) {
+      setCreateSetServerError('Please select at least one CV file.');
+      return;
+    }
+
+    setCreatingSetWithUpload(true);
+    setCreateSetServerError(null);
+    setUploadFeedback(null);
+
+    const formData = new FormData();
+    formData.append('positionId', position._id);
+    formData.append('sentToClientAt', createSetData.sentToClientAt);
+    createSetData.sourcingTAs.forEach(id => formData.append('sourcingTAs[]', id));
+    formData.append('sourcingTAs', JSON.stringify(createSetData.sourcingTAs));
+    formData.append('qualityRating', createSetData.qualityRating || 'Not Rated');
+    formData.append('notes', createSetData.notes || '');
+    createSetFiles.forEach(file => {
+      formData.append('files', file);
+    });
+
+    try {
+      const res = await createSetWithUpload(formData);
+      const data = res.data;
+
+      setShowCreateSetModal(false);
+      await Promise.all([loadSubmissions(), loadPositionSets()]);
+      notifyParentAndRefreshCache();
+
+      setUploadFeedback({
+        successfulCount: data?.successful?.length || data?.summary?.succeeded || 0,
+        failedCount: data?.failed?.length || data?.summary?.failed || 0,
+        failed: data?.failed || [],
+        setNumber: data?.set?.setNumber || null
+      });
+    } catch (err) {
+      const respData = err.response?.data;
+      if (respData?.failed && Array.isArray(respData.failed) && respData.failed.length > 0) {
+        const failureDetails = respData.failed.map(f => `${f.fileName}: ${f.error}`).join(' | ');
+        setCreateSetServerError(`${respData.error || 'Upload failed'}: ${failureDetails}`);
+      } else {
+        setCreateSetServerError(respData?.error || err.message || 'Failed to create submission set.');
+      }
+    } finally {
+      setCreatingSetWithUpload(false);
+    }
+  };
+
   // 6. Handle Download
   const handleDownloadCv = async (submissionId) => {
     try {
@@ -423,6 +592,8 @@ export default function CandidateCvSection({ position, tas = [] }) {
       await deleteSubmission(deleteModalCandidate._id);
       setSubmissions(prev => (Array.isArray(prev) ? prev : []).filter(s => s._id !== deleteModalCandidate._id));
       setDeleteModalCandidate(null);
+      await loadPositionSets();
+      notifyParentAndRefreshCache();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to delete CV submission.');
     } finally {
@@ -452,6 +623,8 @@ export default function CandidateCvSection({ position, tas = [] }) {
       setSubmissions(prev =>
         (Array.isArray(prev) ? prev : []).map(s => (s._id === updated._id ? updated : s))
       );
+      await loadPositionSets();
+      notifyParentAndRefreshCache();
     } catch (err) {
       // Revert on error
       setSubmissions(previous);
@@ -540,6 +713,7 @@ export default function CandidateCvSection({ position, tas = [] }) {
         );
       }
       setWithdrawalModalCandidate(null);
+      notifyParentAndRefreshCache();
     } catch (err) {
       // Revert on error
       setSubmissions(previous);
@@ -595,8 +769,13 @@ export default function CandidateCvSection({ position, tas = [] }) {
     ? (resolveTaName(selectedAttempt.primaryTA) || position?.assignee?.name || null)
     : null;
 
-  const selectedSupportingTaNames = selectedAttempt && Array.isArray(selectedAttempt.supportingTAs)
-    ? selectedAttempt.supportingTAs.map(resolveTaName).filter(Boolean)
+  const rawSupportingTas =
+    selectedAttempt && Array.isArray(selectedAttempt.supportingTAs) && selectedAttempt.supportingTAs.length > 0
+      ? selectedAttempt.supportingTAs
+      : (Array.isArray(position?.parallelAssignees) ? position.parallelAssignees : []);
+
+  const selectedSupportingTaNames = selectedAttempt
+    ? rawSupportingTas.map(resolveTaName).filter(name => name && name !== selectedPrimaryTaName)
     : [];
 
   const effectiveNewAttemptPrimaryId = String(newAttemptData.primaryTA || position?.assignee?._id || '');
@@ -634,74 +813,90 @@ export default function CandidateCvSection({ position, tas = [] }) {
     });
   };
 
+  const clientDisplayName = position?.client?.clientName || position?.clientName || '';
+  const positionDisplayName = position?.position || '';
+  const positionOptionLabel = clientDisplayName && positionDisplayName
+    ? `${clientDisplayName} — ${positionDisplayName}`
+    : (positionDisplayName || position?.jobOrderId || 'Position');
+
   return (
     <div className="cv-section-wrapper">
-      {/* Attempt Navigation Row */}
-      <div className="attempt-nav-bar">
-        <div className="attempt-selector-group">
-          <label htmlFor="attempt-select-input" className="attempt-selector-label">Recruitment Cycle:</label>
-          {attemptsList.length === 0 ? (
-            <span className="text-muted text-sm italic">No attempts created yet</span>
-          ) : (
-            <select
-              id="attempt-select-input"
-              value={selectedAttemptId || ''}
-              onChange={(e) => setSelectedAttemptId(e.target.value)}
-              className="attempt-select"
-            >
-              {attemptsList.map((att) => (
-                <option key={att._id} value={att._id}>
-                  Attempt #{att.attemptNumber} ({att.status}) — Target: {att.requiredGoodCvTarget || 0}
-                </option>
-              ))}
-            </select>
-          )}
+      {/* Recruitment Cycle Toolbar */}
+      <section className="attempt-nav-bar">
+        {attemptsList.length === 0 ? (
+          <span className="text-muted text-sm italic">No attempts created yet</span>
+        ) : (
+          <select
+            id="attempt-select-input"
+            aria-label="Recruitment attempt"
+            value={selectedAttemptId || ''}
+            onChange={(e) => setSelectedAttemptId(e.target.value)}
+            className="attempt-select"
+          >
+            {attemptsList.map((att) => (
+              <option key={att._id} value={att._id}>
+                Attempt {String(att.attemptNumber).padStart(2, '0')}
+              </option>
+            ))}
+          </select>
+        )}
 
-          {selectedAttempt && (
-            <span
-              className={`attempt-status-badge attempt-status-badge--${selectedAttempt.status.toLowerCase()}`}
-            >
-              {selectedAttempt.status === 'Active' ? '● Active' : selectedAttempt.status}
-            </span>
-          )}
+        <button
+          type="button"
+          className="cv-toolbar-btn cv-toolbar-add-attempt-btn"
+          title="Add a recruitment attempt"
+          onClick={handleOpenNewAttemptModal}
+        >
+          ＋
+        </button>
 
-          {selectedAttempt && (selectedPrimaryTaName || selectedSupportingTaNames.length > 0 || (!isReadOnly && tas.length > 0)) && (
-            <span className="attempt-ta-summary">
-              {selectedPrimaryTaName && (
-                <span className="attempt-ta-item">
-                  Primary TA: <strong>{selectedPrimaryTaName}</strong>
-                </span>
-              )}
-              {selectedSupportingTaNames.length > 0 && (
-                <span className="attempt-ta-item">
-                  {selectedPrimaryTaName ? ' · ' : ''}Supporting: <strong>{selectedSupportingTaNames.join(', ')}</strong>
-                </span>
-              )}
-              {!isReadOnly && tas.length > 0 && (
-                <button
-                  type="button"
-                  className="attempt-ta-edit-link"
-                  onClick={handleOpenEditTasModal}
-                  title="Edit Primary and Supporting TAs for this attempt"
-                >
-                  {selectedPrimaryTaName || selectedSupportingTaNames.length > 0 ? 'Edit TAs' : 'Assign TAs'}
-                </button>
-              )}
-            </span>
-          )}
-        </div>
+        {selectedAttempt && (
+          <span
+            className={`attempt-status-badge attempt-status-badge--${selectedAttempt.status.toLowerCase()}`}
+          >
+            {selectedAttempt.status === 'Active' ? '● Active' : selectedAttempt.status}
+          </span>
+        )}
 
-        <div>
+        {selectedAttempt && (selectedPrimaryTaName || selectedSupportingTaNames.length > 0 || (!isReadOnly && tas.length > 0)) && (
+          <div
+            className="ta-names"
+            role={!isReadOnly ? 'button' : undefined}
+            tabIndex={!isReadOnly ? 0 : undefined}
+            title={!isReadOnly ? 'Click to edit assigned TAs' : undefined}
+            onClick={!isReadOnly ? handleOpenEditTasModal : undefined}
+            onKeyDown={!isReadOnly ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleOpenEditTasModal();
+              }
+            } : undefined}
+            style={isReadOnly ? { cursor: 'default' } : undefined}
+          >
+            {selectedPrimaryTaName && (
+              <span className="ta-primary">{selectedPrimaryTaName}</span>
+            )}
+            {selectedSupportingTaNames.length > 0 && (
+              <span className="ta-parallel">{selectedSupportingTaNames.join(', ')}</span>
+            )}
+            {!selectedPrimaryTaName && selectedSupportingTaNames.length === 0 && !isReadOnly && (
+              <span className="ta-parallel">Assign TAs</span>
+            )}
+          </div>
+        )}
+
+        <span className="cv-toolbar-spacer" />
+
+        {selectedAttempt && !isReadOnly && (
           <button
             type="button"
-            className="btn-new-attempt"
-            onClick={handleOpenNewAttemptModal}
+            className="cv-toolbar-btn"
+            onClick={handleOpenCreateSetModal}
           >
-            <Plus size={14} />
-            <span>{attemptsList.length === 0 ? 'Start Attempt 1' : 'Start New Attempt'}</span>
+            ＋ Create Next Set
           </button>
-        </div>
-      </div>
+        )}
+      </section>
 
       {/* Historical Attempt Read-Only Notice */}
       {isReadOnly && selectedAttempt && (
@@ -749,53 +944,6 @@ export default function CandidateCvSection({ position, tas = [] }) {
         </div>
       )}
 
-      {/* CV Upload Dropzone (Demo 3 top upload area) */}
-      {selectedAttempt && positionSets.length > 0 && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          fontSize: '12px',
-          color: '#475569',
-          padding: '6px 12px',
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: '6px'
-        }}>
-          <span style={{ fontWeight: 600 }}>Target Submission Set:</span>
-          <select
-            value={targetUploadSetId}
-            onChange={e => setTargetUploadSetId(e.target.value)}
-            style={{
-              padding: '4px 8px',
-              fontSize: '12px',
-              border: '1px solid #cbd5e1',
-              borderRadius: '4px',
-              background: '#ffffff',
-              color: '#1e293b'
-            }}
-          >
-            <option value="">General Upload (Auto / Legacy)</option>
-            {positionSets.map(s => (
-              <option key={s._id} value={s._id}>
-                {s.setNumber} ({s.submissionSetId}) — Sent {s.sentToClientAt ? new Date(s.sentToClientAt).toLocaleDateString() : '—'}
-              </option>
-            ))}
-          </select>
-          <span style={{ fontSize: '11px', color: '#64748b' }}>
-            {targetUploadSetId ? 'CVs will be attached to this batch' : 'Or create new sets in the Sets tab'}
-          </span>
-        </div>
-      )}
-
-      {selectedAttempt && (
-        <CvUploadDropzone
-          onUpload={handleUploadFiles}
-          disabled={isReadOnly}
-          isUploading={isUploading}
-        />
-      )}
-
       {/* Upload Feedback Notice */}
       {uploadFeedback && (
         <div
@@ -809,6 +957,7 @@ export default function CandidateCvSection({ position, tas = [] }) {
             <span className="flex items-center gap-1.5">
               {uploadFeedback.failedCount > 0 ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
               Upload Results: {uploadFeedback.successfulCount} successful
+              {uploadFeedback.setNumber ? ` in ${uploadFeedback.setNumber}` : ''}
               {uploadFeedback.failedCount > 0 ? `, ${uploadFeedback.failedCount} rejected` : ''}
             </span>
             <button
@@ -831,7 +980,7 @@ export default function CandidateCvSection({ position, tas = [] }) {
         </div>
       )}
 
-      {/* Metrics Summary Bar (Demo 3 3-card stats row) */}
+      {/* Metrics Summary Cards */}
       {selectedAttempt && (
         <AttemptMetricsCard
           attempt={selectedAttempt}
@@ -841,71 +990,7 @@ export default function CandidateCvSection({ position, tas = [] }) {
         />
       )}
 
-      {/* Submission Sets Filter Sub-Bar */}
-      {selectedAttempt && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '10px',
-          padding: '8px 12px',
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: '8px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 700, color: '#166534' }}>
-              <Layers size={14} /> Sets Filter:
-            </span>
-            <button
-              type="button"
-              className={`sets-toggle-btn ${selectedSetFilter === 'ALL' ? 'active' : ''}`}
-              onClick={() => setSelectedSetFilter('ALL')}
-            >
-              All Submissions ({submissionsList.length})
-            </button>
-            {positionSets.map(set => (
-              <button
-                key={set._id}
-                type="button"
-                className={`sets-toggle-btn ${selectedSetFilter === set._id ? 'active' : ''}`}
-                onClick={() => setSelectedSetFilter(set._id)}
-                title={`Sent to client: ${set.sentToClientAt ? new Date(set.sentToClientAt).toLocaleDateString() : '—'}`}
-              >
-                {set.setNumber} ({set.cvCount || 0})
-              </button>
-            ))}
-            {submissionsList.some(s => !s.submissionSet && !s.setNumber) && (
-              <button
-                type="button"
-                className={`sets-toggle-btn ${selectedSetFilter === 'UNASSIGNED' ? 'active' : ''}`}
-                onClick={() => setSelectedSetFilter('UNASSIGNED')}
-                title="CVs not linked to a specific set"
-              >
-                Unassigned ({submissionsList.filter(s => !s.submissionSet && !s.setNumber).length})
-              </button>
-            )}
-          </div>
-
-          <Link
-            to={`/submission-sets?position=${position._id}`}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '11px',
-              fontWeight: 600,
-              color: '#2d6a4f',
-              textDecoration: 'none'
-            }}
-          >
-            Manage in Sets Hub <ExternalLink size={12} />
-          </Link>
-        </div>
-      )}
-
-      {/* 4-Stage Workflow Pipeline */}
+      {/* All Tracked CVs Table & Filters */}
       {selectedAttempt && (
         <>
           {loadingSubmissions ? (
@@ -918,7 +1003,8 @@ export default function CandidateCvSection({ position, tas = [] }) {
               position={position}
               selectedAttempt={selectedAttempt}
               tas={tas}
-              submissions={displayedSubmissions}
+              positionSets={positionSets}
+              submissions={submissionsList}
               isReadOnly={isReadOnly}
               target={selectedAttempt?.requiredGoodCvTarget || 0}
               onUpdateStatus={handleUpdateStatus}
@@ -942,6 +1028,228 @@ export default function CandidateCvSection({ position, tas = [] }) {
             />
           )}
         </>
+      )}
+
+      {/* Create Submission Set Modal ("+ Create Next Set") */}
+      {showCreateSetModal && (
+        <div
+          className="cv-submodal-overlay"
+          onClick={() => !creatingSetWithUpload && setShowCreateSetModal(false)}
+        >
+          <div className="cv-submodal cv-create-set-modal" onClick={e => e.stopPropagation()}>
+            <div className="cv-submodal-header">
+              <h3>＋ Create Submission Set</h3>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setShowCreateSetModal(false)}
+                disabled={creatingSetWithUpload}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleSubmitCreateSet} className="cv-submodal-body">
+              {createSetServerError && (
+                <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                  {createSetServerError}
+                </div>
+              )}
+
+              <div className="cv-form-field">
+                <label htmlFor="create-set-position-select">Position / Job Order *</label>
+                <select
+                  id="create-set-position-select"
+                  value={position?._id || ''}
+                  disabled
+                  className="cv-form-input"
+                >
+                  <option value={position?._id || ''}>{positionOptionLabel}</option>
+                </select>
+              </div>
+
+              <div className="cv-form-field">
+                <label htmlFor="create-set-sent-date">Date Sent to Client *</label>
+                <input
+                  id="create-set-sent-date"
+                  type="date"
+                  value={createSetData.sentToClientAt}
+                  onChange={e => setCreateSetData(prev => ({ ...prev, sentToClientAt: e.target.value }))}
+                  className="cv-form-input"
+                  required
+                  disabled={creatingSetWithUpload}
+                />
+                <div className="cv-form-hint">
+                  Actual date the CVs were emailed or transmitted to the client.
+                </div>
+              </div>
+
+              <div className="cv-form-field">
+                <label htmlFor="create-set-upload-date">System Upload Date</label>
+                <input
+                  id="create-set-upload-date"
+                  type="text"
+                  value="Now (auto-timestamped)"
+                  disabled
+                  className="cv-form-input"
+                />
+              </div>
+
+              <div className="cv-form-field">
+                <label htmlFor="create-set-sourcing-tas">Sourcing TAs</label>
+                <select
+                  id="create-set-sourcing-tas"
+                  value=""
+                  onChange={e => handleAddCreateSetSourcingTA(e.target.value)}
+                  className="cv-form-input"
+                  disabled={creatingSetWithUpload}
+                >
+                  <option value="">Select a sourcing TA to add…</option>
+                  {(Array.isArray(tas) ? tas : [])
+                    .filter(t => !createSetData.sourcingTAs.includes(String(t._id)))
+                    .map(t => (
+                      <option key={t._id} value={String(t._id)}>
+                        {t.name}
+                      </option>
+                    ))}
+                </select>
+                {createSetData.sourcingTAs.length > 0 && (
+                  <div className="cv-supporting-tas-selector" style={{ marginTop: '4px' }}>
+                    {createSetData.sourcingTAs.map(id => {
+                      const taObj = (Array.isArray(tas) ? tas : []).find(t => String(t._id) === String(id));
+                      return (
+                        <span key={id} className="cv-ta-chip cv-ta-chip--selected">
+                          <span>{taObj?.name || 'TA'}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCreateSetSourcingTA(id)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#14704a',
+                              cursor: 'pointer',
+                              padding: '0 2px',
+                              fontWeight: 700,
+                              lineHeight: 1
+                            }}
+                            title="Remove TA"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="cv-form-field">
+                <label htmlFor="create-set-quality">Quality Rating</label>
+                <select
+                  id="create-set-quality"
+                  value={createSetData.qualityRating}
+                  onChange={e => setCreateSetData(prev => ({ ...prev, qualityRating: e.target.value }))}
+                  className="cv-form-input"
+                  disabled={creatingSetWithUpload}
+                >
+                  <option value="Not Rated">Not Rated</option>
+                  <option value="Good">Good</option>
+                  <option value="Optional">Optional</option>
+                </select>
+              </div>
+
+              <div className="cv-form-field">
+                <label htmlFor="create-set-notes">Batch Notes</label>
+                <input
+                  id="create-set-notes"
+                  type="text"
+                  value={createSetData.notes}
+                  onChange={e => setCreateSetData(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Optional notes"
+                  className="cv-form-input"
+                  disabled={creatingSetWithUpload}
+                />
+              </div>
+
+              <div className="cv-form-field">
+                <label htmlFor="create-set-files">CV Files (.pdf, .doc, .docx up to 10MB) *</label>
+                <input
+                  id="create-set-files"
+                  type="file"
+                  multiple
+                  accept=".pdf,.doc,.docx"
+                  onChange={handleCreateSetFilesChange}
+                  className="cv-form-input"
+                  disabled={creatingSetWithUpload}
+                />
+                {createSetClientErrors.length > 0 && (
+                  <div className="cv-upload-errors" style={{ marginTop: '4px' }}>
+                    <ul className="cv-upload-errors-list">
+                      {createSetClientErrors.map((errMsg, idx) => (
+                        <li key={idx}>{errMsg}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {createSetFiles.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                    {createSetFiles.map((f, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          fontSize: '12px',
+                          padding: '4px 8px',
+                          background: '#f5f8f6',
+                          borderRadius: '4px',
+                          border: '1px solid #d8e4dc'
+                        }}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {f.name} ({(f.size / 1024).toFixed(0)} KB)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCreateSetFile(idx)}
+                          disabled={creatingSetWithUpload}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#68766e',
+                            cursor: 'pointer',
+                            fontWeight: 700,
+                            padding: '0 4px'
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="cv-submodal-footer" style={{ margin: '6px -20px -18px', borderBottomLeftRadius: '12px', borderBottomRightRadius: '12px' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setShowCreateSetModal(false)}
+                  disabled={creatingSetWithUpload}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={creatingSetWithUpload}
+                >
+                  {creatingSetWithUpload ? 'Creating...' : 'Create Set'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* ============================================================
@@ -1441,6 +1749,130 @@ export default function CandidateCvSection({ position, tas = [] }) {
                 onClick={handleConfirmWithdrawal}
               >
                 {savingWithdrawal ? 'Recording...' : 'Confirm Withdrawal'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Delete Submission Set Confirmation Modal */}
+      {deleteTargetSet && (
+        <div
+          className="cv-submodal-overlay"
+          onClick={() => !deletingSet && setDeleteTargetSet(null)}
+        >
+          <div className="cv-submodal" onClick={e => e.stopPropagation()}>
+            <div className="cv-submodal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#991b1b' }}>
+                <Trash2 size={16} style={{ color: '#dc2626' }} />
+                Delete {deleteTargetSet.setNumber} ({deleteTargetSet.submissionSetId})
+              </h3>
+              <button
+                type="button"
+                className="modal-close-btn"
+                disabled={deletingSet}
+                onClick={() => setDeleteTargetSet(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="cv-submodal-body">
+              {deleteSetError && (
+                <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                  {deleteSetError}
+                </div>
+              )}
+
+              <p className="text-sm text-gray-700">
+                Are you sure you want to delete <strong>{deleteTargetSet.setNumber}</strong> for{' '}
+                <strong>{position?.jobOrderId}</strong>?
+              </p>
+
+              {(deleteTargetSet.cvCount > 0) && (
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: '6px',
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>
+                    This set contains {deleteTargetSet.cvCount} CV{deleteTargetSet.cvCount !== 1 ? 's' : ''}:
+                  </span>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '12px', color: '#1e293b', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="cvModalDeleteSetMode"
+                      checked={deleteSetWithCvs}
+                      onChange={() => setDeleteSetWithCvs(true)}
+                      style={{ marginTop: '2px' }}
+                    />
+                    <span>
+                      <strong>Delete Set & all {deleteTargetSet.cvCount} CV(s)</strong>
+                      <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>
+                        Removes the set and its CVs and updates Position Shortlist counts.
+                      </span>
+                    </span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '12px', color: '#1e293b', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="cvModalDeleteSetMode"
+                      checked={!deleteSetWithCvs}
+                      onChange={() => setDeleteSetWithCvs(false)}
+                      style={{ marginTop: '2px' }}
+                    />
+                    <span>
+                      <strong>Delete Set only (keep CVs as Unassigned)</strong>
+                      <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>
+                        Deletes the set batch but keeps the {deleteTargetSet.cvCount} CV(s) in the pipeline.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
+            <div className="cv-submodal-footer">
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={deletingSet}
+                onClick={() => setDeleteTargetSet(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={deletingSet}
+                onClick={async () => {
+                  setDeletingSet(true);
+                  setDeleteSetError(null);
+                  try {
+                    await deleteSubmissionSet(deleteTargetSet._id, { deleteCvs: deleteSetWithCvs });
+                    if (selectedSetFilter === deleteTargetSet._id) {
+                      setSelectedSetFilter('ALL');
+                    }
+                    if (targetUploadSetId === deleteTargetSet._id) {
+                      setTargetUploadSetId('NEW_SET');
+                    }
+                    setDeleteTargetSet(null);
+                    await Promise.all([loadPositionSets(), loadSubmissions()]);
+                    notifyParentAndRefreshCache();
+                  } catch (err) {
+                    setDeleteSetError(err.response?.data?.error || err.message || 'Failed to delete submission set.');
+                  } finally {
+                    setDeletingSet(false);
+                  }
+                }}
+              >
+                {deletingSet
+                  ? 'Deleting...'
+                  : (deleteSetWithCvs && deleteTargetSet.cvCount > 0
+                      ? `Delete Set & ${deleteTargetSet.cvCount} CV(s)`
+                      : 'Delete Set')}
               </button>
             </div>
           </div>

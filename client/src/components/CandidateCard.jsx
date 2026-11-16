@@ -36,6 +36,7 @@ export default function CandidateCard({
   candidate,
   selectedAttempt = null,
   tas = [],
+  positionSets = [],
   isReadOnly = false,
   onUpdateStatus,
   onDelete,
@@ -87,28 +88,48 @@ export default function CandidateCard({
     return list;
   }, [selectedAttempt, tas]);
 
-  // Resolve explicitly recorded sourcing attribution (never defaulted to primaryTA or submittedBy)
-  const { sourcedById, sourcedByName } = useMemo(() => {
+  // Resolve explicitly recorded sourcing attribution (or set-level sourcing TAs when multiple TAs sourced the set)
+  const { sourcedById, sourcedByName, displaySourcedName } = useMemo(() => {
+    const allTas = Array.isArray(tas) ? tas : [];
     const raw = candidate?.sourcedBy;
-    if (!raw) return { sourcedById: '', sourcedByName: null };
-    const idStr = String(raw._id || raw);
-    if (!idStr) return { sourcedById: '', sourcedByName: null };
-    const name =
-      (typeof raw === 'object' && raw.name) ||
-      assignedTAs.find(t => t._id === idStr)?.name ||
-      (Array.isArray(tas) ? tas : []).find(t => String(t._id) === idStr)?.name ||
-      null;
-    return { sourcedById: idStr, sourcedByName: name };
-  }, [candidate?.sourcedBy, assignedTAs, tas]);
+    if (raw) {
+      const idStr = String(raw._id || raw);
+      if (idStr) {
+        const name =
+          (typeof raw === 'object' && raw.name) ||
+          assignedTAs.find(t => t._id === idStr)?.name ||
+          allTas.find(t => String(t._id) === idStr)?.name ||
+          null;
+        if (name) {
+          return { sourcedById: idStr, sourcedByName: name, displaySourcedName: name };
+        }
+      }
+    }
 
-  // Resolve uploading TA attribution
-  const submittedByName = useMemo(() => {
-    const raw = candidate?.submittedBy;
-    if (!raw) return null;
-    if (typeof raw === 'object' && raw.name) return raw.name;
-    const idStr = String(raw._id || raw);
-    return (Array.isArray(tas) ? tas : []).find(t => String(t._id) === idStr)?.name || null;
-  }, [candidate?.submittedBy, tas]);
+    // Check set-level sourcingTAs if candidate belongs to a submission set with sourcingTAs
+    const safeSets = Array.isArray(positionSets) ? positionSets : [];
+    const candidateSetId = candidate?.submissionSet?._id || candidate?.submissionSet;
+    const matchedSet = safeSets.find(
+      s =>
+        (candidateSetId && String(s._id) === String(candidateSetId)) ||
+        (candidate?.setNumber && s.setNumber === candidate.setNumber)
+    );
+    if (matchedSet && Array.isArray(matchedSet.sourcingTAs) && matchedSet.sourcingTAs.length > 0) {
+      const names = matchedSet.sourcingTAs
+        .map(t => {
+          if (!t) return null;
+          if (typeof t === 'object' && t.name) return t.name;
+          const idStr = String(t._id || t);
+          return allTas.find(item => String(item._id) === idStr)?.name || null;
+        })
+        .filter(Boolean);
+      if (names.length > 0) {
+        return { sourcedById: '', sourcedByName: null, displaySourcedName: names.join(', ') };
+      }
+    }
+
+    return { sourcedById: '', sourcedByName: null, displaySourcedName: null };
+  }, [candidate?.sourcedBy, candidate?.submissionSet, candidate?.setNumber, assignedTAs, tas, positionSets]);
 
   // Close actions menu on click outside or Escape key
   useEffect(() => {
@@ -165,7 +186,11 @@ export default function CandidateCard({
     if (isReadOnly || isUpdatingRating || candidate.qualityRating === newRating) return;
     setIsUpdatingRating(true);
     try {
-      await onUpdateStatus(candidate._id, { qualityRating: newRating });
+      const payload = { qualityRating: newRating };
+      if (candidate.internalShortlistStatus !== 'Shortlisted' && newRating !== 'Not Rated') {
+        payload.internalShortlistStatus = 'Shortlisted';
+      }
+      await onUpdateStatus(candidate._id, payload);
     } finally {
       setIsUpdatingRating(false);
     }
@@ -268,31 +293,26 @@ export default function CandidateCard({
             <span> · Withdrawn {withdrawalDate}</span>
           )}
         </small>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          {sourcedByName && !isEditingSource && (
-            <small className="cv-demo3-candidate-sourced">
-              <span>Sourced by: {sourcedByName}</span>
-              {canEditAttribution && (
-                <button
-                  type="button"
-                  className="cv-demo3-source-change-link"
-                  onClick={() => setIsEditingSource(true)}
-                  aria-label={`Change sourcing TA for ${candidate.unverifiedLabel || 'Candidate'}`}
-                >
-                  Change
-                </button>
-              )}
-            </small>
-          )}
-          {submittedByName && submittedByName !== sourcedByName && (
-            <small className="cv-demo3-candidate-sourced" style={{ color: '#64748b' }}>
-              <span>Uploaded by: {submittedByName}</span>
-            </small>
-          )}
-        </div>
+        {displaySourcedName && !isEditingSource && (
+          <div
+            className="cv-demo3-candidate-sourced"
+            onClick={canEditAttribution ? () => setIsEditingSource(true) : undefined}
+            role={canEditAttribution ? 'button' : undefined}
+            tabIndex={canEditAttribution ? 0 : undefined}
+            onKeyDown={canEditAttribution ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setIsEditingSource(true);
+              }
+            } : undefined}
+            title={canEditAttribution ? 'Click to change sourcing TA' : undefined}
+            style={canEditAttribution ? { cursor: 'pointer' } : undefined}
+          >
+            <span>{displaySourcedName}</span>
+          </div>
+        )}
         {isEditingSource && canEditAttribution && (
           <div className="cv-demo3-source-popover" ref={sourcePopoverRef}>
-            <span className="cv-demo3-source-popover-label">Sourced by:</span>
             <select
               aria-label={`Select sourcing TA for ${candidate.unverifiedLabel || 'Candidate'}`}
               value={sourcedById}

@@ -1,32 +1,27 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Layers,
-  Calendar,
-  Clock,
-  Plus,
   Search,
-  Filter,
   AlertTriangle,
-  FileText,
   Download,
   X,
-  ExternalLink,
   ChevronDown,
   ChevronRight,
-  FolderPlus,
-  RefreshCw
+  RefreshCw,
+  Check,
+  Trash2
 } from 'lucide-react';
 import {
   getSubmissionSets,
   getSubmissionSetById,
   createSetWithUpload,
-  uploadCvsToSet
+  uploadCvsToSet,
+  updateSubmissionSet,
+  deleteSubmissionSet
 } from '../api/submissionSets';
 import { getPositions } from '../api/positions';
-import { getActiveTAs } from '../api/tas';
-import { getDownloadUrl } from '../api/cvs';
+import { getDownloadUrl, deleteSubmission } from '../api/cvs';
 import './SubmissionSets.css';
 
 const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx'];
@@ -37,45 +32,502 @@ const ALLOWED_MIME_TYPES = [
 ];
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 
-function formatDate(dateStr) {
-  if (!dateStr) return '—';
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  });
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_FULL = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+
+/**
+ * Converts a Date or date string into YYYY-MM-DD format safely.
+ */
+export function toYMD(dateInput) {
+  if (!dateInput) return '';
+  if (typeof dateInput === 'string') {
+    const trimmed = dateInput.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+  }
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-function formatDateTime(dateStr) {
-  if (!dateStr) return '—';
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+/**
+ * Formats any date strictly as DD MMM YYYY (e.g. 16 Nov 2026).
+ */
+export function formatDateDDMMMYYYY(dateInput) {
+  if (!dateInput) return '—';
+  const ymd = toYMD(dateInput);
+  if (!ymd) return '—';
+  const [y, m, d] = ymd.split('-');
+  const monthIndex = Number(m) - 1;
+  if (monthIndex < 0 || monthIndex > 11) return '—';
+  return `${String(Number(d)).padStart(2, '0')} ${MONTH_SHORT[monthIndex]} ${y}`;
+}
+
+/**
+ * Parses a human-readable date ("16 Nov 2026") or ISO ("2026-11-16") into YYYY-MM-DD.
+ */
+export function parseHumanDate(value) {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  const m = trimmed.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/);
+  if (m) {
+    const dayNum = Number(m[1]);
+    const monthIdx = MONTH_SHORT.findIndex(
+      mon => mon.toLowerCase() === m[2].slice(0, 3).toLowerCase()
+    );
+    const yearNum = Number(m[3]);
+    if (monthIdx >= 0 && dayNum >= 1 && dayNum <= 31 && yearNum >= 1970 && yearNum <= 2100) {
+      const check = new Date(yearNum, monthIdx, dayNum);
+      if (
+        check.getFullYear() === yearNum &&
+        check.getMonth() === monthIdx &&
+        check.getDate() === dayNum
+      ) {
+        return `${yearNum}-${String(monthIdx + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Returns the colour badge class for Set 01 (Green), Set 02 (Blue), Set 03 (Purple), Set 04 (Amber), cycling for subsequent sets.
+ */
+export function getSetBadgeClass(setNumber, setSequence) {
+  let seq = Number(setSequence);
+  if (!seq || isNaN(seq)) {
+    const match = String(setNumber || '').match(/(\d+)/);
+    seq = match ? Number(match[1]) : 1;
+  }
+  const colorIndex = ((Math.max(1, seq) - 1) % 4) + 1;
+  return `ss-chip ss-chip--s${colorIndex}`;
 }
 
 function formatBytes(bytes) {
-  if (!bytes || isNaN(bytes)) return '0 B';
+  if (!bytes || isNaN(bytes)) return '0 KB';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  if (bytes < k) return `${bytes} B`;
+  const kb = Math.round(bytes / k);
+  if (kb < 1024) return `${kb} KB`;
+  return `${(bytes / (k * k)).toFixed(1)} MB`;
 }
 
+function getFileTypeLabel(mimeType, fileName) {
+  const lower = String(fileName || '').toLowerCase();
+  if (lower.endsWith('.pdf') || mimeType === 'application/pdf') return 'PDF';
+  if (lower.endsWith('.docx') || String(mimeType).includes('wordprocessingml')) return 'DOCX';
+  if (lower.endsWith('.doc') || mimeType === 'application/msword') return 'DOC';
+  return 'CV';
+}
+
+/**
+ * Helper hook for portal popover positioning so dropdowns and calendars are never clipped.
+ */
+function usePopoverPosition(triggerRef, isOpen, menuWidth = 260, estimatedHeight = 280) {
+  const [style, setStyle] = useState({});
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current || !isOpen) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+
+    let top = rect.bottom + 6;
+    if (top + estimatedHeight > viewportH - 12 && rect.top > estimatedHeight + 12) {
+      top = rect.top - estimatedHeight - 6;
+    }
+
+    const width = Math.max(rect.width, menuWidth);
+    let left = rect.left;
+    if (left + width > viewportW - 12) {
+      left = Math.max(12, viewportW - width - 12);
+    }
+
+    setStyle({
+      position: 'fixed',
+      top: `${Math.max(8, top)}px`,
+      left: `${left}px`,
+      width: `${width}px`,
+    });
+  }, [triggerRef, isOpen, menuWidth, estimatedHeight]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [isOpen, updatePosition]);
+
+  return style;
+}
+
+/**
+ * PHASE 5: Custom Modern Dropdown Component
+ */
+export function CustomDropdown({
+  value,
+  onChange,
+  options = [],
+  placeholder = 'Select…',
+  searchable = false,
+  searchPlaceholder = 'Search…',
+  fullWidth = false,
+  inModal = false,
+  minMenuWidth = 220
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  const selectedOption = useMemo(
+    () => options.find(o => String(o.value) === String(value)),
+    [options, value]
+  );
+
+  const filteredOptions = useMemo(() => {
+    if (!searchable || !query.trim()) return options;
+    const q = query.trim().toLowerCase();
+    return options.filter(o =>
+      String(o.label || '').toLowerCase().includes(q) ||
+      String(o.searchText || '').toLowerCase().includes(q)
+    );
+  }, [options, searchable, query]);
+
+  const popoverStyle = usePopoverPosition(triggerRef, open, minMenuWidth, 255);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery('');
+      return;
+    }
+    if (searchable) {
+      setTimeout(() => searchInputRef.current?.focus(), 10);
+    }
+    const handleOutside = (e) => {
+      if (
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target) &&
+        menuRef.current &&
+        !menuRef.current.contains(e.target)
+      ) {
+        setOpen(false);
+      }
+    };
+    const handleKey = (e) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [open, searchable]);
+
+  return (
+    <div className={`ss-dropdown ${fullWidth ? 'ss-dropdown--full' : ''} ${inModal ? 'ss-dropdown--modal' : ''}`}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`ss-dropdown-trigger ${open ? 'ss-dropdown-trigger--open' : ''}`}
+        onClick={() => setOpen(prev => !prev)}
+      >
+        <span className={`ss-dropdown-trigger-text ${!selectedOption ? 'ss-dropdown-trigger-placeholder' : ''}`}>
+          {selectedOption ? selectedOption.label : placeholder}
+        </span>
+        <ChevronDown
+          size={15}
+          className={`ss-dropdown-arrow ${open ? 'ss-dropdown-arrow--open' : ''}`}
+        />
+      </button>
+
+      {open &&
+        createPortal(
+          <div ref={menuRef} className="ss-dropdown-menu" style={popoverStyle}>
+            {searchable && (
+              <div className="ss-dropdown-search-wrap">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  className="ss-dropdown-search-input"
+                  placeholder={searchPlaceholder}
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                />
+              </div>
+            )}
+            <div className="ss-dropdown-options">
+              {filteredOptions.length === 0 ? (
+                <div className="ss-dropdown-empty">No matching options</div>
+              ) : (
+                filteredOptions.map(opt => {
+                  const isSelected = String(opt.value) === String(value);
+                  return (
+                    <div
+                      key={String(opt.value)}
+                      className={`ss-dropdown-option ${isSelected ? 'ss-dropdown-option--selected' : ''}`}
+                      onClick={() => {
+                        onChange(opt.value);
+                        setOpen(false);
+                      }}
+                    >
+                      <span>{opt.label}</span>
+                      {isSelected && <Check size={14} />}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
+/**
+ * PHASE 6: Custom Modern Calendar Picker Component
+ * Displays and selects dates consistently in DD MMM YYYY format (e.g. 16 Nov 2026).
+ */
+export function CustomDatePicker({
+  value,
+  onChange,
+  placeholder = 'Choose a date',
+  allowClear = false,
+  fullWidth = false,
+  renderTrigger = null
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef(null);
+  const popoverRef = useRef(null);
+
+  const selectedYMD = useMemo(() => toYMD(value), [value]);
+  const todayYMD = useMemo(() => toYMD(new Date()), []);
+
+  const [viewDate, setViewDate] = useState(() => {
+    if (selectedYMD) {
+      const [y, m] = selectedYMD.split('-').map(Number);
+      return new Date(y, m - 1, 1);
+    }
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+
+  useEffect(() => {
+    if (open && selectedYMD) {
+      const [y, m] = selectedYMD.split('-').map(Number);
+      setViewDate(new Date(y, m - 1, 1));
+    }
+  }, [open, selectedYMD]);
+
+  const popoverStyle = usePopoverPosition(triggerRef, open, 292, 315);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutside = (e) => {
+      if (
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target) &&
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target)
+      ) {
+        setOpen(false);
+      }
+    };
+    const handleKey = (e) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [open]);
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const firstDayOffset = (new Date(year, month, 1).getDay() + 6) % 7; // Monday = 0
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const moveMonth = (delta) => {
+    setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
+  };
+
+  const moveYear = (delta) => {
+    setViewDate(prev => new Date(prev.getFullYear() + delta, prev.getMonth(), 1));
+  };
+
+  const handleSelectDay = (dayNum) => {
+    const formattedYMD = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+    onChange(formattedYMD);
+    setOpen(false);
+  };
+
+  return (
+    <div className={`ss-datepicker ${fullWidth ? 'ss-datepicker--full' : ''}`}>
+      {renderTrigger ? (
+        <span
+          ref={triggerRef}
+          onClick={() => setOpen(prev => !prev)}
+          style={{ display: 'inline-block' }}
+        >
+          {renderTrigger({
+            open,
+            displayValue: selectedYMD ? formatDateDDMMMYYYY(selectedYMD) : placeholder
+          })}
+        </span>
+      ) : (
+        <button
+          ref={triggerRef}
+          type="button"
+          className={`ss-datepicker-input ${open ? 'ss-datepicker-input--open' : ''}`}
+          onClick={() => setOpen(prev => !prev)}
+        >
+          <span className={!selectedYMD ? 'ss-datepicker-placeholder' : ''}>
+            {selectedYMD ? formatDateDDMMMYYYY(selectedYMD) : placeholder}
+          </span>
+          <span className="ss-datebtn-icon">▦</span>
+        </button>
+      )}
+
+      {open &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="ss-calendar-popover"
+            style={{ ...popoverStyle, width: '292px' }}
+          >
+            <div className="ss-cal-head">
+              <span className="ss-cal-title">
+                {MONTH_FULL[month]} {year}
+              </span>
+              <div className="ss-cal-nav">
+                <button
+                  type="button"
+                  className="ss-cal-nav-btn"
+                  onClick={() => moveYear(-1)}
+                  title="Previous Year"
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  className="ss-cal-nav-btn"
+                  onClick={() => moveMonth(-1)}
+                  title="Previous Month"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  className="ss-cal-nav-btn"
+                  onClick={() => moveMonth(1)}
+                  title="Next Month"
+                >
+                  ›
+                </button>
+                <button
+                  type="button"
+                  className="ss-cal-nav-btn"
+                  onClick={() => moveYear(1)}
+                  title="Next Year"
+                >
+                  »
+                </button>
+              </div>
+            </div>
+
+            <div className="ss-cal-grid">
+              {WEEKDAYS.map(d => (
+                <span key={d} className="ss-cal-weekday">
+                  {d}
+                </span>
+              ))}
+              {Array.from({ length: 42 }, (_, idx) => {
+                const dayNum = idx - firstDayOffset + 1;
+                const isValid = dayNum >= 1 && dayNum <= daysInMonth;
+                if (!isValid) {
+                  return (
+                    <button key={idx} type="button" className="ss-cal-day" disabled>
+                      {''}
+                    </button>
+                  );
+                }
+                const cellYMD = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                const isSelected = cellYMD === selectedYMD;
+                const isToday = cellYMD === todayYMD;
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    className={`ss-cal-day ${isToday ? 'ss-cal-day--today' : ''} ${isSelected ? 'ss-cal-day--selected' : ''}`}
+                    onClick={() => handleSelectDay(dayNum)}
+                  >
+                    {dayNum}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="ss-cal-footer">
+              <button
+                type="button"
+                className="ss-cal-footer-btn"
+                onClick={() => {
+                  onChange(todayYMD);
+                  setOpen(false);
+                }}
+              >
+                Today
+              </button>
+              {allowClear && selectedYMD && (
+                <button
+                  type="button"
+                  className="ss-cal-footer-btn ss-cal-footer-btn--muted"
+                  onClick={() => {
+                    onChange('');
+                    setOpen(false);
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
+/**
+ * Main Submission Sets Page (Phase 1)
+ */
 export default function SubmissionSets() {
   const queryClient = useQueryClient();
 
-  // Filters state
+  // Search & Filter states
+  const [searchQuery, setSearchQuery] = useState('');
   const [filterPosition, setFilterPosition] = useState('');
-  const [filterTa, setFilterTa] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('all'); // 'all' | 'grouped'
 
   // Modals state
@@ -86,20 +538,13 @@ export default function SubmissionSets() {
   // Expanded position groups in grouped view
   const [expandedPositions, setExpandedPositions] = useState({});
 
-  // 1. Fetch Positions and TAs
+  // 1. Fetch Positions
   const { data: positionsRes } = useQuery({
     queryKey: ['positions', 'list'],
     queryFn: () => getPositions({}),
     staleTime: 5 * 60 * 1000
   });
   const positionsList = Array.isArray(positionsRes?.data) ? positionsRes.data : [];
-
-  const { data: tasRes } = useQuery({
-    queryKey: ['tas', 'active'],
-    queryFn: () => getActiveTAs(),
-    staleTime: 5 * 60 * 1000
-  });
-  const tasList = Array.isArray(tasRes?.data) ? tasRes.data : [];
 
   // 2. Fetch Submission Sets
   const {
@@ -108,18 +553,53 @@ export default function SubmissionSets() {
     error: setsError,
     refetch: refetchSets
   } = useQuery({
-    queryKey: ['submission-sets', filterPosition, filterTa, dateFrom, dateTo, searchQuery],
-    queryFn: () => getSubmissionSets({
-      position: filterPosition || undefined,
-      ta: filterTa || undefined,
-      dateFrom: dateFrom || undefined,
-      dateTo: dateTo || undefined,
-      search: searchQuery || undefined
-    })
+    queryKey: ['submission-sets', filterPosition, dateFrom, dateTo, searchQuery],
+    queryFn: () =>
+      getSubmissionSets({
+        position: filterPosition || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
+        search: searchQuery || undefined
+      })
   });
-  const setsList = Array.isArray(setsRes?.data) ? setsRes.data : [];
+  const rawSetsList = Array.isArray(setsRes?.data) ? setsRes.data : [];
 
-  // 3. Fetch detailed set if selected
+  // Client-side partial-match filtering for Client name, Position/designation, and Set number (Phase 1.2)
+  const setsList = useMemo(() => {
+    return rawSetsList.filter(set => {
+      if (filterPosition && String(set.position?._id || set.position) !== String(filterPosition)) {
+        return false;
+      }
+      if (dateFrom) {
+        const setYMD = toYMD(set.sentToClientAt);
+        if (!setYMD || setYMD < dateFrom) return false;
+      }
+      if (dateTo) {
+        const setYMD = toYMD(set.sentToClientAt);
+        if (!setYMD || setYMD > dateTo) return false;
+      }
+      if (searchQuery && searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        const clientName = (set.position?.client?.clientName || '').toLowerCase();
+        const positionName = (set.position?.position || '').toLowerCase();
+        const setNumber = (set.setNumber || '').toLowerCase();
+        const setSeqStr = set.setSequence ? `set ${set.setSequence}` : '';
+        const combined = `${clientName} ${positionName} ${setNumber} ${setSeqStr}`;
+        if (
+          !clientName.includes(q) &&
+          !positionName.includes(q) &&
+          !setNumber.includes(q) &&
+          !setSeqStr.includes(q) &&
+          !combined.includes(q)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [rawSetsList, filterPosition, dateFrom, dateTo, searchQuery]);
+
+  // 3. Fetch detailed set when a Set Number is clicked
   const {
     data: detailedSetRes,
     isLoading: loadingDetails,
@@ -131,29 +611,32 @@ export default function SubmissionSets() {
   });
   const detailedSetData = detailedSetRes?.data || null;
 
-  // Overall metric totals
-  const metrics = useMemo(() => {
-    let totalSubmissions = 0;
-    setsList.forEach(s => {
-      totalSubmissions += s.cvCount || 0;
+  // Position filter dropdown options (No Job Order IDs shown)
+  const positionFilterOptions = useMemo(() => {
+    const opts = [{ value: '', label: 'All Positions', searchText: 'all positions' }];
+    positionsList.forEach(p => {
+      const clientName = p.client?.clientName || '';
+      const posTitle = p.position || 'Unnamed Position';
+      const label = clientName ? `${posTitle} (${clientName})` : posTitle;
+      opts.push({
+        value: p._id,
+        label,
+        searchText: `${clientName} ${posTitle}`
+      });
     });
-    return {
-      totalSets: setsList.length,
-      totalSubmissions
-    };
-  }, [setsList]);
+    return opts;
+  }, [positionsList]);
 
   // Grouped sets by position
   const groupedSets = useMemo(() => {
     const groups = {};
     setsList.forEach(set => {
-      const posId = set.position?._id || set.jobOrderId || 'other';
+      const posId = set.position?._id || set.position || 'other';
       if (!groups[posId]) {
         groups[posId] = {
           positionId: posId,
-          jobOrderId: set.jobOrderId,
-          positionName: set.position?.position || 'Unknown Position',
-          clientName: set.position?.client?.clientName || 'Unknown Client',
+          positionName: set.position?.position || '—',
+          clientName: set.position?.client?.clientName || '—',
           sets: []
         };
       }
@@ -165,8 +648,31 @@ export default function SubmissionSets() {
   const toggleGroup = (posId) => {
     setExpandedPositions(prev => ({
       ...prev,
-      [posId]: !prev[posId]
+      [posId]: prev[posId] === false ? true : false
     }));
+  };
+
+  // Direct inline Sent to Client date update from main table (Phase 1.6)
+  const handleInlineDateUpdate = async (setId, newDateYMD) => {
+    if (!newDateYMD) return;
+    try {
+      await updateSubmissionSet(setId, { sentToClientAt: newDateYMD });
+      refetchSets();
+      if (selectedSetDetailsId === setId) {
+        refetchDetails();
+      }
+      queryClient.invalidateQueries({ queryKey: ['positions'] });
+    } catch (err) {
+      const isRouteNotLoaded =
+        err.response?.status === 404 &&
+        typeof err.response?.data === 'string' &&
+        err.response.data.includes('Cannot PUT');
+      alert(
+        isRouteNotLoaded
+          ? 'Please restart the backend server (Ctrl+C and restart in the server terminal) to load the new date-update route.'
+          : err.response?.data?.error || 'Failed to update Sent to Client date.'
+      );
+    }
   };
 
   const handleDownloadCv = async (submissionId) => {
@@ -180,496 +686,675 @@ export default function SubmissionSets() {
     }
   };
 
-  return (
-    <div className="sets-page">
-      {/* Header */}
-      <div className="sets-header">
-        <div>
-          <h1 className="sets-title">
-            <Layers className="sets-title-icon" />
-            Submission Sets
-          </h1>
-          <p className="sets-subtitle">
-            Manage CV batches transmitted to clients with strict sequential set numbering (Set 01, Set 02),
-            independent transmission dates, and candidate quality audits.
-          </p>
-        </div>
+  const renderSetRow = (set) => {
+    const clientName = set.position?.client?.clientName || '—';
+    const positionName = set.position?.position || '—';
+    const cvCount = Number(set.cvCount) || 0;
 
-        <div className="sets-actions">
+    return (
+      <tr key={set._id}>
+        <td className="ss-client-cell" title={clientName}>
+          {clientName}
+        </td>
+        <td className="ss-pos-cell" title={positionName}>
           <button
             type="button"
-            className="btn-primary flex items-center gap-2"
-            onClick={() => setShowCreateModal(true)}
+            className="ss-pos-link"
+            onClick={() => setSelectedSetDetailsId(set._id)}
           >
-            <FolderPlus size={16} />
-            Create Submission Set
+            {positionName}
           </button>
-        </div>
-      </div>
-
-      {/* Metric Cards Ribbon */}
-      <div className="sets-metrics-grid">
-        <div className="sets-metric-card">
-          <span className="sets-metric-val">{metrics.totalSets}</span>
-          <span className="sets-metric-label">Total Submission Sets</span>
-          <span className="sets-metric-sub">Batches sent to clients</span>
-        </div>
-        <div className="sets-metric-card">
-          <span className="sets-metric-val">{metrics.totalSubmissions}</span>
-          <span className="sets-metric-label">Total CV Submissions</span>
-          <span className="sets-metric-sub">Across all positions</span>
-        </div>
-        <div className="sets-metric-card">
-          <span className="sets-metric-val">{groupedSets.length}</span>
-          <span className="sets-metric-label">Active Positions</span>
-          <span className="sets-metric-sub">With client transmissions</span>
-        </div>
-        <div className="sets-metric-card sets-metric-card--highlight">
-          <span className="sets-metric-val">
-            {metrics.totalSets > 0 ? (metrics.totalSubmissions / metrics.totalSets).toFixed(1) : 0}
+        </td>
+        <td>
+          <button
+            type="button"
+            className={getSetBadgeClass(set.setNumber, set.setSequence)}
+            onClick={() => setSelectedSetDetailsId(set._id)}
+          >
+            {set.setNumber}
+          </button>
+        </td>
+        <td>
+          <CustomDatePicker
+            value={set.sentToClientAt}
+            onChange={(newYMD) => handleInlineDateUpdate(set._id, newYMD)}
+            renderTrigger={({ displayValue }) => (
+              <button
+                type="button"
+                className="ss-datebtn"
+                title="Click to edit Sent to Client date"
+              >
+                <span className="ss-datebtn-icon">▦</span>
+                <span>{displayValue}</span>
+              </button>
+            )}
+          />
+        </td>
+        <td>
+          <span className="ss-cv-badge">
+            {cvCount} CV{cvCount === 1 ? '' : 's'}
           </span>
-          <span className="sets-metric-label">Avg CVs per Set</span>
-          <span className="sets-metric-sub">Batch sizing density</span>
-        </div>
-      </div>
+        </td>
+      </tr>
+    );
+  };
 
-      {/* Filters Bar */}
-      <div className="sets-filter-bar">
-        <div className="sets-search-box">
-          <Search size={16} className="sets-search-icon" />
+  return (
+    <main className="ss-page">
+      {/* Phase 1.1: Header without descriptive subtitle and without KPI cards */}
+      <header className="ss-head">
+        <h1>
+          <span className="ss-head-icon">▱</span>
+          Submission Sets
+        </h1>
+        <button
+          type="button"
+          className="ss-btn ss-btn--primary"
+          onClick={() => setShowCreateModal(true)}
+        >
+          ＋ Create Submission Set
+        </button>
+      </header>
+
+      {/* Phase 1.2: Search and Filters Toolbar */}
+      <div className="ss-toolbar">
+        <div className="ss-search">
+          <Search size={16} className="ss-search-icon" />
           <input
             type="text"
-            placeholder="Search by Job Order ID, Set Number, Client, Position..."
+            placeholder="Search by Client, Position or Set Number…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="sets-search-input"
           />
           {searchQuery && (
             <button
               type="button"
-              className="sets-search-clear"
+              className="ss-search-clear"
               onClick={() => setSearchQuery('')}
+              title="Clear search"
             >
               <X size={14} />
             </button>
           )}
         </div>
 
-        <div className="sets-filters-group">
-          {/* Position Filter */}
-          <select
+        <div className="ss-filters">
+          {/* Searchable All Positions Custom Dropdown */}
+          <CustomDropdown
             value={filterPosition}
-            onChange={(e) => setFilterPosition(e.target.value)}
-            className="sets-filter-select"
+            onChange={setFilterPosition}
+            options={positionFilterOptions}
+            placeholder="All Positions"
+            searchable={true}
+            searchPlaceholder="Search position or client…"
+            minMenuWidth={280}
+          />
+
+          {/* Sent Date Range Filter with Custom Calendar Picker */}
+          <span className="ss-filter-label">Sent:</span>
+          <CustomDatePicker
+            value={dateFrom}
+            onChange={setDateFrom}
+            placeholder="From date"
+            allowClear={true}
+          />
+          <span className="ss-filter-label">to</span>
+          <CustomDatePicker
+            value={dateTo}
+            onChange={setDateTo}
+            placeholder="To date"
+            allowClear={true}
+          />
+
+          {/* All Sets / Group by Position Toggle */}
+          <button
+            type="button"
+            className={`ss-btn ss-btn--small ${viewMode === 'all' ? 'ss-btn--active-toggle' : ''}`}
+            onClick={() => setViewMode('all')}
           >
-            <option value="">All Positions</option>
-            {positionsList.map(p => (
-              <option key={p._id} value={p._id}>
-                {p.jobOrderId} — {p.position} ({p.client?.clientName})
-              </option>
-            ))}
-          </select>
-
-          {/* TA Filter */}
-          <select
-            value={filterTa}
-            onChange={(e) => setFilterTa(e.target.value)}
-            className="sets-filter-select"
+            All Sets
+          </button>
+          <button
+            type="button"
+            className={`ss-btn ss-btn--small ${viewMode === 'grouped' ? 'ss-btn--active-toggle' : ''}`}
+            onClick={() => setViewMode('grouped')}
           >
-            <option value="">All Uploaders</option>
-            {tasList.map(ta => (
-              <option key={ta._id} value={ta._id}>
-                {ta.name}
-              </option>
-            ))}
-          </select>
-
-          {/* Date Range: Sent To Client */}
-          <div className="sets-date-filter">
-            <span className="sets-date-label">Sent:</span>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="sets-date-input"
-              title="Sent Date From"
-            />
-            <span>to</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="sets-date-input"
-              title="Sent Date To"
-            />
-          </div>
-
-          {/* View mode toggle */}
-          <div className="sets-view-toggle">
-            <button
-              type="button"
-              className={`sets-toggle-btn ${viewMode === 'all' ? 'active' : ''}`}
-              onClick={() => setViewMode('all')}
-            >
-              All Sets
-            </button>
-            <button
-              type="button"
-              className={`sets-toggle-btn ${viewMode === 'grouped' ? 'active' : ''}`}
-              onClick={() => setViewMode('grouped')}
-            >
-              Group by Position
-            </button>
-          </div>
+            Group by Position
+          </button>
         </div>
       </div>
 
-      {/* Main Content Area */}
+      {/* Phase 1.3–1.8: Main Table Content */}
       {loadingSets ? (
-        <div className="sets-loading-state">
-          <RefreshCw className="animate-spin text-forest-600 mb-2" size={24} />
-          <span>Loading submission sets...</span>
+        <div className="ss-state-box">
+          <RefreshCw className="animate-spin mx-auto mb-2" size={22} />
+          <div>Loading submission sets…</div>
         </div>
       ) : setsError ? (
-        <div className="sets-error-state">
-          <AlertTriangle size={24} className="text-red-500 mb-2" />
-          <span>Error loading submission sets: {setsError.message}</span>
-          <button type="button" className="btn-secondary mt-3" onClick={() => refetchSets()}>
+        <div className="ss-state-box">
+          <AlertTriangle size={22} className="mx-auto mb-2" style={{ color: '#dc2626' }} />
+          <div>Error loading submission sets: {setsError.message}</div>
+          <button type="button" className="ss-btn mt-3" onClick={() => refetchSets()}>
             Retry
           </button>
         </div>
-      ) : setsList.length === 0 ? (
-        <div className="sets-empty-state">
-          <Layers size={36} className="text-gray-400 mb-2" />
-          <h3>No submission sets found</h3>
-          <p>
-            {searchQuery || filterPosition || filterTa || dateFrom || dateTo
-              ? 'Try adjusting your filters or search terms.'
-              : 'Create a new submission set to begin tracking CV batches sent to clients.'}
-          </p>
-          <button
-            type="button"
-            className="btn-primary mt-4"
-            onClick={() => setShowCreateModal(true)}
-          >
-            <FolderPlus size={16} /> Create First Submission Set
-          </button>
-        </div>
       ) : viewMode === 'all' ? (
-        /* Flat chronological list */
-        <div className="sets-table-card">
-          <table className="sets-table">
-            <thead>
-              <tr>
-                <th>Set Number</th>
-                <th>Position / Job Order</th>
-                <th>Client</th>
-                <th>Sent to Client</th>
-                <th>Uploaded Time</th>
-                <th>Sourcing TAs / Uploader</th>
-                <th>CVs</th>
-                <th>Notes</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {setsList.map(set => (
-                <tr key={set._id} className="sets-row">
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <span className="sets-badge-set">{set.setNumber}</span>
-                      <span className="sets-id-label">{set.submissionSetId}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <Link
-                      to={`/positions/${set.position?._id || set.position}`}
-                      className="sets-pos-link"
-                    >
-                      <strong>{set.jobOrderId}</strong>
-                      <span className="sets-pos-title">{set.position?.position || '—'}</span>
-                    </Link>
-                  </td>
-                  <td>
-                    <span className="sets-client-name">
-                      {set.position?.client?.clientName || '—'}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="sets-date-cell">
-                      <Calendar size={13} className="text-forest-600" />
-                      <strong>{formatDate(set.sentToClientAt)}</strong>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="sets-time-cell">
-                      <Clock size={13} className="text-gray-400" />
-                      <span>{formatDateTime(set.uploadedAt)}</span>
-                    </div>
-                  </td>
-                  <td>
-                    {set.sourcingTAs && set.sourcingTAs.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {set.sourcingTAs.map(ta => (
-                          <span key={ta._id || ta} className="sets-ta-pill">
-                            {ta.name || 'TA'}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="sets-ta-pill">
-                        {set.uploadedBy?.name || '—'}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <span className="sets-count-badge">
-                      {set.cvCount} CV{set.cvCount !== 1 ? 's' : ''}
-                    </span>
-                  </td>
-                  <td className="sets-notes-cell" title={set.notes}>
-                    {set.notes || '—'}
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <div className="sets-row-actions">
-                      <button
-                        type="button"
-                        className="btn-secondary btn-sm"
-                        onClick={() => setSelectedSetDetailsId(set._id)}
-                      >
-                        View CVs
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary btn-sm"
-                        onClick={() => setUploadTargetSet(set)}
-                        title="Upload more CVs into this set"
-                      >
-                        + Add CVs
-                      </button>
-                    </div>
-                  </td>
+        <section className="ss-tablecard">
+          <div className="ss-scroll">
+            <table className="ss-table">
+              <colgroup>
+                <col className="col-client" />
+                <col className="col-position" />
+                <col className="col-set" />
+                <col className="col-sent" />
+                <col className="col-cvs" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Position</th>
+                  <th>Set Number</th>
+                  <th>Sent to Client</th>
+                  <th>CVs</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {setsList.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: '35px', color: '#718078' }}>
+                      No submission sets found.
+                    </td>
+                  </tr>
+                ) : (
+                  setsList.map(set => renderSetRow(set))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : groupedSets.length === 0 ? (
+        <section className="ss-tablecard">
+          <div style={{ textAlign: 'center', padding: '35px', color: '#718078' }}>
+            No submission sets found.
+          </div>
+        </section>
       ) : (
-        /* Grouped by position accordion */
-        <div className="sets-grouped-container">
+        <div className="ss-grouped-list">
           {groupedSets.map(group => {
-            const isExpanded = expandedPositions[group.positionId] !== false; // default open
+            const isExpanded = expandedPositions[group.positionId] !== false;
+            const totalCvs = group.sets.reduce((sum, s) => sum + (Number(s.cvCount) || 0), 0);
             return (
-              <div key={group.positionId} className="sets-group-card">
+              <section key={group.positionId} className="ss-group-card">
                 <div
-                  className="sets-group-header"
+                  className="ss-group-header"
                   onClick={() => toggleGroup(group.positionId)}
                 >
-                  <div className="flex items-center gap-3">
-                    <button type="button" className="sets-group-toggle-icon">
-                      {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                    </button>
-                    <div>
-                      <h3 className="sets-group-title">
-                        {group.jobOrderId} — {group.positionName}
-                      </h3>
-                      <span className="sets-group-subtitle">{group.clientName}</span>
-                    </div>
+                  <div className="ss-group-title-wrap">
+                    {isExpanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+                    <h3 className="ss-group-title">
+                      {group.clientName} – {group.positionName}
+                    </h3>
                   </div>
-
-                  <div className="flex items-center gap-4">
-                    <span className="sets-group-stat">
-                      {group.sets.length} Set{group.sets.length !== 1 ? 's' : ''}
+                  <div className="ss-group-meta">
+                    <span className="ss-cv-badge">
+                      {group.sets.length} Set{group.sets.length === 1 ? '' : 's'} · {totalCvs} CV{totalCvs === 1 ? '' : 's'}
                     </span>
-                    <span className="sets-group-stat">
-                      {group.sets.reduce((sum, s) => sum + (s.cvCount || 0), 0)} Total CVs
-                    </span>
-                    <Link
-                      to={`/positions/${group.positionId}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="sets-group-pos-link"
-                      title="Open position details"
-                    >
-                      <ExternalLink size={15} />
-                    </Link>
                   </div>
                 </div>
-
                 {isExpanded && (
-                  <div className="sets-group-body">
-                    <table className="sets-table">
+                  <div className="ss-scroll">
+                    <table className="ss-table">
+                      <colgroup>
+                        <col className="col-client" />
+                        <col className="col-position" />
+                        <col className="col-set" />
+                        <col className="col-sent" />
+                        <col className="col-cvs" />
+                      </colgroup>
                       <thead>
                         <tr>
+                          <th>Client</th>
+                          <th>Position</th>
                           <th>Set Number</th>
                           <th>Sent to Client</th>
-                          <th>Uploaded At</th>
-                          <th>Sourcing TAs / Uploader</th>
-                          <th>CV Count</th>
-                          <th>Notes</th>
-                          <th style={{ textAlign: 'right' }}>Actions</th>
+                          <th>CVs</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {group.sets.map(set => (
-                          <tr key={set._id} className="sets-row">
-                            <td>
-                              <div className="flex items-center gap-2">
-                                <span className="sets-badge-set">{set.setNumber}</span>
-                                <span className="sets-id-label">{set.submissionSetId}</span>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="sets-date-cell">
-                                <Calendar size={13} className="text-forest-600" />
-                                <strong>{formatDate(set.sentToClientAt)}</strong>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="sets-time-cell">
-                                <Clock size={13} className="text-gray-400" />
-                                <span>{formatDateTime(set.uploadedAt)}</span>
-                              </div>
-                            </td>
-                            <td>
-                              {set.sourcingTAs && set.sourcingTAs.length > 0 ? (
-                                <div className="flex flex-wrap gap-1">
-                                  {set.sourcingTAs.map(ta => (
-                                    <span key={ta._id || ta} className="sets-ta-pill">
-                                      {ta.name || 'TA'}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="sets-ta-pill">
-                                  {set.uploadedBy?.name || '—'}
-                                </span>
-                              )}
-                            </td>
-                            <td>
-                              <span className="sets-count-badge">
-                                {set.cvCount} CV{set.cvCount !== 1 ? 's' : ''}
-                              </span>
-                            </td>
-                            <td className="sets-notes-cell" title={set.notes}>
-                              {set.notes || '—'}
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <div className="sets-row-actions">
-                                <button
-                                  type="button"
-                                  className="btn-secondary btn-sm"
-                                  onClick={() => setSelectedSetDetailsId(set._id)}
-                                >
-                                  View CVs
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn-secondary btn-sm"
-                                  onClick={() => setUploadTargetSet(set)}
-                                >
-                                  + Add CVs
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                        {group.sets.map(set => renderSetRow(set))}
                       </tbody>
                     </table>
                   </div>
                 )}
-              </div>
+              </section>
             );
           })}
         </div>
       )}
 
-      {/* Modal 1: Create Submission Set (with file upload) */}
-      {showCreateModal && (
-        <CreateSubmissionSetModal
-          positions={positionsList}
-          tas={tasList}
-          onClose={() => setShowCreateModal(false)}
-          onSuccess={() => {
-            setShowCreateModal(false);
-            refetchSets();
-          }}
-        />
-      )}
-
-      {/* Modal 2: View Set Details & Candidate Submissions */}
+      {/* Phase 2: Submission Set Details Modal */}
       {selectedSetDetailsId && (
         <SetDetailsModal
-          setId={selectedSetDetailsId}
           data={detailedSetData}
           loading={loadingDetails}
           onClose={() => setSelectedSetDetailsId(null)}
           onDownloadCv={handleDownloadCv}
           onAddCvs={() => {
-            setUploadTargetSet(detailedSetData?.set);
+            if (detailedSetData?.set) {
+              setUploadTargetSet(detailedSetData.set);
+            }
+          }}
+          onUpdated={() => {
+            refetchDetails();
+            refetchSets();
+            queryClient.invalidateQueries({ queryKey: ['positions'] });
+          }}
+          onDeletedSet={() => {
+            setSelectedSetDetailsId(null);
+            refetchSets();
+            queryClient.invalidateQueries({ queryKey: ['positions'] });
           }}
         />
       )}
 
-      {/* Modal 3: Upload Additional CVs into an Existing Set */}
+      {/* Phase 3: Create Submission Set Modal */}
+      {showCreateModal && (
+        <CreateSubmissionSetModal
+          positions={positionsList}
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={() => {
+            setShowCreateModal(false);
+            refetchSets();
+            queryClient.invalidateQueries({ queryKey: ['positions'] });
+          }}
+        />
+      )}
+
+      {/* Phase 4: Add CVs Modal */}
       {uploadTargetSet && (
-        <UploadToExistingSetModal
+        <AddCvsToSetModal
           set={uploadTargetSet}
-          tas={tasList}
           onClose={() => setUploadTargetSet(null)}
           onSuccess={() => {
             setUploadTargetSet(null);
             refetchSets();
+            queryClient.invalidateQueries({ queryKey: ['positions'] });
             if (selectedSetDetailsId) {
               refetchDetails();
             }
           }}
         />
       )}
+    </main>
+  );
+}
+
+/**
+ * PHASE 2: Submission Set Details Modal
+ */
+function SetDetailsModal({ data, loading, onClose, onDownloadCv, onAddCvs, onUpdated, onDeletedSet }) {
+  const set = data?.set;
+  const submissions = Array.isArray(data?.submissions) ? data.submissions : [];
+  const metrics = data?.metrics || {
+    totalSubmissions: 0,
+    goodCvs: 0,
+    clientShortlisted: 0,
+    withdrawn: 0
+  };
+
+  const [editedDateYMD, setEditedDateYMD] = useState('');
+  const [savingDate, setSavingDate] = useState(false);
+  const [deletingSubId, setDeletingSubId] = useState(null);
+  const [deletingSet, setDeletingSet] = useState(false);
+
+  useEffect(() => {
+    if (set?.sentToClientAt) {
+      setEditedDateYMD(toYMD(set.sentToClientAt));
+    }
+  }, [set?.sentToClientAt]);
+
+  if (loading || !set) {
+    return (
+      <div className="ss-overlay" onClick={onClose}>
+        <section className="ss-dialog" onClick={e => e.stopPropagation()}>
+          <div className="ss-db" style={{ textAlign: 'center', padding: '40px', color: '#718078' }}>
+            Loading submission set details…
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  const clientName = set.position?.client?.clientName || 'Client';
+  const positionName = set.position?.position || 'Position';
+
+  const handleSaveDate = async () => {
+    const parsed = parseHumanDate(editedDateYMD) || toYMD(editedDateYMD);
+    if (!parsed) {
+      alert('Please select a valid date (e.g. 16 Nov 2026).');
+      return;
+    }
+    setSavingDate(true);
+    try {
+      await updateSubmissionSet(set._id, { sentToClientAt: parsed });
+      if (typeof onUpdated === 'function') onUpdated();
+    } catch (err) {
+      const isRouteNotLoaded =
+        err.response?.status === 404 &&
+        typeof err.response?.data === 'string' &&
+        err.response.data.includes('Cannot PUT');
+      alert(
+        isRouteNotLoaded
+          ? 'Please restart the backend server (Ctrl+C and restart in the server terminal) to load the new date-update route.'
+          : err.response?.data?.error || 'Failed to update Sent to Client date.'
+      );
+    } finally {
+      setSavingDate(false);
+    }
+  };
+
+  const handleDeleteCandidate = async (sub) => {
+    const label = sub.unverifiedLabel || sub.originalFileName || 'this CV';
+    if (!window.confirm(`Delete "${label}" from ${set.setNumber}?`)) {
+      return;
+    }
+    setDeletingSubId(sub._id);
+    try {
+      await deleteSubmission(sub._id);
+      if (typeof onUpdated === 'function') onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete CV.');
+    } finally {
+      setDeletingSubId(null);
+    }
+  };
+
+  const handleDeleteWholeSet = async () => {
+    const count = submissions.length;
+    const msg =
+      count > 0
+        ? `Are you sure you want to delete ${set.setNumber} (${clientName} – ${positionName}) and its ${count} CV${count === 1 ? '' : 's'}?`
+        : `Are you sure you want to delete ${set.setNumber} (${clientName} – ${positionName})?`;
+    if (!window.confirm(msg)) {
+      return;
+    }
+    setDeletingSet(true);
+    try {
+      await deleteSubmissionSet(set._id, { deleteCvs: true });
+      if (typeof onDeletedSet === 'function') {
+        onDeletedSet();
+      } else {
+        onClose();
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete submission set.');
+    } finally {
+      setDeletingSet(false);
+    }
+  };
+
+  return (
+    <div className="ss-overlay" onClick={onClose}>
+      <section className="ss-dialog" onClick={e => e.stopPropagation()}>
+        {/* Phase 2.1: Header with Set Number, Client Name, Position Name only */}
+        <header className="ss-dh">
+          <div>
+            <h2>
+              <span className={getSetBadgeClass(set.setNumber, set.setSequence)}>
+                {set.setNumber}
+              </span>
+              <span>· {clientName}</span>
+            </h2>
+            <div className="ss-dh-sub">{positionName}</div>
+          </div>
+          <button type="button" className="ss-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </header>
+
+        <div className="ss-db">
+          {/* Phase 2.2: Sent to Client Date in DD MMM YYYY with Save Date action */}
+          <div className="ss-meta-box" style={{ justifyContent: 'space-between' }}>
+            <div>
+              <label>Sent to Client</label>
+              <div className="ss-meta-date-row">
+                <CustomDatePicker
+                  value={editedDateYMD}
+                  onChange={setEditedDateYMD}
+                  placeholder="e.g. 16 Nov 2026"
+                />
+                <button
+                  type="button"
+                  className="ss-btn ss-btn--small"
+                  onClick={handleSaveDate}
+                  disabled={savingDate}
+                >
+                  {savingDate ? 'Saving…' : 'Save date'}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="ss-btn ss-btn--danger ss-btn--small"
+              onClick={handleDeleteWholeSet}
+              disabled={deletingSet}
+              title={`Delete ${set.setNumber}`}
+            >
+              <Trash2 size={14} />
+              <span>{deletingSet ? 'Deleting…' : 'Delete Set'}</span>
+            </button>
+          </div>
+
+          {/* Phase 2.3: 4 KPI Cards */}
+          <div className="ss-metrics-grid">
+            <div className="ss-metric-card">
+              <b>{metrics.totalSubmissions}</b>
+              <span>Submissions</span>
+            </div>
+            <div className="ss-metric-card">
+              <b>{metrics.goodCvs}</b>
+              <span>Good CVs</span>
+            </div>
+            <div className="ss-metric-card">
+              <b>{metrics.clientShortlisted}</b>
+              <span>Client Shortlisted</span>
+            </div>
+            <div className="ss-metric-card">
+              <b>{metrics.withdrawn}</b>
+              <span>Withdrawn</span>
+            </div>
+          </div>
+
+          {/* Phase 2.4 & 2.5: Candidate Submissions & Add CVs button */}
+          <div className="ss-section-bar">
+            <h3 className="ss-section-title">Candidate Submissions</h3>
+            <button
+              type="button"
+              className="ss-btn ss-btn--primary ss-btn--small"
+              onClick={onAddCvs}
+            >
+              ＋ Add CVs to this Set
+            </button>
+          </div>
+
+          <div className="ss-candidate-card">
+            <table className="ss-candidate-table">
+              <thead>
+                <tr>
+                  <th>Candidate Name</th>
+                  <th>File Metadata</th>
+                  <th>Internal Status</th>
+                  <th>Client Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                {submissions.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: 'center', padding: '28px', color: '#718078' }}>
+                      No CVs uploaded in this set yet.
+                    </td>
+                  </tr>
+                ) : (
+                  submissions.map(sub => {
+                    const internalLabel =
+                      sub.internalShortlistStatus === 'Shortlisted'
+                        ? 'Internally Shortlisted'
+                        : sub.internalShortlistStatus === 'Rejected'
+                        ? 'Not Shortlisted'
+                        : 'Pending';
+                    const fileType = getFileTypeLabel(sub.mimeType, sub.originalFileName);
+                    return (
+                      <tr key={sub._id}>
+                        <td>
+                          <span>{sub.unverifiedLabel || 'Candidate'}</span>
+                          {sub.isWithdrawn && (
+                            <span className="ss-status-badge ss-status-badge--withdrawn">
+                              Withdrawn
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <div className="ss-file-meta-cell">
+                            <span>
+                              {fileType} · {formatBytes(sub.fileSize)}
+                            </span>
+                            <button
+                              type="button"
+                              className="ss-download-link"
+                              onClick={() => onDownloadCv(sub._id)}
+                              title={`Download ${sub.originalFileName || 'CV'}`}
+                            >
+                              <Download size={12} />
+                              <span>Download</span>
+                            </button>
+                          </div>
+                        </td>
+                        <td>
+                          <span
+                            className={`ss-status-badge ${
+                              sub.internalShortlistStatus === 'Shortlisted'
+                                ? 'ss-status-badge--shortlisted'
+                                : sub.internalShortlistStatus === 'Rejected'
+                                ? 'ss-status-badge--rejected'
+                                : ''
+                            }`}
+                          >
+                            {internalLabel}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="ss-client-decision-cell">
+                            <span
+                              className={`ss-status-badge ${
+                                sub.clientShortlistStatus === 'Shortlisted'
+                                  ? 'ss-status-badge--shortlisted'
+                                  : sub.clientShortlistStatus === 'Rejected'
+                                  ? 'ss-status-badge--rejected'
+                                  : ''
+                              }`}
+                            >
+                              {sub.clientShortlistStatus || 'Pending'}
+                            </span>
+                            <button
+                              type="button"
+                              className="ss-cv-delete-btn"
+                              onClick={() => handleDeleteCandidate(sub)}
+                              disabled={deletingSubId === sub._id}
+                              title={`Delete ${sub.unverifiedLabel || 'CV'}`}
+                              aria-label={`Delete ${sub.unverifiedLabel || 'CV'}`}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <footer className="ss-df">
+          <button type="button" className="ss-btn" onClick={onClose}>
+            Close
+          </button>
+        </footer>
+      </section>
     </div>
   );
 }
 
 /**
- * Modal Component: Create Submission Set
+ * PHASE 3: Create Submission Set Modal
+ * - Searchable "Client – Position *" dropdown (without JO IDs)
+ * - Mandatory "Date Sent to Client *" with custom calendar picker
+ * - Multi-file drag-and-drop CV upload (.pdf, .doc, .docx up to 10MB)
  */
-function CreateSubmissionSetModal({ positions, tas, onClose, onSuccess }) {
+function CreateSubmissionSetModal({ positions, onClose, onSuccess }) {
   const [positionId, setPositionId] = useState('');
-  const [sentToClientAt, setSentToClientAt] = useState(new Date().toISOString().split('T')[0]);
-  const [sourcingTAs, setSourcingTAs] = useState([]);
-  const [qualityRating, setQualityRating] = useState('Not Rated');
-  const [notes, setNotes] = useState('');
+  const [positionSearch, setPositionSearch] = useState('');
+  const [comboOpen, setComboOpen] = useState(false);
+  const [sentToClientAt, setSentToClientAt] = useState(() => toYMD(new Date()));
   const [files, setFiles] = useState([]);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [clientErrors, setClientErrors] = useState([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const fileInputRef = useRef(null);
+  const comboRef = useRef(null);
+  const comboMenuRef = useRef(null);
 
-  // Auto-select assignee as initial sourcing TA if position has an assignee
+  const formattedPositions = useMemo(() => {
+    return positions.map(p => {
+      const clientName = p.client?.clientName || 'Unknown Client';
+      const posName = p.position || 'Unnamed Position';
+      const displayLabel = `${clientName} – ${posName}`;
+      return {
+        _id: p._id,
+        clientName,
+        posName,
+        displayLabel,
+        searchText: `${clientName} ${posName}`.toLowerCase()
+      };
+    });
+  }, [positions]);
+
+  const matchingPositions = useMemo(() => {
+    const q = positionSearch.trim().toLowerCase();
+    if (!q) return formattedPositions;
+    return formattedPositions.filter(item =>
+      item.searchText.includes(q) || item.displayLabel.toLowerCase().includes(q)
+    );
+  }, [formattedPositions, positionSearch]);
+
+  const comboPopoverStyle = usePopoverPosition(comboRef, comboOpen, 320, 240);
+
   useEffect(() => {
-    if (positionId) {
-      const pos = positions.find(p => p._id === positionId);
-      if (pos && pos.assignee?._id) {
-        setSourcingTAs(prev => (prev.length === 0 ? [pos.assignee._id] : prev));
+    if (!comboOpen) return;
+    const handleOutside = (e) => {
+      if (
+        comboRef.current &&
+        !comboRef.current.contains(e.target) &&
+        comboMenuRef.current &&
+        !comboMenuRef.current.contains(e.target)
+      ) {
+        setComboOpen(false);
       }
-    }
-  }, [positionId, positions]);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [comboOpen]);
 
-  const handleAddSourcingTA = (taId) => {
-    if (!taId) return;
-    if (!sourcingTAs.includes(taId)) {
-      setSourcingTAs(prev => [...prev, taId]);
-    }
-  };
-
-  const handleRemoveSourcingTA = (taId) => {
-    setSourcingTAs(prev => prev.filter(id => id !== taId));
-  };
-
-  const validateFiles = (fileList) => {
+  const validateAndAddFiles = (fileList) => {
+    setClientErrors([]);
     const valid = [];
     const errors = [];
 
-    Array.from(fileList).forEach(file => {
+    Array.from(fileList || []).forEach(file => {
       const ext = '.' + file.name.split('.').pop().toLowerCase();
       const isExtAllowed = ALLOWED_EXTENSIONS.includes(ext);
       const isMimeAllowed = !file.type || ALLOWED_MIME_TYPES.includes(file.type);
@@ -678,23 +1363,17 @@ function CreateSubmissionSetModal({ positions, tas, onClose, onSuccess }) {
         errors.push(`${file.name}: Invalid format. Allowed: PDF, DOC, DOCX.`);
         return;
       }
-
       if (file.size > MAX_FILE_SIZE_BYTES) {
         errors.push(`${file.name}: Exceeds 10 MB limit (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
         return;
       }
-
       valid.push(file);
     });
 
-    return { valid, errors };
-  };
-
-  const handleFileChange = (e) => {
-    setClientErrors([]);
-    const { valid, errors } = validateFiles(e.target.files);
     if (errors.length > 0) setClientErrors(errors);
-    setFiles(prev => [...prev, ...valid]);
+    if (valid.length > 0) {
+      setFiles(prev => [...prev, ...valid]);
+    }
   };
 
   const handleRemoveFile = (index) => {
@@ -703,9 +1382,18 @@ function CreateSubmissionSetModal({ positions, tas, onClose, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!positionId) return alert('Please select a position.');
-    if (!sentToClientAt) return alert('Please specify the date CVs were sent to the client.');
-    if (files.length === 0) return alert('Please add at least one CV file.');
+    if (!positionId) {
+      setServerError('Please select a Client – Position from the list.');
+      return;
+    }
+    if (!sentToClientAt) {
+      setServerError('Please choose the Date Sent to Client.');
+      return;
+    }
+    if (files.length === 0) {
+      setServerError('Please select at least one CV file to upload.');
+      return;
+    }
 
     setIsSubmitting(true);
     setServerError(null);
@@ -713,14 +1401,7 @@ function CreateSubmissionSetModal({ positions, tas, onClose, onSuccess }) {
     const formData = new FormData();
     formData.append('positionId', positionId);
     formData.append('sentToClientAt', sentToClientAt);
-    sourcingTAs.forEach(id => formData.append('sourcingTAs[]', id));
-    formData.append('sourcingTAs', JSON.stringify(sourcingTAs));
-    formData.append('qualityRating', qualityRating);
-    formData.append('notes', notes);
-
-    files.forEach(f => {
-      formData.append('files', f);
-    });
+    files.forEach(f => formData.append('files', f));
 
     try {
       await createSetWithUpload(formData);
@@ -728,10 +1409,10 @@ function CreateSubmissionSetModal({ positions, tas, onClose, onSuccess }) {
     } catch (err) {
       const respData = err.response?.data;
       if (respData?.failed && Array.isArray(respData.failed) && respData.failed.length > 0) {
-        const failureDetails = respData.failed.map(f => `${f.fileName}: ${f.error}`).join(' | ');
-        setServerError(`${respData.error || 'Upload failed'}: ${failureDetails}`);
+        const details = respData.failed.map(f => `${f.fileName}: ${f.error}`).join(' | ');
+        setServerError(`${respData.error || 'Upload failed'}: ${details}`);
       } else {
-        setServerError(respData?.error || err.message || 'Failed to create submission set');
+        setServerError(respData?.error || err.message || 'Failed to create submission set.');
       }
     } finally {
       setIsSubmitting(false);
@@ -739,209 +1420,168 @@ function CreateSubmissionSetModal({ positions, tas, onClose, onSuccess }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal sets-modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="flex items-center gap-2">
-            <FolderPlus className="text-forest-700" size={20} />
-            Create Submission Set
-          </h2>
-          <button type="button" className="modal-close-btn" onClick={onClose}>
-            <X size={18} />
+    <div className="ss-overlay" onClick={onClose}>
+      <section className="ss-dialog ss-dialog--medium" onClick={e => e.stopPropagation()}>
+        <header className="ss-dh">
+          <div>
+            <h2>＋ Create Submission Set</h2>
+            <div className="ss-dh-sub">Create a new client submission batch.</div>
+          </div>
+          <button type="button" className="ss-close" onClick={onClose} aria-label="Close">
+            ×
           </button>
-        </div>
+        </header>
 
-        <form onSubmit={handleSubmit} className="sets-modal-form">
-          {serverError && (
-            <div className="sets-alert-error">
-              <AlertTriangle size={16} />
-              <span>{serverError}</span>
-            </div>
-          )}
-
-          {/* Position Selector */}
-          <div className="sets-form-group">
-            <label className="sets-form-label">Position / Job Order *</label>
-            <select
-              value={positionId}
-              onChange={e => setPositionId(e.target.value)}
-              className="sets-form-input"
-              required
-            >
-              <option value="">Select a position...</option>
-              {positions.map(p => (
-                <option key={p._id} value={p._id}>
-                  {p.jobOrderId} — {p.position} ({p.client?.clientName})
-                </option>
-              ))}
-            </select>
-            <span className="sets-form-help">
-              The sequential set number (Set 01, Set 02, etc.) will be automatically assigned safely by the server.
-            </span>
-          </div>
-
-          {/* Actual Sent Date vs Upload Timestamp */}
-          <div className="sets-form-row">
-            <div className="sets-form-group flex-1">
-              <label className="sets-form-label">Date Sent to Client *</label>
-              <input
-                type="date"
-                value={sentToClientAt}
-                onChange={e => setSentToClientAt(e.target.value)}
-                className="sets-form-input"
-                required
-              />
-              <span className="sets-form-help">
-                Actual date the CVs were emailed or transmitted to the client.
-              </span>
-            </div>
-
-            <div className="sets-form-group flex-1">
-              <label className="sets-form-label">System Upload Date</label>
-              <input
-                type="text"
-                value="Now (auto-timestamped)"
-                disabled
-                className="sets-form-input bg-gray-50 text-gray-500"
-              />
-              <span className="sets-form-help">
-                Kept strictly distinct from client transmission date.
-              </span>
-            </div>
-          </div>
-
-          {/* Sourcing TAs Multi-Select */}
-          <div className="sets-form-group">
-            <label className="sets-form-label">Sourcing TAs</label>
-            <select
-              value=""
-              onChange={e => handleAddSourcingTA(e.target.value)}
-              className="sets-form-input"
-            >
-              <option value="">Select a sourcing TA to add...</option>
-              {tas
-                .filter(t => !sourcingTAs.includes(t._id))
-                .map(t => (
-                  <option key={t._id} value={t._id}>
-                    {t.name} {t.status ? `(${t.status})` : ''}
-                  </option>
-                ))}
-            </select>
-            {sourcingTAs.length > 0 && (
-              <div className="sets-ta-chips">
-                {sourcingTAs.map(id => {
-                  const taObj = tas.find(t => t._id === id);
-                  return (
-                    <span key={id} className="sets-ta-chip">
-                      <span
-                        className="sets-ta-chip-dot"
-                        style={{ backgroundColor: taObj?.color || '#059669' }}
-                      />
-                      {taObj?.name || 'Unknown TA'}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveSourcingTA(id)}
-                        className="sets-ta-chip-remove"
-                        title="Remove TA"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  );
-                })}
+        <form onSubmit={handleSubmit}>
+          <div className="ss-db">
+            {serverError && (
+              <div className="ss-error-banner">
+                <AlertTriangle size={16} />
+                <span>{serverError}</span>
               </div>
             )}
-            <span className="sets-form-help">
-              Select one or more TAs who sourced candidates in this batch. Sourcing attribution is preserved per candidate.
-            </span>
-          </div>
 
-          {/* Quality Rating & Batch Notes */}
-          <div className="sets-form-row">
-            <div className="sets-form-group flex-1">
-              <label className="sets-form-label">Quality Rating</label>
-              <select
-                value={qualityRating}
-                onChange={e => setQualityRating(e.target.value)}
-                className="sets-form-input"
-              >
-                <option value="Not Rated">Not Rated</option>
-                <option value="Good">Good CV</option>
-                <option value="Optional">Optional CV</option>
-              </select>
-              <span className="sets-form-help">
-                Initial batch quality rating.
-              </span>
+            {/* Phase 3.1: Searchable Client – Position * Dropdown without JO IDs */}
+            <div className="ss-field">
+              <label htmlFor="ss-client-position-input">Client – Position *</label>
+              <div ref={comboRef} className="ss-combo-wrap">
+                <input
+                  id="ss-client-position-input"
+                  type="text"
+                  className="ss-combo-input"
+                  placeholder="Search client or position…"
+                  autoComplete="off"
+                  value={positionSearch}
+                  onFocus={() => setComboOpen(true)}
+                  onChange={e => {
+                    setPositionSearch(e.target.value);
+                    setPositionId('');
+                    setComboOpen(true);
+                  }}
+                />
+                <ChevronDown size={15} className="ss-combo-chevron" />
+              </div>
+
+              {comboOpen &&
+                createPortal(
+                  <div ref={comboMenuRef} className="ss-dropdown-menu" style={comboPopoverStyle}>
+                    <div className="ss-dropdown-options">
+                      {matchingPositions.length === 0 ? (
+                        <div className="ss-dropdown-empty">No matching client or position</div>
+                      ) : (
+                        matchingPositions.map(item => {
+                          const isSelected = String(item._id) === String(positionId);
+                          return (
+                            <div
+                              key={item._id}
+                              className={`ss-dropdown-option ${isSelected ? 'ss-dropdown-option--selected' : ''}`}
+                              onClick={() => {
+                                setPositionId(item._id);
+                                setPositionSearch(item.displayLabel);
+                                setComboOpen(false);
+                              }}
+                            >
+                              <span>{item.displayLabel}</span>
+                              {isSelected && <Check size={14} />}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>,
+                  document.body
+                )}
+              <div className="ss-hint">
+                Search by client name or position. Job Order ID is not displayed.
+              </div>
             </div>
 
-            <div className="sets-form-group flex-1">
-              <label className="sets-form-label">Batch Notes</label>
-              <input
-                type="text"
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                placeholder="e.g. First round of 4 senior candidates sent after initial call"
-                className="sets-form-input"
+            {/* Phase 3.2: Date Sent to Client * with Custom Calendar Picker */}
+            <div className="ss-field">
+              <label>Date Sent to Client *</label>
+              <CustomDatePicker
+                value={sentToClientAt}
+                onChange={setSentToClientAt}
+                placeholder="Choose a date"
+                fullWidth={true}
               />
             </div>
-          </div>
 
-          {/* Files Upload Dropzone */}
-          <div className="sets-form-group">
-            <label className="sets-form-label">CV Files (.pdf, .doc, .docx up to 10MB) *</label>
-            <div
-              className="sets-dropzone"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <FileText className="text-forest-600 mb-1" size={24} />
-              <p className="text-sm font-semibold text-gray-700">Click or Drag CV files here</p>
-              <span className="text-xs text-gray-500">Supports multi-file upload up to 10 files</span>
+            {/* Phase 3.5: CV Files Upload */}
+            <div className="ss-field">
+              <label>CV Files (.pdf, .doc, .docx up to 10MB) *</label>
+              <div
+                className={`ss-upload ${isDragOver ? 'ss-upload--dragover' : ''}`}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={e => {
+                  e.preventDefault();
+                  setIsDragOver(true);
+                }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={e => {
+                  e.preventDefault();
+                  setIsDragOver(false);
+                  if (e.dataTransfer?.files?.length) {
+                    validateAndAddFiles(e.dataTransfer.files);
+                  }
+                }}
+              >
+                <b>⇧ Click or drag CV files here</b>
+                <small>PDF, DOC and DOCX files · Maximum 10 MB per file</small>
+                <div className="ss-hint">
+                  {files.length === 0
+                    ? 'No files selected'
+                    : `${files.length} file${files.length === 1 ? '' : 's'} selected`}
+                </div>
+              </div>
               <input
                 ref={fileInputRef}
+                hidden
                 type="file"
                 multiple
                 accept=".pdf,.doc,.docx"
-                className="hidden"
-                onChange={handleFileChange}
+                onChange={e => {
+                  validateAndAddFiles(e.target.files);
+                  e.target.value = '';
+                }}
               />
-            </div>
 
-            {clientErrors.length > 0 && (
-              <div className="sets-client-errors">
-                {clientErrors.map((err, i) => (
-                  <p key={i} className="text-xs text-red-600">⚠ {err}</p>
-                ))}
-              </div>
-            )}
+              {clientErrors.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  {clientErrors.map((err, i) => (
+                    <div key={i} style={{ color: '#dc2626', fontSize: '12px' }}>
+                      ⚠ {err}
+                    </div>
+                  ))}
+                </div>
+              )}
 
-            {files.length > 0 && (
-              <div className="sets-selected-files">
-                <span className="text-xs font-semibold text-gray-600">
-                  {files.length} file{files.length !== 1 ? 's' : ''} selected:
-                </span>
-                <ul className="sets-files-list">
-                  {files.map((f, i) => (
-                    <li key={i} className="sets-file-item">
-                      <span className="sets-file-name" title={f.name}>{f.name}</span>
-                      <span className="sets-file-size">({(f.size / 1024).toFixed(0)} KB)</span>
+              {files.length > 0 && (
+                <div className="ss-filelist">
+                  {files.map((f, idx) => (
+                    <div key={idx} className="ss-file-row">
+                      <span>
+                        {f.name} <small style={{ color: '#718078' }}>({formatBytes(f.size)})</small>
+                      </span>
                       <button
                         type="button"
-                        className="sets-file-remove"
-                        onClick={() => handleRemoveFile(i)}
+                        className="ss-file-remove"
+                        onClick={() => handleRemoveFile(idx)}
+                        title="Remove file"
                       >
                         ×
                       </button>
-                    </li>
+                    </div>
                   ))}
-                </ul>
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="modal-actions">
+          <footer className="ss-df">
             <button
               type="button"
-              className="btn-secondary"
+              className="ss-btn"
               onClick={onClose}
               disabled={isSubmitting}
             >
@@ -949,231 +1589,47 @@ function CreateSubmissionSetModal({ positions, tas, onClose, onSuccess }) {
             </button>
             <button
               type="submit"
-              className="btn-primary"
-              disabled={isSubmitting || files.length === 0}
+              className="ss-btn ss-btn--primary"
+              disabled={isSubmitting}
             >
-              {isSubmitting ? 'Uploading & Creating...' : `Create Set (${files.length} CVs)`}
+              {isSubmitting ? 'Creating…' : 'Create Submission Set'}
             </button>
-          </div>
+          </footer>
         </form>
-      </div>
+      </section>
     </div>
   );
 }
 
 /**
- * Modal Component: Set Details & Candidate Submissions View
+ * PHASE 4: Add CVs Modal
+ * - Clean, spacious design consistent with Create Submission Set modal
+ * - Retains: Initial Shortlist Status (custom dropdown), CV File Upload, Cancel, Upload to Set
+ * - Removes uploader and quality-rating fields
  */
-function SetDetailsModal({ setId, data, loading, onClose, onDownloadCv, onAddCvs }) {
-  if (loading || !data) {
-    return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal sets-modal sets-modal--lg" onClick={e => e.stopPropagation()}>
-          <div className="p-8 text-center text-gray-500">Loading set details...</div>
-        </div>
-      </div>
-    );
-  }
-
-  const { set, submissions, metrics } = data;
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal sets-modal sets-modal--lg" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="modal-header">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="sets-badge-set text-sm">{set.setNumber}</span>
-              <span className="sets-id-label">{set.submissionSetId}</span>
-              <span className="text-gray-400">·</span>
-              <strong>{set.jobOrderId}</strong>
-              <span className="text-gray-600 font-medium">({set.position?.client?.clientName})</span>
-            </div>
-            <p className="text-xs text-gray-500">
-              {set.position?.position} — Transmission Date: <strong>{formatDate(set.sentToClientAt)}</strong>
-            </p>
-          </div>
-          <button type="button" className="modal-close-btn" onClick={onClose}>
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Set Metrics Ribbon */}
-        <div className="sets-detail-metrics">
-          <div className="sets-detail-metric">
-            <span className="sets-detail-metric-val">{metrics.totalSubmissions}</span>
-            <span className="sets-detail-metric-label">Submissions</span>
-          </div>
-          <div className="sets-detail-metric">
-            <span className="sets-detail-metric-val">{metrics.uniqueCandidatesByName}</span>
-            <span className="sets-detail-metric-label">Unique Candidates</span>
-          </div>
-          <div className="sets-detail-metric">
-            <span className="sets-detail-metric-val">{metrics.goodCvs}</span>
-            <span className="sets-detail-metric-label">Good CVs</span>
-          </div>
-          <div className="sets-detail-metric">
-            <span className="sets-detail-metric-val">{metrics.clientShortlisted}</span>
-            <span className="sets-detail-metric-label">Client Shortlisted</span>
-          </div>
-          <div className="sets-detail-metric">
-            <span className="sets-detail-metric-val">{metrics.withdrawn}</span>
-            <span className="sets-detail-metric-label">Withdrawn</span>
-          </div>
-        </div>
-
-        {/* Meta summary strip */}
-        <div className="sets-meta-strip">
-          {set.sourcingTAs && set.sourcingTAs.length > 0 ? (
-            <div className="sets-meta-item">
-              <span className="sets-meta-label">Sourcing TAs:</span>
-              <div className="flex flex-wrap gap-1">
-                {set.sourcingTAs.map(ta => (
-                  <span key={ta._id || ta} className="sets-ta-pill">
-                    {ta.name || 'TA'}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="sets-meta-item">
-              <span className="sets-meta-label">Uploaded By:</span>
-              <span className="sets-ta-pill">{set.uploadedBy?.name || '—'}</span>
-            </div>
-          )}
-          <div className="sets-meta-item">
-            <span className="sets-meta-label">Uploaded At:</span>
-            <span>{formatDateTime(set.uploadedAt)}</span>
-          </div>
-          {set.notes && (
-            <div className="sets-meta-item flex-1">
-              <span className="sets-meta-label">Notes:</span>
-              <span className="text-gray-700 italic">{set.notes}</span>
-            </div>
-          )}
-          <button
-            type="button"
-            className="btn-secondary btn-sm flex items-center gap-1.5"
-            onClick={onAddCvs}
-          >
-            <Plus size={14} /> Add CVs to Set
-          </button>
-        </div>
-
-        {/* Submissions Table */}
-        <div className="sets-submissions-wrap">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
-            Candidate Submissions in this Set ({submissions.length})
-          </h4>
-
-          {submissions.length === 0 ? (
-            <div className="p-6 text-center text-gray-500 bg-gray-50 rounded border border-dashed border-gray-200">
-              No CVs uploaded in this set yet.
-            </div>
-          ) : (
-            <table className="sets-table">
-              <thead>
-                <tr>
-                  <th>Candidate Name</th>
-                  <th>File Metadata</th>
-                  <th>Attribution (Sourced / Uploaded)</th>
-                  <th>Internal Evaluation</th>
-                  <th>Client Decision</th>
-                  <th style={{ textAlign: 'right' }}>CV</th>
-                </tr>
-              </thead>
-              <tbody>
-                {submissions.map(sub => (
-                  <tr key={sub._id}>
-                    <td>
-                      <strong className="sets-candidate-name">{sub.unverifiedLabel || 'Candidate'}</strong>
-                      {sub.isWithdrawn && (
-                        <span className="sets-withdrawn-badge ml-1.5">Withdrawn</span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="text-xs text-gray-700">
-                        <span className="font-mono">{sub.originalFileName}</span>
-                        <span className="text-gray-400"> · {formatBytes(sub.fileSize)}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex flex-col gap-1 text-xs">
-                        {sub.sourcedBy?.name && (
-                          <span className="text-gray-700">
-                            <strong>Sourced:</strong> {sub.sourcedBy.name}
-                          </span>
-                        )}
-                        {sub.submittedBy?.name && (
-                          <span className="text-gray-500">
-                            <strong>Uploaded:</strong> {sub.submittedBy.name}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1.5">
-                        <span className={`sets-status-pill sets-status--${(sub.internalShortlistStatus || 'pending').toLowerCase()}`}>
-                          {sub.internalShortlistStatus}
-                        </span>
-                        {sub.qualityRating && sub.qualityRating !== 'Not Rated' && (
-                          <span className={`sets-quality-pill sets-quality--${sub.qualityRating.toLowerCase()}`}>
-                            {sub.qualityRating}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`sets-client-pill sets-client--${(sub.clientShortlistStatus || 'pending').replace(/\s+/g, '').toLowerCase()}`}>
-                        {sub.clientShortlistStatus}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        type="button"
-                        className="btn-secondary btn-sm"
-                        onClick={() => onDownloadCv(sub._id)}
-                        title="Download CV"
-                      >
-                        <Download size={13} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="modal-footer">
-          <button type="button" className="btn-secondary" onClick={onClose}>
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Modal Component: Upload to Existing Set
- */
-function UploadToExistingSetModal({ set, tas, onClose, onSuccess }) {
+function AddCvsToSetModal({ set, onClose, onSuccess }) {
+  const [internalShortlistStatus, setInternalShortlistStatus] = useState('Shortlisted');
   const [files, setFiles] = useState([]);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [clientErrors, setClientErrors] = useState([]);
-  const [sourcedBy, setSourcedBy] = useState('');
-  const [internalShortlistStatus, setInternalShortlistStatus] = useState('Pending');
-  const [qualityRating, setQualityRating] = useState('Not Rated');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef(null);
 
-  const validateFiles = (fileList) => {
+  const shortlistOptions = useMemo(
+    () => [
+      { value: 'Shortlisted', label: 'Internally Shortlisted' },
+      { value: 'Pending', label: 'Not Shortlisted' }
+    ],
+    []
+  );
+
+  const validateAndAddFiles = (fileList) => {
+    setClientErrors([]);
     const valid = [];
     const errors = [];
 
-    Array.from(fileList).forEach(file => {
+    Array.from(fileList || []).forEach(file => {
       const ext = '.' + file.name.split('.').pop().toLowerCase();
       const isExtAllowed = ALLOWED_EXTENSIONS.includes(ext);
       const isMimeAllowed = !file.type || ALLOWED_MIME_TYPES.includes(file.type);
@@ -1182,23 +1638,17 @@ function UploadToExistingSetModal({ set, tas, onClose, onSuccess }) {
         errors.push(`${file.name}: Invalid format. Allowed: PDF, DOC, DOCX.`);
         return;
       }
-
       if (file.size > MAX_FILE_SIZE_BYTES) {
         errors.push(`${file.name}: Exceeds 10 MB limit (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
         return;
       }
-
       valid.push(file);
     });
 
-    return { valid, errors };
-  };
-
-  const handleFileChange = (e) => {
-    setClientErrors([]);
-    const { valid, errors } = validateFiles(e.target.files);
     if (errors.length > 0) setClientErrors(errors);
-    setFiles(prev => [...prev, ...valid]);
+    if (valid.length > 0) {
+      setFiles(prev => [...prev, ...valid]);
+    }
   };
 
   const handleRemoveFile = (index) => {
@@ -1207,19 +1657,17 @@ function UploadToExistingSetModal({ set, tas, onClose, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (files.length === 0) return alert('Please select at least one CV file.');
+    if (files.length === 0) {
+      setServerError('Please select at least one CV file.');
+      return;
+    }
 
     setIsSubmitting(true);
     setServerError(null);
 
     const formData = new FormData();
-    if (sourcedBy) formData.append('sourcedBy', sourcedBy);
     formData.append('internalShortlistStatus', internalShortlistStatus);
-    formData.append('qualityRating', qualityRating);
-
-    files.forEach(f => {
-      formData.append('files', f);
-    });
+    files.forEach(f => formData.append('files', f));
 
     try {
       await uploadCvsToSet(set._id, formData);
@@ -1227,137 +1675,132 @@ function UploadToExistingSetModal({ set, tas, onClose, onSuccess }) {
     } catch (err) {
       const respData = err.response?.data;
       if (respData?.failed && Array.isArray(respData.failed) && respData.failed.length > 0) {
-        const failureDetails = respData.failed.map(f => `${f.fileName}: ${f.error}`).join(' | ');
-        setServerError(`${respData.error || 'Upload failed'}: ${failureDetails}`);
+        const details = respData.failed.map(f => `${f.fileName}: ${f.error}`).join(' | ');
+        setServerError(`${respData.error || 'Upload failed'}: ${details}`);
       } else {
-        setServerError(respData?.error || err.message || 'Failed to upload CVs to set');
+        setServerError(respData?.error || err.message || 'Failed to upload CVs to set.');
       }
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const clientName = set.position?.client?.clientName || 'Client';
+  const positionName = set.position?.position || 'Position';
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal sets-modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="flex items-center gap-2">
-            <Plus className="text-forest-700" size={20} />
-            Add CVs to {set.setNumber} ({set.submissionSetId})
-          </h2>
-          <button type="button" className="modal-close-btn" onClick={onClose}>
-            <X size={18} />
+    <div className="ss-overlay" onClick={onClose}>
+      <section className="ss-dialog ss-dialog--medium" onClick={e => e.stopPropagation()}>
+        <header className="ss-dh">
+          <div>
+            <h2>
+              ＋ Add CVs to <span>{set.setNumber}</span>
+            </h2>
+            <div className="ss-dh-sub">
+              {clientName} · {positionName} · Sent {formatDateDDMMMYYYY(set.sentToClientAt)}
+            </div>
+          </div>
+          <button type="button" className="ss-close" onClick={onClose} aria-label="Close">
+            ×
           </button>
-        </div>
+        </header>
 
-        <form onSubmit={handleSubmit} className="sets-modal-form">
-          {serverError && (
-            <div className="sets-alert-error">
-              <AlertTriangle size={16} />
-              <span>{serverError}</span>
-            </div>
-          )}
+        <form onSubmit={handleSubmit}>
+          <div className="ss-db">
+            {serverError && (
+              <div className="ss-error-banner">
+                <AlertTriangle size={16} />
+                <span>{serverError}</span>
+              </div>
+            )}
 
-          <div className="p-3 bg-gray-50 border border-gray-200 rounded text-xs text-gray-700 mb-2">
-            Adding CVs to <strong>{set.jobOrderId}</strong> ({set.setNumber}). All submissions in this batch will inherit the actual client-sent date (<strong>{formatDate(set.sentToClientAt)}</strong>).
-          </div>
-
-          <div className="sets-form-row">
-            <div className="sets-form-group flex-1">
-              <label className="sets-form-label">Sourcing TA (Optional)</label>
-              <select
-                value={sourcedBy}
-                onChange={e => setSourcedBy(e.target.value)}
-                className="sets-form-input"
-              >
-                <option value="">Default (Uploader)</option>
-                {tas.map(t => (
-                  <option key={t._id} value={t._id}>{t.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="sets-form-group flex-1">
-              <label className="sets-form-label">Initial Shortlist Status</label>
-              <select
+            {/* Initial Shortlist Status Custom Dropdown */}
+            <div className="ss-field">
+              <label>Initial Shortlist Status</label>
+              <CustomDropdown
                 value={internalShortlistStatus}
-                onChange={e => setInternalShortlistStatus(e.target.value)}
-                className="sets-form-input"
-              >
-                <option value="Pending">Pending Evaluation</option>
-                <option value="Shortlisted">Internally Shortlisted</option>
-              </select>
-            </div>
-          </div>
-
-          {internalShortlistStatus === 'Shortlisted' && (
-            <div className="sets-form-group">
-              <label className="sets-form-label">Quality Rating</label>
-              <select
-                value={qualityRating}
-                onChange={e => setQualityRating(e.target.value)}
-                className="sets-form-input"
-              >
-                <option value="Not Rated">Not Rated</option>
-                <option value="Good">Good CV</option>
-                <option value="Optional">Optional CV</option>
-              </select>
-            </div>
-          )}
-
-          <div className="sets-form-group">
-            <label className="sets-form-label">CV Files (.pdf, .doc, .docx) *</label>
-            <div
-              className="sets-dropzone"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <FileText className="text-forest-600 mb-1" size={24} />
-              <p className="text-sm font-semibold text-gray-700">Click or Drag CV files here</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".pdf,.doc,.docx"
-                className="hidden"
-                onChange={handleFileChange}
+                onChange={setInternalShortlistStatus}
+                options={shortlistOptions}
+                fullWidth={true}
+                inModal={true}
               />
             </div>
 
-            {clientErrors.length > 0 && (
-              <div className="sets-client-errors">
-                {clientErrors.map((err, i) => (
-                  <p key={i} className="text-xs text-red-600">⚠ {err}</p>
-                ))}
+            {/* CV File Upload */}
+            <div className="ss-field">
+              <label>CV Files (.pdf, .doc, .docx) *</label>
+              <div
+                className={`ss-upload ${isDragOver ? 'ss-upload--dragover' : ''}`}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={e => {
+                  e.preventDefault();
+                  setIsDragOver(true);
+                }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={e => {
+                  e.preventDefault();
+                  setIsDragOver(false);
+                  if (e.dataTransfer?.files?.length) {
+                    validateAndAddFiles(e.dataTransfer.files);
+                  }
+                }}
+              >
+                <b>⇧ Click or drag CV files here</b>
+                <small>PDF, DOC and DOCX files · Maximum 10 MB per file</small>
+                <div className="ss-hint">
+                  {files.length === 0
+                    ? 'No files selected'
+                    : `${files.length} file${files.length === 1 ? '' : 's'} selected`}
+                </div>
               </div>
-            )}
+              <input
+                ref={fileInputRef}
+                hidden
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx"
+                onChange={e => {
+                  validateAndAddFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
 
-            {files.length > 0 && (
-              <div className="sets-selected-files">
-                <span className="text-xs font-semibold text-gray-600">
-                  {files.length} file{files.length !== 1 ? 's' : ''} selected:
-                </span>
-                <ul className="sets-files-list">
-                  {files.map((f, i) => (
-                    <li key={i} className="sets-file-item">
-                      <span className="sets-file-name">{f.name}</span>
+              {clientErrors.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  {clientErrors.map((err, i) => (
+                    <div key={i} style={{ color: '#dc2626', fontSize: '12px' }}>
+                      ⚠ {err}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {files.length > 0 && (
+                <div className="ss-filelist">
+                  {files.map((f, idx) => (
+                    <div key={idx} className="ss-file-row">
+                      <span>
+                        {f.name} <small style={{ color: '#718078' }}>({formatBytes(f.size)})</small>
+                      </span>
                       <button
                         type="button"
-                        className="sets-file-remove"
-                        onClick={() => handleRemoveFile(i)}
+                        className="ss-file-remove"
+                        onClick={() => handleRemoveFile(idx)}
+                        title="Remove file"
                       >
                         ×
                       </button>
-                    </li>
+                    </div>
                   ))}
-                </ul>
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="modal-actions">
+          <footer className="ss-df">
             <button
               type="button"
-              className="btn-secondary"
+              className="ss-btn"
               onClick={onClose}
               disabled={isSubmitting}
             >
@@ -1365,14 +1808,14 @@ function UploadToExistingSetModal({ set, tas, onClose, onSuccess }) {
             </button>
             <button
               type="submit"
-              className="btn-primary"
-              disabled={isSubmitting || files.length === 0}
+              className="ss-btn ss-btn--primary"
+              disabled={isSubmitting}
             >
-              {isSubmitting ? 'Uploading...' : `Upload to ${set.setNumber}`}
+              {isSubmitting ? 'Uploading…' : 'Upload to Set'}
             </button>
-          </div>
+          </footer>
         </form>
-      </div>
+      </section>
     </div>
   );
 }

@@ -1,8 +1,71 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { updatePosition } from '../api/positions';
+import { getClients } from '../api/clients';
 import CandidateCvSection from './CandidateCvSection';
 import PositionActivityHistory from './PositionActivityHistory';
 import './PositionDetailModal.css';
+
+const ALL_STATUS_OPTIONS = [
+  'Yet to Activate',
+  'A&P',
+  'Fence',
+  'Hold',
+  'Paused',
+  'Placed',
+  'Lost',
+  'Focus',
+  'Client Decision',
+  'Reactivated'
+];
+
+const PLEVEL_OPTIONS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'];
+
+const STAGE_OPTIONS = [
+  { value: 'Hunting', label: 'Hunting' },
+  { value: 'Shortlisted', label: 'Shortlisting' },
+  { value: 'Client Review', label: 'Client Review' },
+  { value: 'Interview', label: 'Interview' },
+  { value: 'Offer', label: 'Offer' },
+  { value: 'Placed', label: 'Placed' }
+];
+
+function toDateInputValue(dateVal) {
+  if (!dateVal) return '';
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return '';
+  return d.toISOString().split('T')[0];
+}
+
+function resolveInitialActivationDate(position) {
+  if (!position) return '';
+  if (position.activationDateManuallyOverridden) {
+    return toDateInputValue(position.activatedAt);
+  }
+  if (Array.isArray(position.submissionSets) && position.submissionSets.length > 0) {
+    const sortedSets = [...position.submissionSets].sort(
+      (a, b) => (Number(a.setSequence) || 0) - (Number(b.setSequence) || 0)
+    );
+    if (sortedSets[0]?.sentToClientAt) {
+      return toDateInputValue(sortedSets[0].sentToClientAt);
+    }
+  }
+  return toDateInputValue(position.activatedAt);
+}
+
+function buildEditStateFromPosition(position) {
+  return {
+    position: position?.position || '',
+    client: position?.client?._id || position?.client || '',
+    status: position?.status || 'Yet to Activate',
+    assignee: position?.assignee?._id || position?.assignee || '',
+    pLevel: position?.pLevel || 'P1',
+    pipelineStage: position?.pipelineStage || 'Hunting',
+    receivedDate: toDateInputValue(position?.receivedDate || position?.createdAt),
+    activatedAt: resolveInitialActivationDate(position),
+    activationDateManuallyOverridden: Boolean(position?.activationDateManuallyOverridden),
+    activationDateTouched: false
+  };
+}
 
 const CloseIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -11,71 +74,151 @@ const CloseIcon = () => (
   </svg>
 );
 
-export default function PositionDetailModal({ position, onClose, onUpdate, tas, initialTab = 'details' }) {
+export default function PositionDetailModal({ position, onClose, onUpdate, tas = [], clients: passedClients, initialTab = 'details' }) {
   const [activeTab, setActiveTab] = useState(initialTab);
-  const [editData, setEditData] = useState({
-    remarks: position?.remarks || '',
-    thisWeekFocus: position?.thisWeekFocus || '',
-    allocationRounds: position?.allocationRounds || [],
-  });
+  const [editData, setEditData] = useState(() => buildEditStateFromPosition(position));
   const [prevPositionId, setPrevPositionId] = useState(position?._id);
   const [prevInitialTab, setPrevInitialTab] = useState(initialTab);
+  const [prevActivatedAt, setPrevActivatedAt] = useState(resolveInitialActivationDate(position));
   const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+  const [fetchedClients, setFetchedClients] = useState([]);
 
-  // Sync state if position or initialTab changes while modal is open (recommended React pattern)
+  useEffect(() => {
+    if (Array.isArray(passedClients) && passedClients.length > 0) return;
+    let mounted = true;
+    getClients()
+      .then(res => {
+        if (mounted && Array.isArray(res?.data)) {
+          setFetchedClients(res.data);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [passedClients]);
+
+  const clientsList = useMemo(() => {
+    const base = Array.isArray(passedClients) && passedClients.length > 0 ? passedClients : fetchedClients;
+    const currentClientId = position?.client?._id;
+    if (currentClientId && !base.some(c => String(c._id) === String(currentClientId))) {
+      return [{ _id: currentClientId, clientName: position.client.clientName || 'Client' }, ...base];
+    }
+    return base;
+  }, [passedClients, fetchedClients, position]);
+
+  const currentResolvedActivation = resolveInitialActivationDate(position);
+
+  // Sync state if position or initialTab changes while modal is open
   if (position?._id !== prevPositionId || initialTab !== prevInitialTab) {
     setPrevPositionId(position?._id);
     setPrevInitialTab(initialTab);
+    setPrevActivatedAt(currentResolvedActivation);
     setActiveTab(initialTab);
-    setEditData({
-      remarks: position?.remarks || '',
-      thisWeekFocus: position?.thisWeekFocus || '',
-      allocationRounds: position?.allocationRounds || [],
-    });
+    setEditData(buildEditStateFromPosition(position));
+    setFeedback(null);
+  } else if (currentResolvedActivation !== prevActivatedAt && !editData.activationDateTouched) {
+    setPrevActivatedAt(currentResolvedActivation);
+    setEditData(prev => ({
+      ...prev,
+      activatedAt: currentResolvedActivation,
+      activationDateManuallyOverridden: Boolean(position?.activationDateManuallyOverridden)
+    }));
   }
 
   if (!position) return null;
 
   const handleChange = (field, value) => {
+    setFeedback(null);
     setEditData(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleActivationDateChange = (value) => {
+    setFeedback(null);
+    setEditData(prev => ({
+      ...prev,
+      activatedAt: value,
+      activationDateManuallyOverridden: true,
+      activationDateTouched: true
+    }));
+  };
+
+  const handleCancel = () => {
+    setEditData(buildEditStateFromPosition(position));
+    setFeedback(null);
+    onClose();
+  };
+
   const handleSave = async () => {
+    if (!editData.position || !editData.position.trim()) {
+      setFeedback({ type: 'error', message: 'Position name is required.' });
+      return;
+    }
+    if (!editData.client) {
+      setFeedback({ type: 'error', message: 'Client is required.' });
+      return;
+    }
+
     setSaving(true);
+    setFeedback(null);
     try {
       const payload = {
-        remarks: editData.remarks || '',
-        thisWeekFocus: editData.thisWeekFocus || '',
+        position: editData.position.trim(),
+        client: editData.client,
+        status: editData.status,
+        assignee: editData.assignee || null,
+        pLevel: editData.pLevel,
+        pipelineStage: editData.pipelineStage,
+        receivedDate: editData.receivedDate || null
       };
+
+      if (editData.activationDateTouched) {
+        payload.activatedAt = editData.activatedAt || null;
+        payload.activationDateManuallyOverridden = true;
+      }
+
       await updatePosition(position._id, payload);
-      await onUpdate();
-      onClose();
+      if (typeof onUpdate === 'function') {
+        await onUpdate();
+      }
+      setEditData(prev => ({ ...prev, activationDateTouched: false }));
+      setFeedback({ type: 'success', message: 'Position details saved successfully.' });
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save changes');
+      setFeedback({
+        type: 'error',
+        message: err.response?.data?.error || 'Failed to save changes'
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  const historyRounds = [...(editData.allocationRounds || [])]
-    .sort((a, b) => new Date(b.dateAssigned) - new Date(a.dateAssigned))
-    .slice(0, 5);
-
-  const primaryName = position.assignee?.name || 'Unassigned';
-  const parallelNames = (position.parallelAssignees || []).map(ta => ta.name).join(', ');
-  const assigneeDisplay = parallelNames ? `${primaryName} (parallel: ${parallelNames})` : primaryName;
+  const clientName = position.client?.clientName || position.clientName || '';
+  const positionTitle = position.position || '';
+  const headerHeading = clientName && positionTitle
+    ? `${clientName} — ${positionTitle}`
+    : (positionTitle || clientName || position.jobOrderId);
+  const headerSubtitle = activeTab === 'cvTracking'
+    ? 'CV Tracking'
+    : activeTab === 'workActivity'
+    ? 'Daily Work & Activity'
+    : 'Position Details';
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-lg pos-detail-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>
-            {position.jobOrderId}
-            {(position.isReactivated || position.status === 'Reactivated') && (
-              <span className="reactivated-tag" style={{ marginLeft: '10px', fontSize: '12px', verticalAlign: 'middle' }} title="Reactivated Requirement">↻ Reactivated</span>
-            )}
-          </h2>
-          <button className="modal-close-btn" onClick={onClose}>
+          <div>
+            <h2>
+              {headerHeading}
+              {(position.isReactivated || position.status === 'Reactivated') && (
+                <span className="reactivated-tag" style={{ marginLeft: '10px', fontSize: '12px', verticalAlign: 'middle' }} title="Reactivated Requirement">↻ Reactivated</span>
+              )}
+            </h2>
+            <div className="pos-detail-header-subtitle">{headerSubtitle}</div>
+          </div>
+          <button className="modal-close-btn" onClick={onClose} aria-label="Close">
             <CloseIcon />
           </button>
         </div>
@@ -104,120 +247,129 @@ export default function PositionDetailModal({ position, onClose, onUpdate, tas, 
         </div>
         <div className="modal-body">
           {activeTab === 'details' ? (
-            <>
-              <div className="modal-summary">
-                <div className="modal-summary-item">
-                  <span className="modal-summary-label">Position</span>
-                  <span className="modal-summary-value">{position.position}</span>
+            <div className="pdm-details-main">
+              <div className="pdm-intro">
+                <div>
+                  <h2>Position Details</h2>
+                  <p>Update the position information and key dates below.</p>
                 </div>
-                <div className="modal-summary-item">
-                  <span className="modal-summary-label">Client</span>
-                  <span className="modal-summary-value">{position.client?.clientName || '—'}</span>
-                </div>
-                <div className="modal-summary-item">
-                  <span className="modal-summary-label">Status</span>
-                  <span className="modal-summary-value">{position.status}</span>
-                </div>
-                <div className="modal-summary-item">
-                  <span className="modal-summary-label">Assignee(s)</span>
-                  <span className="modal-summary-value">{assigneeDisplay}</span>
-                </div>
-                <div className="modal-summary-item">
-                  <span className="modal-summary-label">Level</span>
-                  <span className="modal-summary-value">{position.pLevel}</span>
-                </div>
-                <div className="modal-summary-item">
-                  <span className="modal-summary-label">Stage</span>
-                  <span className="modal-summary-value">{position.pipelineStage}</span>
-                </div>
-                <div className="modal-summary-item">
-                  <span className="modal-summary-label">Shortlist (Int/Ext)</span>
-                  <span className="modal-summary-value">{position.lsCount ?? '—'} / {position.cvCount ?? '—'}</span>
-                </div>
-                <div className="modal-summary-item">
-                  <span className="modal-summary-label">Received Date</span>
-                  <span className="modal-summary-value">
-                    {(position.receivedDate || position.createdAt)
-                      ? new Date(position.receivedDate || position.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-                      : '—'}
-                  </span>
-                </div>
-                <div className="modal-summary-item">
-                  <span className="modal-summary-label">Assigned Date</span>
-                  <span className="modal-summary-value">
-                    {Array.isArray(position.taAssignments) && position.taAssignments.length > 0
-                      ? position.taAssignments.map(a => {
-                          const tName = a.ta?.name || tas?.find(t => String(t._id) === String(a.ta?._id || a.ta))?.name || 'TA';
-                          const dtStr = a.assignedAt ? new Date(a.assignedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-                          return `${tName}: ${dtStr}`;
-                        }).join(' · ')
-                      : (position.dateAssigned ? new Date(position.dateAssigned).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')}
-                  </span>
-                </div>
-                <div className="modal-summary-item">
-                  <span className="modal-summary-label">Activation Date</span>
-                  <span className="modal-summary-value">
-                    {position.activatedAt
-                      ? new Date(position.activatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-                      : 'Not yet activated'}
-                  </span>
-                </div>
+                <span className="pdm-status-pill">
+                  <span className="pdm-status-dot" />
+                  <span>Active position</span>
+                </span>
               </div>
-              <div className="modal-editable">
-                <div className="modal-field">
-                  <label>This Week Focus</label>
-                  <input
-                    type="text"
-                    value={editData.thisWeekFocus}
-                    onChange={e => handleChange('thisWeekFocus', e.target.value)}
-                    className="modal-input"
-                    placeholder="e.g., Schedule interviews, Review CVs..."
-                  />
+
+              {feedback && (
+                <div className={`pdm-feedback pdm-feedback--${feedback.type}`}>
+                  <span>{feedback.message}</span>
                 </div>
-                <div className="modal-field">
-                  <label>Remarks</label>
-                  <textarea
-                    value={editData.remarks}
-                    onChange={e => handleChange('remarks', e.target.value)}
-                    className="modal-textarea"
-                    rows="4"
-                    placeholder="Add any notes or remarks about this position..."
-                  />
-                </div>
-              </div>
-              <div className="modal-history">
-                <h4>Allocation History</h4>
-                {historyRounds.length === 0 ? (
-                  <p className="modal-history-empty">No allocation history yet</p>
-                ) : (
-                  <table className="modal-history-table">
-                    <thead>
-                      <tr>
-                        <th>Round</th>
-                        <th>Value</th>
-                        <th>Date</th>
-                        <th>Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {historyRounds.map((round, idx) => (
-                        <tr key={idx}>
-                          <td className="col-round">Round {round.roundNumber}</td>
-                          <td className="col-value">{round.taAssigned?.name || '—'}</td>
-                          <td className="col-date">{round.dateAssigned ? new Date(round.dateAssigned).toLocaleDateString() : '—'}</td>
-                          <td className="col-notes">{round.reason || '—'}</td>
-                        </tr>
+              )}
+
+              <section className="pdm-card">
+                <h3 className="pdm-card-title">Position information</h3>
+                <div className="pdm-grid">
+                  <div className="pdm-field">
+                    <label htmlFor="pdm-position-input">Position</label>
+                    <input
+                      id="pdm-position-input"
+                      type="text"
+                      value={editData.position}
+                      onChange={e => handleChange('position', e.target.value)}
+                    />
+                  </div>
+                  <div className="pdm-field">
+                    <label htmlFor="pdm-client-select">Client</label>
+                    <select
+                      id="pdm-client-select"
+                      value={editData.client}
+                      onChange={e => handleChange('client', e.target.value)}
+                    >
+                      <option value="">Select client</option>
+                      {clientsList.map(c => (
+                        <option key={c._id} value={c._id}>{c.clientName}</option>
                       ))}
-                    </tbody>
-                  </table>
-                )}
-                {historyRounds.length === 5 && (editData.allocationRounds?.length || 0) > 5 && (
-                  <p className="modal-history-more">+ {(editData.allocationRounds?.length || 0) - 5} more rounds</p>
-                )}
-              </div>
-            </>
+                    </select>
+                  </div>
+                  <div className="pdm-field">
+                    <label htmlFor="pdm-status-select">Status</label>
+                    <select
+                      id="pdm-status-select"
+                      value={editData.status}
+                      onChange={e => handleChange('status', e.target.value)}
+                    >
+                      {ALL_STATUS_OPTIONS.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="pdm-field">
+                    <label htmlFor="pdm-assignee-select">Assignee(s)</label>
+                    <select
+                      id="pdm-assignee-select"
+                      value={editData.assignee}
+                      onChange={e => handleChange('assignee', e.target.value)}
+                    >
+                      <option value="">— Unassigned —</option>
+                      {tas.map(ta => (
+                        <option key={ta._id} value={ta._id}>{ta.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="pdm-field">
+                    <label htmlFor="pdm-level-select">Level</label>
+                    <select
+                      id="pdm-level-select"
+                      value={editData.pLevel}
+                      onChange={e => handleChange('pLevel', e.target.value)}
+                    >
+                      {PLEVEL_OPTIONS.map(lvl => (
+                        <option key={lvl} value={lvl}>{lvl}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="pdm-field">
+                    <label htmlFor="pdm-stage-select">Stage</label>
+                    <select
+                      id="pdm-stage-select"
+                      value={editData.pipelineStage}
+                      onChange={e => handleChange('pipelineStage', e.target.value)}
+                    >
+                      {STAGE_OPTIONS.map(stg => (
+                        <option key={stg.value} value={stg.value}>{stg.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              <section className="pdm-date-panel">
+                <div className="pdm-date-panel-head">
+                  <strong>Key position dates</strong>
+                </div>
+                <div className="pdm-date-grid">
+                  <div className="pdm-field">
+                    <label htmlFor="pdm-received-date">Received date</label>
+                    <input
+                      id="pdm-received-date"
+                      type="date"
+                      value={editData.receivedDate}
+                      onChange={e => handleChange('receivedDate', e.target.value)}
+                    />
+                  </div>
+                  <div className="pdm-field">
+                    <label htmlFor="pdm-activation-date">Activation date</label>
+                    <input
+                      id="pdm-activation-date"
+                      type="date"
+                      value={editData.activatedAt}
+                      onChange={e => handleActivationDateChange(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
           ) : activeTab === 'cvTracking' ? (
-            <CandidateCvSection position={position} tas={tas} />
+            <CandidateCvSection position={position} tas={tas} onUpdate={onUpdate} />
           ) : (
             <div style={{ padding: '20px 28px' }}>
               <PositionActivityHistory positionId={position._id} jobOrderId={position.jobOrderId} />
@@ -227,13 +379,13 @@ export default function PositionDetailModal({ position, onClose, onUpdate, tas, 
         <div className="modal-footer">
           {activeTab === 'details' ? (
             <>
-              <button className="btn-secondary" onClick={onClose}>Cancel</button>
-              <button className="btn-primary" onClick={handleSave} disabled={saving}>
+              <button type="button" className="pdm-btn" onClick={handleCancel}>Cancel</button>
+              <button type="button" className="pdm-btn pdm-btn--primary" onClick={handleSave} disabled={saving}>
                 {saving ? 'Saving...' : 'Save Changes'}
               </button>
             </>
           ) : (
-            <button className="btn-secondary" onClick={onClose}>Close</button>
+            <button type="button" className="pdm-btn" onClick={onClose}>Close</button>
           )}
         </div>
       </div>

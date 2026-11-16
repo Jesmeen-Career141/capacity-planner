@@ -9,6 +9,8 @@ router.post('/', submissionSetController.createSubmissionSet);
 router.post('/create-with-upload', handleMulterUpload, submissionSetController.createSetWithUpload);
 router.get('/positions/:positionId', submissionSetController.getPositionSets);
 router.get('/:id', submissionSetController.getSubmissionSetById);
+router.put('/:id', submissionSetController.updateSubmissionSet);
+router.patch('/:id', submissionSetController.updateSubmissionSet);
 router.post('/:id/upload', handleMulterUpload, submissionSetController.uploadCvsToSet);
 router.delete('/:id', submissionSetController.deleteSubmissionSet);
 

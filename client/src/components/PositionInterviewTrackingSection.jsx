@@ -241,15 +241,21 @@ export default function PositionInterviewTrackingSection({ positionId }) {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedCandidateId(candidateSubId)}
-                          className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-[11px] font-semibold text-forest-700 hover:bg-forest-50 hover:border-forest-200"
-                          title="View complete candidate interview journey"
-                        >
-                          <History size={12} />
-                          <span>Journey</span>
-                        </button>
+                        {candidateSubId ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCandidateId(candidateSubId)}
+                            className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-[11px] font-semibold text-forest-700 hover:bg-forest-50 hover:border-forest-200"
+                            title="View complete candidate interview journey"
+                          >
+                            <History size={12} />
+                            <span>Journey</span>
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-gray-400 italic" title="Imported without CV file">
+                            No CV linked
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );

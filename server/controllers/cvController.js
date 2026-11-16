@@ -16,6 +16,7 @@ const {
   generatePresignedDownloadUrl,
   getFileBufferFromR2
 } = require('../utils/r2Storage');
+const { syncPositionCvCounts } = require('../utils/cvSync');
 
 const ATTEMPT_TA_POPULATE = [
   { path: 'primaryTA', select: 'name status color' },
@@ -309,6 +310,21 @@ async function getSubmissions(req, res) {
       .sort({ uploadedAt: -1 })
       .lean();
 
+    // Auto-normalize any Pending submissions that belong to a submission set or were already sent to client
+    const pendingToPromoteIds = [];
+    for (const sub of submissions) {
+      if (sub && sub.internalShortlistStatus === 'Pending' && (sub.submissionSet || sub.setNumber || sub.sentToClient)) {
+        sub.internalShortlistStatus = 'Shortlisted';
+        if (sub._id) pendingToPromoteIds.push(sub._id);
+      }
+    }
+    if (pendingToPromoteIds.length > 0 && mongoose.connection && mongoose.connection.readyState === 1) {
+      CandidateSubmission.updateMany(
+        { _id: { $in: pendingToPromoteIds } },
+        { $set: { internalShortlistStatus: 'Shortlisted', internalShortlistDate: new Date() } }
+      ).catch(() => {});
+    }
+
     res.json({
       attempt,
       submissions
@@ -370,10 +386,11 @@ async function uploadCvs(req, res, injectedClient = null) {
       validatedSourcedBy = req.body.sourcedBy;
     }
 
-    // Optional submission set association
+    // Optional submission set association (or automatic sequential Set creation when setId === 'NEW_SET')
     let targetSet = null;
+    let allocatedSetSeq = null;
     const setId = req.body?.submissionSetId || req.body?.submissionSet || req.query?.submissionSetId || req.query?.submissionSet;
-    if (setId) {
+    if (setId && setId !== 'NEW_SET') {
       if (mongoose.Types.ObjectId.isValid(setId)) {
         targetSet = await SubmissionSet.findOne({ _id: setId, position: position._id });
       } else {
@@ -384,6 +401,27 @@ async function uploadCvs(req, res, injectedClient = null) {
     const files = req.files || [];
     if (files.length === 0) {
       return res.status(400).json({ error: 'No files provided for upload.' });
+    }
+
+    if (setId === 'NEW_SET' && mongoose.Types.ObjectId.isValid(String(position._id))) {
+      const allocation = await SubmissionSet.allocateNextSet(position._id);
+      allocatedSetSeq = allocation.setSequence;
+      const sentDate = req.body?.sentToClientAt ? new Date(req.body.sentToClientAt) : new Date();
+      targetSet = await SubmissionSet.create({
+        submissionSetId: allocation.submissionSetId,
+        position: position._id,
+        jobOrderId: position.jobOrderId || '',
+        setNumber: allocation.setNumber,
+        setSequence: allocation.setSequence,
+        sentToClientAt: isNaN(sentDate.getTime()) ? new Date() : sentDate,
+        uploadedAt: new Date(),
+        uploadedBy: req.body?.submittedBy || position.assignee || null,
+        sourcingTAs: validatedSourcedBy ? [validatedSourcedBy] : (position.assignee ? [position.assignee] : []),
+        cvCount: 0,
+        notes: req.body?.setNotes || '',
+        attempt: targetAttempt._id,
+        createdBy: req.body?.submittedBy || position.assignee || null
+      });
     }
 
     const successful = [];
@@ -506,6 +544,15 @@ async function uploadCvs(req, res, injectedClient = null) {
     if (targetSet && successful.length > 0) {
       targetSet.cvCount += successful.length;
       await targetSet.save();
+    } else if (targetSet && successful.length === 0 && allocatedSetSeq) {
+      // Roll back auto-created set if all files failed validation/upload
+      await SubmissionSet.findByIdAndDelete(targetSet._id);
+      await SubmissionSet.rollbackSetSequence(position._id, allocatedSetSeq);
+      targetSet = null;
+    }
+
+    if (successful.length > 0) {
+      await syncPositionCvCounts(position._id);
     }
 
     const summary = {
@@ -526,12 +573,24 @@ async function uploadCvs(req, res, injectedClient = null) {
       });
     }
 
+    const responsePayload = {
+      summary,
+      successful,
+      failed,
+      set: targetSet ? {
+        _id: targetSet._id,
+        submissionSetId: targetSet.submissionSetId,
+        setNumber: targetSet.setNumber,
+        cvCount: targetSet.cvCount
+      } : null
+    };
+
     if (failed.length === 0) {
-      return res.status(201).json({ summary, successful, failed });
+      return res.status(201).json(responsePayload);
     }
 
     // Partial failure: HTTP 207 Multi-Status
-    return res.status(207).json({ summary, successful, failed });
+    return res.status(207).json(responsePayload);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -633,6 +692,18 @@ async function deleteSubmission(req, res, injectedClient = null) {
         });
       }
     }
+
+    if (submission.submissionSet && mongoose.connection && mongoose.connection.readyState === 1) {
+      try {
+        const targetSet = await SubmissionSet.findById(submission.submissionSet);
+        if (targetSet) {
+          targetSet.cvCount = Math.max(0, (Number(targetSet.cvCount) || 1) - 1);
+          await targetSet.save();
+        }
+      } catch (_) {}
+    }
+
+    await syncPositionCvCounts(submission.position);
 
     res.json({
       message: 'CV submission deleted successfully',
@@ -798,6 +869,7 @@ async function updateSubmissionStatus(req, res) {
     }
 
     await submission.save();
+    await syncPositionCvCounts(submission.position);
 
     const populated = await CandidateSubmission.findById(submissionId)
       .populate(SUBMISSION_TA_POPULATE)
@@ -1046,6 +1118,7 @@ async function withdrawCandidate(req, res) {
     submission.withdrawalExplanation = withdrawalExplanation ? withdrawalExplanation.trim() : '';
 
     await submission.save();
+    await syncPositionCvCounts(submission.position);
 
     const populated = await CandidateSubmission.findById(submission._id)
       .populate(SUBMISSION_TA_POPULATE)

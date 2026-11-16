@@ -23,8 +23,13 @@ export const uploadCvsToSet = (setId, formData, config = {}) =>
 export const createSetWithUpload = (formData, config = {}) =>
   api.post('/submission-sets/create-with-upload', formData, config);
 
-export const deleteSubmissionSet = (id) =>
-  api.delete(`/submission-sets/${id}`);
+export const updateSubmissionSet = (id, data) =>
+  api.put(`/submission-sets/${id}`, data);
+
+export const deleteSubmissionSet = (id, options = {}) =>
+  api.delete(`/submission-sets/${id}`, {
+    params: options.deleteCvs !== undefined ? { deleteCvs: options.deleteCvs } : undefined
+  });
 
 export default {
   getSubmissionSets,
@@ -33,5 +38,6 @@ export default {
   createSubmissionSet,
   uploadCvsToSet,
   createSetWithUpload,
+  updateSubmissionSet,
   deleteSubmissionSet
 };

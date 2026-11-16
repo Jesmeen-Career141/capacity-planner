@@ -176,8 +176,8 @@ exports.createInterview = async (req, res) => {
       candidateName: customCandidateName
     } = req.body;
 
-    if (!candidateSubmissionId) {
-      return res.status(400).json({ error: 'candidateSubmissionId is required' });
+    if (!candidateSubmissionId && (!customCandidateName || !customCandidateName.trim())) {
+      return res.status(400).json({ error: 'candidateSubmissionId or candidateName is required' });
     }
     if (!positionId) {
       return res.status(400).json({ error: 'positionId is required' });
@@ -192,13 +192,13 @@ exports.createInterview = async (req, res) => {
       return res.status(400).json({ error: `Invalid round. Must be one of: ${ROUND_VALUES.join(', ')}` });
     }
 
-    // Retrieve Candidate Submission and Position
+    // Retrieve Candidate Submission (if provided) and Position
     const [candidateSub, pos] = await Promise.all([
-      CandidateSubmission.findById(candidateSubmissionId),
+      candidateSubmissionId ? CandidateSubmission.findById(candidateSubmissionId) : Promise.resolve(null),
       Position.findById(positionId).populate('client', 'clientName').populate('assignee', 'name')
     ]);
 
-    if (!candidateSub) {
+    if (candidateSubmissionId && !candidateSub) {
       return res.status(404).json({ error: 'Candidate submission not found' });
     }
     if (!pos) {
@@ -207,8 +207,8 @@ exports.createInterview = async (req, res) => {
 
     // Resolve candidate name
     const resolvedCandidateName = customCandidateName?.trim() ||
-      candidateSub.unverifiedLabel ||
-      candidateSub.originalFileName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+      candidateSub?.unverifiedLabel ||
+      (candidateSub?.originalFileName ? candidateSub.originalFileName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ') : 'Candidate');
 
     // Resolve date and dateStr
     const actualDate = new Date(interviewDate);
@@ -220,10 +220,11 @@ exports.createInterview = async (req, res) => {
     const roundSequence = ROUND_SEQUENCE_MAP[round] || 1;
 
     // Check if an interview for this candidate and this exact round already exists
-    const existingSameRound = await Interview.findOne({
-      candidateSubmission: candidateSub._id,
-      round
-    });
+    const existingSameRound = await Interview.findOne(
+      candidateSub
+        ? { candidateSubmission: candidateSub._id, round }
+        : { position: pos._id, candidateName: resolvedCandidateName, round }
+    );
 
     if (existingSameRound) {
       return res.status(409).json({
@@ -231,7 +232,7 @@ exports.createInterview = async (req, res) => {
       });
     }
 
-    let attemptRef = candidateSub.attempt || null;
+    let attemptRef = candidateSub?.attempt || null;
     let attemptIdVal = null;
     let attemptNumVal = null;
     if (attemptRef) {
@@ -244,19 +245,19 @@ exports.createInterview = async (req, res) => {
 
     const newInterview = new Interview({
       interviewId,
-      candidateSubmission: candidateSub._id,
+      candidateSubmission: candidateSub?._id || null,
       candidateName: resolvedCandidateName,
       position: pos._id,
       jobOrderId: pos.jobOrderId,
-      client: pos.client?._id || candidateSub.position,
+      client: pos.client?._id || candidateSub?.position,
       clientName: pos.client?.clientName || 'Unknown Client',
       positionName: pos.position,
       attempt: attemptRef,
       attemptId: attemptIdVal,
       attemptNumber: attemptNumVal,
-      submissionSet: candidateSub.submissionSet || null,
-      submissionSetId: candidateSub.submissionSetId || null,
-      sourcingTA: candidateSub.sourcedBy || candidateSub.submittedBy || pos.assignee?._id || null,
+      submissionSet: candidateSub?.submissionSet || null,
+      submissionSetId: candidateSub?.submissionSetId || null,
+      sourcingTA: candidateSub?.sourcedBy || candidateSub?.submittedBy || pos.assignee?._id || null,
       interviewCoordinator: interviewCoordinatorId || pos.assignee?._id || null,
       round,
       roundSequence,
@@ -599,14 +600,19 @@ exports.getPositionInterviewTracking = async (req, res) => {
     const withdrew = interviews.filter(i => i.status === 'Withdrew').length;
 
     // Distinct unique candidates calculations
-    const uniqueCandidateIds = new Set(interviews.map(i => String(i.candidateSubmission?._id || i.candidateSubmission)));
+    const getCandKey = (inv) =>
+      inv.candidateSubmission
+        ? String(inv.candidateSubmission?._id || inv.candidateSubmission)
+        : `${inv.position}_${(inv.candidateName || '').trim().toLowerCase()}`;
+
+    const uniqueCandidateIds = new Set(interviews.map(getCandKey));
     const uniqueCandidatesInterviewed = uniqueCandidateIds.size;
 
     // Latest interview per candidate to accurately assess current decision state
     const candidateLatestMap = new Map();
     // Interviews are sorted by interviewDate desc, so first seen is latest
     interviews.forEach(inv => {
-      const cId = String(inv.candidateSubmission?._id || inv.candidateSubmission);
+      const cId = getCandKey(inv);
       if (!candidateLatestMap.has(cId)) {
         candidateLatestMap.set(cId, inv);
       }
@@ -700,9 +706,14 @@ exports.getInterviewDashboardSummary = async (req, res) => {
     const withdrew = allInterviews.filter(i => i.status === 'Withdrew').length;
 
     // Distinct candidate calculations
+    const getCandKey = (inv) =>
+      inv.candidateSubmission
+        ? String(inv.candidateSubmission?._id || inv.candidateSubmission)
+        : `${inv.position?._id || inv.position}_${(inv.candidateName || '').trim().toLowerCase()}`;
+
     const candidateLatestMap = new Map();
     allInterviews.forEach(inv => {
-      const cId = String(inv.candidateSubmission?._id || inv.candidateSubmission);
+      const cId = getCandKey(inv);
       if (!candidateLatestMap.has(cId)) candidateLatestMap.set(cId, inv);
     });
 
@@ -740,7 +751,7 @@ exports.getInterviewDashboardSummary = async (req, res) => {
     // Interview decision is 'Shortlisted' in round 1, 2, or 3, and no higher round scheduled yet
     const candidateRoundsMap = new Map();
     allInterviews.forEach(inv => {
-      const cId = String(inv.candidateSubmission?._id || inv.candidateSubmission);
+      const cId = getCandKey(inv);
       if (!candidateRoundsMap.has(cId)) candidateRoundsMap.set(cId, []);
       candidateRoundsMap.get(cId).push(inv);
     });
@@ -752,7 +763,7 @@ exports.getInterviewDashboardSummary = async (req, res) => {
       const topInv = candidateInvs[0];
       if (topInv.decision === 'Shortlisted' && topInv.roundSequence < 4) {
         requiringNextRound.push({
-          candidateSubmissionId: cId,
+          candidateSubmissionId: topInv.candidateSubmission?._id || topInv.candidateSubmission || null,
           candidateName: topInv.candidateName,
           jobOrderId: topInv.jobOrderId,
           clientName: topInv.clientName,
@@ -765,7 +776,7 @@ exports.getInterviewDashboardSummary = async (req, res) => {
     // Pipeline breakdown by round
     const pipeline = ROUND_VALUES.map(roundName => {
       const roundInvs = allInterviews.filter(i => i.round === roundName);
-      const uniqueCandidates = new Set(roundInvs.map(i => String(i.candidateSubmission?._id || i.candidateSubmission))).size;
+      const uniqueCandidates = new Set(roundInvs.map(getCandKey)).size;
       return {
         round: roundName,
         totalEvents: roundInvs.length,

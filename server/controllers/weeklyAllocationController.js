@@ -4,30 +4,10 @@ const Position = require('../models/Position');
 const PositionHistory = require('../models/PositionHistory');
 const liveEvents = require('../utils/liveEvents');
 
-// Record Activation Date automatically ONLY when a position first appears on the TA Board.
-// Never resets or overwrites an existing activatedAt timestamp.
-async function markPositionActivatedIfFirstTime(positionId) {
-  if (!positionId) return;
-  try {
-    const now = new Date();
-    const updatedPos = await Position.findOneAndUpdate(
-      { _id: positionId, $or: [{ activatedAt: null }, { activatedAt: { $exists: false } }] },
-      { $set: { activatedAt: now } },
-      { new: true }
-    );
-    if (updatedPos) {
-      await PositionHistory.create({
-        position: positionId,
-        field: 'activatedAt',
-        oldValue: '',
-        newValue: now.toISOString()
-      });
-      liveEvents.emit('positions:changed');
-    }
-  } catch (err) {
-    // Non-fatal: do not block TA Board cell assignment
-    console.error('Error recording position activatedAt:', err.message);
-  }
+// Activation Date is now governed by the first CV Submission Set's sentToClientAt date
+// (or manual override in Position Details), so TA Board allocation no longer sets activatedAt.
+async function markPositionActivatedIfFirstTime(_positionId) {
+  return;
 }
 
 const defaultDays = {

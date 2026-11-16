@@ -54,6 +54,7 @@ export default function CandidatePipeline({
   position,
   selectedAttempt,
   tas = [],
+  positionSets = [],
   submissions = [],
   isReadOnly = false,
   onUpdateStatus,
@@ -63,10 +64,9 @@ export default function CandidatePipeline({
   onRequestWithdrawal
 }) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
   const [qualityFilter, setQualityFilter] = useState('ALL');
-  const [clientDecisionFilter, setClientDecisionFilter] = useState('ALL');
-  const [showWithdrawn, setShowWithdrawn] = useState(false);
-  const [showClientRejected, setShowClientRejected] = useState(false);
+  const [setFilter, setSetFilter] = useState('ALL');
   const [historyCandidateId, setHistoryCandidateId] = useState(null);
 
   // Download All ZIP progress and status state
@@ -74,42 +74,66 @@ export default function CandidatePipeline({
   const isCancelledRef = useRef(false);
 
   const safeSubmissions = Array.isArray(submissions) ? submissions : [];
+  const safePositionSets = Array.isArray(positionSets) ? positionSets : [];
 
-  // Business Rule: Only internally shortlisted candidates enter CV Tracking
+  // Include all non-rejected CVs (both direct CV Tracking uploads and Submission Set uploads)
   const shortlistedSubmissions = useMemo(
-    () => safeSubmissions.filter(s => s && s.internalShortlistStatus === 'Shortlisted'),
+    () => safeSubmissions.filter(s => s && s.internalShortlistStatus !== 'Rejected'),
     [safeSubmissions]
   );
 
-  // Filter by search query, quality rating, client decision, and Withdrawn / Client Rejected checkboxes
+  // Derive set filter options (e.g., Set 04, Set 03, Set 02, Set 01)
+  const setOptions = useMemo(() => {
+    const options = [];
+    const seenLabels = new Set();
+    const seenIds = new Set();
+
+    safePositionSets.forEach(set => {
+      if (!set) return;
+      const idStr = String(set._id || set.submissionSetId || set.setNumber || '');
+      const label = set.setNumber || set.submissionSetId || idStr;
+      if (!label || seenLabels.has(label)) return;
+      seenLabels.add(label);
+      if (idStr) seenIds.add(idStr);
+      options.push({
+        value: set.setNumber || idStr,
+        id: idStr,
+        setNumber: set.setNumber,
+        label
+      });
+    });
+
+    shortlistedSubmissions.forEach(sub => {
+      if (sub?.setNumber && !seenLabels.has(sub.setNumber)) {
+        seenLabels.add(sub.setNumber);
+        options.push({
+          value: sub.setNumber,
+          id: String(sub.submissionSet?._id || sub.submissionSet || ''),
+          setNumber: sub.setNumber,
+          label: sub.setNumber
+        });
+      }
+    });
+
+    const hasUnassigned = shortlistedSubmissions.some(s => !s.submissionSet && !s.setNumber);
+    if (hasUnassigned && options.length > 0) {
+      options.push({
+        value: 'UNASSIGNED',
+        id: 'UNASSIGNED',
+        setNumber: null,
+        label: 'Unassigned'
+      });
+    }
+
+    return options;
+  }, [safePositionSets, shortlistedSubmissions]);
+
+  // Filter by search query, consolidated status, quality rating, and submission set
   const filteredSubmissions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
 
     return shortlistedSubmissions.filter(candidate => {
-      // 1. Withdrawn and Client Rejected checkbox rules:
-      // By default: hide both withdrawn and client-rejected candidates from the active CV list.
-      if (!showWithdrawn && !showClientRejected) {
-        if (candidate.isWithdrawn || candidate.clientShortlistStatus === 'Rejected') {
-          return false;
-        }
-      } else if (showWithdrawn && !showClientRejected) {
-        // Selecting Withdrawn shows withdrawn candidates only.
-        if (!candidate.isWithdrawn) {
-          return false;
-        }
-      } else if (!showWithdrawn && showClientRejected) {
-        // Selecting Client Rejected shows client-rejected candidates only.
-        if (candidate.clientShortlistStatus !== 'Rejected' || candidate.isWithdrawn) {
-          return false;
-        }
-      } else {
-        // Combined selection: show candidates who are either Withdrawn or Client Rejected.
-        if (!candidate.isWithdrawn && candidate.clientShortlistStatus !== 'Rejected') {
-          return false;
-        }
-      }
-
-      // 2. Search candidate name or original filename
+      // 1. Search candidate name or original filename
       if (q) {
         const label = (candidate.unverifiedLabel || '').toLowerCase();
         const fileName = (candidate.originalFileName || '').toLowerCase();
@@ -118,7 +142,27 @@ export default function CandidatePipeline({
         }
       }
 
-      // 3. Filter by quality rating
+      // 2. Consolidated Status filter
+      if (statusFilter !== 'ALL') {
+        const isWithdrawn = Boolean(candidate.isWithdrawn);
+        const clientStatus = candidate.clientShortlistStatus || 'Pending';
+
+        if (statusFilter === 'WITHDRAWN') {
+          if (!isWithdrawn) return false;
+        } else if (statusFilter === 'CLIENT_SHORTLISTED') {
+          if (isWithdrawn || clientStatus !== 'Shortlisted') return false;
+        } else if (statusFilter === 'CLIENT_REJECTED') {
+          if (isWithdrawn || clientStatus !== 'Rejected') return false;
+        } else if (statusFilter === 'PENDING') {
+          if (isWithdrawn || clientStatus !== 'Pending') return false;
+        } else if (statusFilter === 'INTERNALLY_SHORTLISTED') {
+          if (isWithdrawn || clientStatus === 'Rejected' || candidate.internalShortlistStatus === 'Rejected') {
+            return false;
+          }
+        }
+      }
+
+      // 3. Quality Rating filter
       if (qualityFilter !== 'ALL') {
         const rating = candidate.qualityRating || 'Not Rated';
         if (rating !== qualityFilter) {
@@ -126,31 +170,38 @@ export default function CandidatePipeline({
         }
       }
 
-      // 4. Filter by client decision
-      if (clientDecisionFilter !== 'ALL') {
-        const decision = candidate.clientShortlistStatus || 'Pending';
-        if (decision !== clientDecisionFilter) {
-          return false;
+      // 4. Submission Set filter
+      if (setFilter !== 'ALL') {
+        if (setFilter === 'UNASSIGNED') {
+          if (candidate.submissionSet || candidate.setNumber) return false;
+        } else {
+          const matchedOption = setOptions.find(o => o.value === setFilter);
+          const candSetId = String(candidate.submissionSet?._id || candidate.submissionSet || '');
+          const matchesNumber = candidate.setNumber && candidate.setNumber === setFilter;
+          const matchesId =
+            (candSetId && candSetId === setFilter) ||
+            (matchedOption?.id && candSetId && candSetId === matchedOption.id);
+          if (!matchesNumber && !matchesId) {
+            return false;
+          }
         }
       }
 
       return true;
     });
-  }, [shortlistedSubmissions, searchQuery, qualityFilter, clientDecisionFilter, showWithdrawn, showClientRejected]);
+  }, [shortlistedSubmissions, searchQuery, statusFilter, qualityFilter, setFilter, setOptions]);
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
+    statusFilter !== 'ALL' ||
     qualityFilter !== 'ALL' ||
-    clientDecisionFilter !== 'ALL' ||
-    showWithdrawn ||
-    showClientRejected;
+    setFilter !== 'ALL';
 
   const handleResetFilters = () => {
     setSearchQuery('');
+    setStatusFilter('ALL');
     setQualityFilter('ALL');
-    setClientDecisionFilter('ALL');
-    setShowWithdrawn(false);
-    setShowClientRejected(false);
+    setSetFilter('ALL');
   };
 
   /**
@@ -290,12 +341,7 @@ export default function CandidatePipeline({
     <section className="cv-demo3-section">
       {/* Toolbar Header */}
       <div className="cv-demo3-toolbar">
-        <div>
-          <h2 className="cv-demo3-title">All tracked CVs</h2>
-          <p className="cv-demo3-subtitle">
-            A single list reduces repeated cards and makes searching easier.
-          </p>
-        </div>
+        <h2 className="cv-demo3-title">All tracked CVs</h2>
         <div className="cv-demo3-toolbar-actions">
           {shortlistedSubmissions.length > 0 && (
             <button
@@ -305,18 +351,7 @@ export default function CandidatePipeline({
               disabled={downloadProgress && (downloadProgress.status === 'downloading' || downloadProgress.status === 'zipping')}
               title={`Download all ${shortlistedSubmissions.length} CVs as a ZIP archive`}
             >
-              <FileArchive size={14} />
-              <span>Download All CVs ({shortlistedSubmissions.length})</span>
-            </button>
-          )}
-
-          {hasActiveFilters && (
-            <button
-              type="button"
-              className="cv-demo3-reset-btn"
-              onClick={handleResetFilters}
-            >
-              Reset filters ({filteredSubmissions.length} / {shortlistedSubmissions.length})
+              <span>⇩ Download All CVs ({shortlistedSubmissions.length})</span>
             </button>
           )}
         </div>
@@ -325,57 +360,53 @@ export default function CandidatePipeline({
       {/* Search & Filter Controls Bar */}
       <div className="cv-demo3-filters-row">
         <input
-          type="text"
+          type="search"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search candidate or file name…"
-          aria-label="Search candidate or file name"
+          aria-label="Search candidates"
           className="cv-demo3-search-input"
         />
 
         <select
-          value={qualityFilter}
-          onChange={(e) => setQualityFilter(e.target.value)}
-          aria-label="Filter by quality rating"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          aria-label="Status filter"
           className="cv-demo3-filter-select"
         >
-          <option value="ALL">All quality ratings</option>
-          <option value="Not Rated">Not rated</option>
-          <option value="Good">Good</option>
-          <option value="Optional">Optional</option>
+          <option value="ALL">All statuses</option>
+          <option value="INTERNALLY_SHORTLISTED">Internally shortlisted</option>
+          <option value="CLIENT_SHORTLISTED">Client shortlisted</option>
+          <option value="CLIENT_REJECTED">Client rejected</option>
+          <option value="WITHDRAWN">Withdrawn</option>
+          <option value="PENDING">Pending</option>
         </select>
 
         <select
-          value={clientDecisionFilter}
-          onChange={(e) => setClientDecisionFilter(e.target.value)}
-          aria-label="Filter by client decision"
+          value={qualityFilter}
+          onChange={(e) => setQualityFilter(e.target.value)}
+          aria-label="Quality filter"
           className="cv-demo3-filter-select"
         >
-          <option value="ALL">All client decisions</option>
-          <option value="Shortlisted">Shortlisted</option>
-          <option value="Rejected">Rejected</option>
-          <option value="Pending">Pending</option>
+          <option value="ALL">All quality ratings</option>
+          <option value="Good">Good</option>
+          <option value="Optional">Optional</option>
+          <option value="Not Rated">Not rated</option>
         </select>
 
-        <div className="cv-demo3-checkbox-filters">
-          <label className={`cv-demo3-checkbox-label ${showWithdrawn ? 'cv-demo3-checkbox-label--active' : ''}`}>
-            <input
-              type="checkbox"
-              checked={showWithdrawn}
-              onChange={(e) => setShowWithdrawn(e.target.checked)}
-            />
-            <span>Withdrawn</span>
-          </label>
-
-          <label className={`cv-demo3-checkbox-label ${showClientRejected ? 'cv-demo3-checkbox-label--active' : ''}`}>
-            <input
-              type="checkbox"
-              checked={showClientRejected}
-              onChange={(e) => setShowClientRejected(e.target.checked)}
-            />
-            <span>Client Rejected</span>
-          </label>
-        </div>
+        <select
+          value={setFilter}
+          onChange={(e) => setSetFilter(e.target.value)}
+          aria-label="Set filter"
+          className="cv-demo3-filter-select"
+        >
+          <option value="ALL">All sets</option>
+          {setOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Compact Candidate List */}
@@ -415,6 +446,7 @@ export default function CandidatePipeline({
                 candidate={candidate}
                 selectedAttempt={selectedAttempt}
                 tas={tas}
+                positionSets={safePositionSets}
                 isReadOnly={isReadOnly}
                 onUpdateStatus={onUpdateStatus}
                 onDelete={onDelete}

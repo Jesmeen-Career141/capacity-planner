@@ -75,6 +75,16 @@ const positionSchema = new mongoose.Schema({
       type: Date,
       default: null
     },
+    activationDateManuallyOverridden: {
+      type: Boolean,
+      default: false
+    },
+    serviceContributionScore: {
+      type: Number,
+      min: [0, 'SC % cannot be below 0'],
+      max: [100, 'SC % cannot be above 100'],
+      default: null
+    },
     taAssignments: [{
       ta: { type: mongoose.Schema.Types.ObjectId, ref: 'TA' },
       role: { type: String, enum: ['Primary', 'Parallel'], default: 'Primary' },
