@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   getInterviews,
   createInterview,
   rescheduleInterview,
   updateFeedbackAndDecision,
   updateInterviewStatus,
-  getInterviewDashboard,
   getInterviewCalendar,
   getEligibleCandidates
 } from '../api/interviews';
@@ -16,14 +16,10 @@ import CandidateInterviewHistoryModal from '../components/CandidateInterviewHist
 import {
   Calendar,
   Clock,
-  User,
   Search,
-  Filter,
   RotateCcw,
   Plus,
   CheckCircle2,
-  XCircle,
-  AlertTriangle,
   History,
   FileText,
   ChevronLeft,
@@ -31,16 +27,14 @@ import {
   CalendarDays,
   ListFilter,
   BarChart3,
-  AlertCircle,
-  UserCheck,
-  UserX
+  X
 } from 'lucide-react';
 import './InterviewTracker.css';
 
 const ROUNDS = ['First Round', 'Second Round', 'Third Round', 'Final Round'];
 const STATUSES = ['Scheduled', 'Completed', 'Cancelled', 'No Show', 'Rescheduled', 'Withdrew'];
 const DECISIONS = ['Reschedule', 'Pending', 'Shortlisted', 'Rejected', 'Dropped'];
-const MODES = ['Online', 'Physical', 'Telephone'];
+const MODES = ['Online', 'Onsite', 'Physical', 'Telephone'];
 
 const STATUS_BADGES = {
   Scheduled: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -60,10 +54,19 @@ const DECISION_BADGES = {
 };
 
 export default function InterviewTracker() {
+  const [searchParams] = useSearchParams();
+
   // Navigation tabs: 'dashboard' | 'master' | 'calendar'
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // Filters state
+  // Unified Dashboard Search state
+  const [dashboardSearchTerm, setDashboardSearchTerm] = useState('');
+  const [dashboardInterviews, setDashboardInterviews] = useState([]);
+  const [loadingDashboardResults, setLoadingDashboardResults] = useState(false);
+  const [hasExecutedDashboardSearch, setHasExecutedDashboardSearch] = useState(false);
+  const [showDashboardSuggestions, setShowDashboardSuggestions] = useState(false);
+
+  // Filters state (Master List)
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedClient, setSelectedClient] = useState('');
@@ -85,9 +88,6 @@ export default function InterviewTracker() {
   const [totalInterviews, setTotalInterviews] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loadingList, setLoadingList] = useState(false);
-
-  const [dashboardData, setDashboardData] = useState(null);
-  const [loadingDashboard, setLoadingDashboard] = useState(false);
 
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [loadingCalendar, setLoadingCalendar] = useState(false);
@@ -115,6 +115,8 @@ export default function InterviewTracker() {
     positionId: '',
     candidateSubmissionId: '',
     candidateName: '',
+    contactNumber: '',
+    email: '',
     round: 'First Round',
     interviewDate: '',
     interviewTime: '10:00 AM',
@@ -156,6 +158,240 @@ export default function InterviewTracker() {
     getPositions({ limit: 500 }).then(res => setPositions(res.data?.positions || res.data || [])).catch(() => {});
     getActiveTAs().then(res => setTAs(res.data || [])).catch(() => {});
   }, []);
+
+  // Execute dashboard search
+  const executeDashboardSearch = useCallback((term) => {
+    const q = term !== undefined ? term : dashboardSearchTerm;
+    if (!q || !q.trim()) {
+      setDashboardInterviews([]);
+      setHasExecutedDashboardSearch(false);
+      return;
+    }
+    setHasExecutedDashboardSearch(true);
+    setLoadingDashboardResults(true);
+    getInterviews({ search: q.trim(), limit: 500 })
+      .then(res => {
+        setDashboardInterviews(Array.isArray(res?.interviews) ? res.interviews : []);
+      })
+      .catch(err => {
+        console.error('Failed to search dashboard interviews:', err);
+        setDashboardInterviews([]);
+      })
+      .finally(() => setLoadingDashboardResults(false));
+  }, [dashboardSearchTerm]);
+
+  // Read URL query parameters on initial load
+  useEffect(() => {
+    const urlSearch = searchParams.get('search') || '';
+    const urlClient = searchParams.get('client') || '';
+    const urlPos = searchParams.get('position') || '';
+    const target = urlSearch || urlPos || urlClient;
+    if (target) {
+      setDashboardSearchTerm(target);
+      setSearchTerm(target);
+      executeDashboardSearch(target);
+    }
+  }, [searchParams, executeDashboardSearch]);
+
+  // Dashboard Autocomplete Suggestions
+  const dashboardSuggestions = useMemo(() => {
+    const term = dashboardSearchTerm.trim().toLowerCase();
+    if (!term || term.length < 1) return { matchedClients: [], matchedPositions: [] };
+    const matchedClients = (clients || [])
+      .filter(c => (c.clientName || '').toLowerCase().includes(term))
+      .slice(0, 5);
+    const matchedPositions = (positions || [])
+      .filter(p =>
+        (p.position || '').toLowerCase().includes(term) ||
+        (p.jobOrderId || '').toLowerCase().includes(term) ||
+        (p.clientName || '').toLowerCase().includes(term)
+      )
+      .slice(0, 5);
+    return { matchedClients, matchedPositions };
+  }, [dashboardSearchTerm, clients, positions]);
+
+  // Segregate searched interviews Position-wise and consolidate each Candidate into ONE timeline card
+  const {
+    completedPositionGroups,
+    upcomingPositionGroups,
+    totalCompletedCandidates,
+    totalUpcomingCandidates
+  } = useMemo(() => {
+    const ROUND_ORDER_MAP = {
+      'First Round': 1,
+      'Second Round': 2,
+      'Third Round': 3,
+      'Final Round': 4
+    };
+
+    const posMap = new Map();
+
+    dashboardInterviews.forEach(inv => {
+      const clientName = (inv.clientName || inv.client?.clientName || 'Unknown Client').trim();
+      const positionName = (inv.positionName || inv.position?.position || inv.jobOrderId || 'Unknown Position').trim();
+      const jobOrderId = (inv.jobOrderId || inv.position?.jobOrderId || '').trim();
+      const posId = inv.position?._id || inv.position || '';
+
+      const posKey = posId ? String(posId) : `${clientName.toUpperCase()}::${positionName.toUpperCase()}`;
+
+      if (!posMap.has(posKey)) {
+        posMap.set(posKey, {
+          posKey,
+          clientName,
+          positionName,
+          jobOrderId,
+          candidatesMap: new Map()
+        });
+      }
+
+      const posGroup = posMap.get(posKey);
+      const candName = (inv.candidateName || 'Candidate').trim();
+      const candKey = candName.toUpperCase();
+
+      if (!posGroup.candidatesMap.has(candKey)) {
+        posGroup.candidatesMap.set(candKey, {
+          candKey,
+          candidateName: candName,
+          candidateSubId: inv.candidateSubmission?._id || inv.candidateSubmission || null,
+          taName: inv.sourcingTA?.name || inv.taName || inv.candidateSubmission?.sourcedBy?.name || inv.interviewCoordinator?.name || '—',
+          rounds: []
+        });
+      }
+
+      const candEntry = posGroup.candidatesMap.get(candKey);
+      if (!candEntry.candidateSubId && (inv.candidateSubmission?._id || inv.candidateSubmission)) {
+        candEntry.candidateSubId = inv.candidateSubmission?._id || inv.candidateSubmission;
+      }
+      if (candEntry.taName === '—') {
+        const resolvedTa = inv.sourcingTA?.name || inv.taName || inv.candidateSubmission?.sourcedBy?.name || inv.interviewCoordinator?.name;
+        if (resolvedTa) candEntry.taName = resolvedTa;
+      }
+
+      candEntry.rounds.push(inv);
+    });
+
+    const completedGroups = [];
+    const upcomingGroups = [];
+    let completedCount = 0;
+    let upcomingCount = 0;
+
+    posMap.forEach(posGroup => {
+      const completedCands = [];
+      const upcomingCands = [];
+
+      posGroup.candidatesMap.forEach(cand => {
+        // Sort rounds chronologically: First Round -> Second Round -> Third Round -> Final Round, then by date
+        cand.rounds.sort((a, b) => {
+          const rA = ROUND_ORDER_MAP[a.round] || a.roundSequence || 1;
+          const rB = ROUND_ORDER_MAP[b.round] || b.roundSequence || 1;
+          if (rA !== rB) return rA - rB;
+          return new Date(a.interviewDate || 0) - new Date(b.interviewDate || 0);
+        });
+
+        cand.latestRound = cand.rounds[cand.rounds.length - 1];
+
+        const hasUpcoming = cand.rounds.some(r => r.status === 'Scheduled' || r.status === 'Rescheduled');
+        if (hasUpcoming) {
+          upcomingCands.push(cand);
+          upcomingCount++;
+        } else {
+          completedCands.push(cand);
+          completedCount++;
+        }
+      });
+
+      if (completedCands.length > 0) {
+        completedGroups.push({
+          posKey: posGroup.posKey,
+          clientName: posGroup.clientName,
+          positionName: posGroup.positionName,
+          jobOrderId: posGroup.jobOrderId,
+          candidates: completedCands
+        });
+      }
+
+      if (upcomingCands.length > 0) {
+        upcomingGroups.push({
+          posKey: posGroup.posKey,
+          clientName: posGroup.clientName,
+          positionName: posGroup.positionName,
+          jobOrderId: posGroup.jobOrderId,
+          candidates: upcomingCands
+        });
+      }
+    });
+
+    return {
+      completedPositionGroups: completedGroups,
+      upcomingPositionGroups: upcomingGroups,
+      totalCompletedCandidates: completedCount,
+      totalUpcomingCandidates: upcomingCount
+    };
+  }, [dashboardInterviews]);
+
+  // Overall Card Badge resolver (from candidate's latest round)
+  const getCompletedBadge = (inv) => {
+    if (!inv) return { text: 'Completed', class: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    if (inv.decision === 'Shortlisted') {
+      return { text: 'Shortlisted for Next Round', class: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    }
+    if (inv.decision === 'Rejected') {
+      return { text: 'Rejected', class: 'bg-red-50 text-red-700 border-red-200' };
+    }
+    if (inv.status === 'Withdrew') {
+      return { text: 'Withdrawn', class: 'bg-slate-100 text-slate-700 border-slate-300' };
+    }
+    if (inv.decision === 'Dropped') {
+      return { text: 'Dropped', class: 'bg-rose-50 text-rose-700 border-rose-200' };
+    }
+    if (inv.status === 'Cancelled') {
+      return { text: 'Cancelled', class: 'bg-gray-100 text-gray-700 border-gray-300' };
+    }
+    if (inv.status === 'No Show') {
+      return { text: 'No Show', class: 'bg-red-50 text-red-700 border-red-200' };
+    }
+    if (inv.decision === 'Pending' || inv.status === 'Completed') {
+      return { text: 'Pending Decision', class: 'bg-amber-50 text-amber-700 border-amber-200' };
+    }
+    return { text: inv.decision || 'Completed', class: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  };
+
+  // Upcoming Section Badge resolver
+  const getUpcomingBadge = (inv) => {
+    if (inv?.status === 'Rescheduled') {
+      return { text: 'Rescheduled', class: 'bg-amber-50 text-amber-700 border-amber-200' };
+    }
+    return { text: 'Scheduled', class: 'bg-blue-50 text-blue-700 border-blue-200' };
+  };
+
+  // Per-Round Timeline Step Badge & Dot Color
+  const getRoundStepMeta = (inv) => {
+    if (inv.status === 'Scheduled') {
+      return { label: 'Scheduled', pillClass: 'bg-blue-50 text-blue-700 border-blue-200', dotColor: '#3b82f6' };
+    }
+    if (inv.status === 'Rescheduled') {
+      return { label: 'Rescheduled', pillClass: 'bg-amber-50 text-amber-700 border-amber-200', dotColor: '#f59e0b' };
+    }
+    if (inv.status === 'Cancelled') {
+      return { label: 'Cancelled', pillClass: 'bg-gray-100 text-gray-700 border-gray-300', dotColor: '#94a3b8' };
+    }
+    if (inv.status === 'No Show') {
+      return { label: 'No Show', pillClass: 'bg-red-50 text-red-700 border-red-200', dotColor: '#ef4444' };
+    }
+    if (inv.status === 'Withdrew') {
+      return { label: 'Withdrawn', pillClass: 'bg-slate-100 text-slate-700 border-slate-300', dotColor: '#64748b' };
+    }
+    if (inv.decision === 'Shortlisted') {
+      return { label: 'Shortlisted', pillClass: 'bg-emerald-50 text-emerald-700 border-emerald-200', dotColor: '#10b981' };
+    }
+    if (inv.decision === 'Rejected') {
+      return { label: 'Rejected', pillClass: 'bg-red-50 text-red-700 border-red-200', dotColor: '#ef4444' };
+    }
+    if (inv.decision === 'Dropped') {
+      return { label: 'Dropped', pillClass: 'bg-rose-50 text-rose-700 border-rose-200', dotColor: '#f43f5e' };
+    }
+    return { label: 'Pending', pillClass: 'bg-amber-50 text-amber-700 border-amber-200', dotColor: '#f59e0b' };
+  };
 
   // Filter params helper
   const filterParams = useMemo(() => {
@@ -203,15 +439,6 @@ export default function InterviewTracker() {
       .finally(() => setLoadingList(false));
   }, [filterParams, page, limit, sortBy, sortOrder]);
 
-  // Load dashboard
-  const loadDashboard = useCallback(() => {
-    setLoadingDashboard(true);
-    getInterviewDashboard(filterParams)
-      .then(res => setDashboardData(res || {}))
-      .catch(err => console.error('Failed to load interview dashboard:', err))
-      .finally(() => setLoadingDashboard(false));
-  }, [filterParams]);
-
   // Load calendar
   const loadCalendar = useCallback(() => {
     setLoadingCalendar(true);
@@ -223,10 +450,9 @@ export default function InterviewTracker() {
 
   // Load data according to active tab or filters
   useEffect(() => {
-    if (activeTab === 'dashboard') loadDashboard();
-    else if (activeTab === 'master') loadInterviews();
+    if (activeTab === 'master') loadInterviews();
     else if (activeTab === 'calendar') loadCalendar();
-  }, [activeTab, loadDashboard, loadInterviews, loadCalendar]);
+  }, [activeTab, loadInterviews, loadCalendar]);
 
   // Reset filters
   const handleResetFilters = () => {
@@ -253,6 +479,8 @@ export default function InterviewTracker() {
           positionId: targetPos,
           candidateSubmissionId: '',
           candidateName: '',
+          contactNumber: '',
+          email: '',
           round: 'First Round',
           interviewDate: new Date().toISOString().split('T')[0],
           interviewTime: '10:00 AM',
@@ -281,6 +509,8 @@ export default function InterviewTracker() {
         ...prev,
         candidateSubmissionId: candidate._id,
         candidateName: candidate.candidateName,
+        contactNumber: candidate.contactNumber || candidate.phone || prev.contactNumber || '',
+        email: candidate.email || prev.email || '',
         positionId: candidate.position?._id || prev.positionId,
         round: suggested,
         interviewCoordinatorId: candidate.sourcingTA?._id || prev.interviewCoordinatorId
@@ -298,7 +528,7 @@ export default function InterviewTracker() {
     try {
       await createInterview(scheduleForm);
       setShowScheduleModal(false);
-      if (activeTab === 'dashboard') loadDashboard();
+      if (activeTab === 'dashboard' && dashboardSearchTerm.trim()) executeDashboardSearch(dashboardSearchTerm);
       if (activeTab === 'master') loadInterviews();
       if (activeTab === 'calendar') loadCalendar();
     } catch (err) {
@@ -330,7 +560,7 @@ export default function InterviewTracker() {
       await rescheduleInterview(selectedInterview._id, rescheduleForm);
       setShowRescheduleModal(false);
       setSelectedInterview(null);
-      if (activeTab === 'dashboard') loadDashboard();
+      if (activeTab === 'dashboard' && dashboardSearchTerm.trim()) executeDashboardSearch(dashboardSearchTerm);
       if (activeTab === 'master') loadInterviews();
       if (activeTab === 'calendar') loadCalendar();
     } catch (err) {
@@ -361,7 +591,7 @@ export default function InterviewTracker() {
       await updateFeedbackAndDecision(selectedInterview._id, feedbackForm);
       setShowFeedbackModal(false);
       setSelectedInterview(null);
-      if (activeTab === 'dashboard') loadDashboard();
+      if (activeTab === 'dashboard' && dashboardSearchTerm.trim()) executeDashboardSearch(dashboardSearchTerm);
       if (activeTab === 'master') loadInterviews();
       if (activeTab === 'calendar') loadCalendar();
     } catch (err) {
@@ -386,7 +616,7 @@ export default function InterviewTracker() {
       await updateInterviewStatus(selectedInterview._id, statusForm);
       setShowStatusModal(false);
       setSelectedInterview(null);
-      if (activeTab === 'dashboard') loadDashboard();
+      if (activeTab === 'dashboard' && dashboardSearchTerm.trim()) executeDashboardSearch(dashboardSearchTerm);
       if (activeTab === 'master') loadInterviews();
       if (activeTab === 'calendar') loadCalendar();
     } catch (err) {
@@ -413,134 +643,6 @@ export default function InterviewTracker() {
           >
             <Plus size={15} />
             <span>Schedule Interview</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Global Filter Bar */}
-      <div className="it-filter-card">
-        <div className="it-filter-grid">
-          <div className="it-filter-item">
-            <label>From Date</label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={e => { setDateFrom(e.target.value); setPage(1); }}
-            />
-          </div>
-
-          <div className="it-filter-item">
-            <label>To Date</label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={e => { setDateTo(e.target.value); setPage(1); }}
-            />
-          </div>
-
-          <div className="it-filter-item">
-            <label>Client</label>
-            <select
-              value={selectedClient}
-              onChange={e => { setSelectedClient(e.target.value); setPage(1); }}
-            >
-              <option value="">All Clients</option>
-              {clients.map(c => (
-                <option key={c._id} value={c._id}>{c.clientName}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="it-filter-item">
-            <label>Position / JO ID</label>
-            <select
-              value={selectedPosition}
-              onChange={e => { setSelectedPosition(e.target.value); setPage(1); }}
-            >
-              <option value="">All Positions</option>
-              {positions.map(p => (
-                <option key={p._id} value={p._id}>
-                  {p.jobOrderId} — {p.position}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="it-filter-item">
-            <label>TA</label>
-            <select
-              value={selectedTA}
-              onChange={e => { setSelectedTA(e.target.value); setPage(1); }}
-            >
-              <option value="">All TAs</option>
-              {tas.map(ta => (
-                <option key={ta._id} value={ta._id}>{ta.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="it-filter-item">
-            <label>Round</label>
-            <select
-              value={selectedRound}
-              onChange={e => { setSelectedRound(e.target.value); setPage(1); }}
-            >
-              <option value="">All Rounds</option>
-              {ROUNDS.map(r => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="it-filter-item">
-            <label>Status</label>
-            <select
-              value={selectedStatus}
-              onChange={e => { setSelectedStatus(e.target.value); setPage(1); }}
-            >
-              <option value="">All Statuses</option>
-              {STATUSES.map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="it-filter-item">
-            <label>Decision</label>
-            <select
-              value={selectedDecision}
-              onChange={e => { setSelectedDecision(e.target.value); setPage(1); }}
-            >
-              <option value="">All Decisions</option>
-              {DECISIONS.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="it-filter-item it-filter-search">
-            <label>Search</label>
-            <div className="it-search-wrap">
-              <Search size={14} className="it-search-icon" />
-              <input
-                type="text"
-                placeholder="Candidate, interviewer, JO ID..."
-                value={searchTerm}
-                onChange={e => { setSearchTerm(e.target.value); setPage(1); }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="it-filter-actions">
-          <button
-            type="button"
-            className="it-reset-btn"
-            onClick={handleResetFilters}
-            title="Clear all filters"
-          >
-            <RotateCcw size={13} />
-            <span>Reset Filters</span>
           </button>
         </div>
       </div>
@@ -574,294 +676,523 @@ export default function InterviewTracker() {
       </div>
 
       {/* ========================================================= */}
-      {/* TAB 1: DASHBOARD & PIPELINE */}
+      {/* TAB 1: DASHBOARD & PIPELINE (UNIFIED SEARCH & DUAL SECTIONS) */}
       {/* ========================================================= */}
       {activeTab === 'dashboard' && (
         <div className="it-tab-content space-y-6">
-          {loadingDashboard && (
-            <div className="it-loading">Loading interview summary & pipeline...</div>
-          )}
+          {/* Single Unified Search Bar */}
+          <div className="it-unified-search-card">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setShowDashboardSuggestions(false);
+                executeDashboardSearch();
+              }}
+              className="it-unified-search-wrap"
+            >
+              <Search size={18} className="it-unified-search-icon" />
+              <input
+                type="text"
+                className="it-unified-search-input"
+                placeholder="Search by Client Name or Position Name (e.g. Browns, DELTASPIKE, Head of Sales)..."
+                value={dashboardSearchTerm}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDashboardSearchTerm(val);
+                  setShowDashboardSuggestions(true);
+                  if (!val.trim()) {
+                    setDashboardInterviews([]);
+                    setHasExecutedDashboardSearch(false);
+                  }
+                }}
+                onFocus={() => setShowDashboardSuggestions(true)}
+                autoComplete="off"
+                data-lpignore="true"
+              />
+              {dashboardSearchTerm && (
+                <button
+                  type="button"
+                  className="it-unified-clear-btn"
+                  onClick={() => {
+                    setDashboardSearchTerm('');
+                    setDashboardInterviews([]);
+                    setHasExecutedDashboardSearch(false);
+                    setShowDashboardSuggestions(false);
+                  }}
+                  title="Clear search"
+                >
+                  <X size={13} />
+                </button>
+              )}
 
-          {!loadingDashboard && dashboardData && (
-            <>
-              {/* Summary Cards */}
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                <div className="it-card">
-                  <div className="it-card-head">
-                    <span>Total Events</span>
-                    <History size={16} className="text-gray-400" />
-                  </div>
-                  <div className="it-card-val text-gray-900">
-                    {dashboardData.summaryCards?.totalInterviewEvents || 0}
-                  </div>
-                  <div className="it-card-sub">
-                    {dashboardData.summaryCards?.uniqueCandidatesInterviewed || 0} unique candidates
-                  </div>
-                </div>
-
-                <div className="it-card">
-                  <div className="it-card-head">
-                    <span>Scheduled</span>
-                    <Clock size={16} className="text-blue-500" />
-                  </div>
-                  <div className="it-card-val text-blue-700">
-                    {dashboardData.summaryCards?.scheduled || 0}
-                  </div>
-                  <div className="it-card-sub">Upcoming interview sessions</div>
-                </div>
-
-                <div className="it-card">
-                  <div className="it-card-head">
-                    <span>Completed</span>
-                    <CheckCircle2 size={16} className="text-emerald-500" />
-                  </div>
-                  <div className="it-card-val text-emerald-700">
-                    {dashboardData.summaryCards?.completed || 0}
-                  </div>
-                  <div className="it-card-sub">Interviews successfully conducted</div>
-                </div>
-
-                <div className="it-card">
-                  <div className="it-card-head">
-                    <span>Pending Decisions</span>
-                    <Clock size={16} className="text-amber-500" />
-                  </div>
-                  <div className="it-card-val text-amber-700">
-                    {dashboardData.summaryCards?.pendingDecisions || 0}
-                  </div>
-                  <div className="it-card-sub">Awaiting client / hiring decision</div>
-                </div>
-
-                <div className="it-card">
-                  <div className="it-card-head">
-                    <span>Next Round Yield</span>
-                    <UserCheck size={16} className="text-emerald-600" />
-                  </div>
-                  <div className="it-card-val text-emerald-700">
-                    {dashboardData.summaryCards?.candidatesShortlisted || 0}
-                  </div>
-                  <div className="it-card-sub">Candidates shortlisted for next round</div>
-                </div>
-
-                <div className="it-card">
-                  <div className="it-card-head">
-                    <span>Rescheduled</span>
-                    <AlertTriangle size={16} className="text-amber-500" />
-                  </div>
-                  <div className="it-card-val text-amber-700">
-                    {dashboardData.summaryCards?.rescheduled || 0}
-                  </div>
-                  <div className="it-card-sub">Shifted slots (history kept)</div>
-                </div>
-
-                <div className="it-card">
-                  <div className="it-card-head">
-                    <span>Cancelled</span>
-                    <XCircle size={16} className="text-gray-400" />
-                  </div>
-                  <div className="it-card-val text-gray-700">
-                    {dashboardData.summaryCards?.cancelled || 0}
-                  </div>
-                  <div className="it-card-sub">Cancelled appointments</div>
-                </div>
-
-                <div className="it-card">
-                  <div className="it-card-head">
-                    <span>No Shows</span>
-                    <XCircle size={16} className="text-red-400" />
-                  </div>
-                  <div className="it-card-val text-red-700">
-                    {dashboardData.summaryCards?.noShows || 0}
-                  </div>
-                  <div className="it-card-sub">Candidate did not attend</div>
-                </div>
-
-                <div className="it-card">
-                  <div className="it-card-head">
-                    <span>Rejected</span>
-                    <UserX size={16} className="text-red-500" />
-                  </div>
-                  <div className="it-card-val text-red-700">
-                    {dashboardData.summaryCards?.candidatesRejected || 0}
-                  </div>
-                  <div className="it-card-sub">Not selected by client</div>
-                </div>
-
-                <div className="it-card">
-                  <div className="it-card-head">
-                    <span>Dropped / Withdrew</span>
-                    <UserX size={16} className="text-rose-500" />
-                  </div>
-                  <div className="it-card-val text-rose-700">
-                    {dashboardData.summaryCards?.candidatesDropped || 0}
-                  </div>
-                  <div className="it-card-sub">Candidate declined or dropped</div>
-                </div>
-              </div>
-
-              {/* Actionable Visual Alerts */}
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <div className="it-alert-box it-alert-box--upcoming">
-                  <div className="flex items-center justify-between pb-2 border-b border-blue-100">
-                    <span className="font-bold text-xs uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
-                      <Clock size={14} /> Upcoming Interviews (7 Days)
-                    </span>
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-800">
-                      {dashboardData.actionableIndicators?.upcomingCount || 0}
-                    </span>
-                  </div>
-                  <div className="mt-3 space-y-2 text-xs">
-                    {(dashboardData.actionableIndicators?.upcomingInterviews || []).length === 0 ? (
-                      <div className="text-gray-400 italic">No upcoming interviews this week</div>
-                    ) : (
-                      dashboardData.actionableIndicators.upcomingInterviews.map(inv => (
-                        <div key={inv._id} className="flex items-center justify-between bg-white/70 p-2 rounded border border-blue-100">
-                          <div>
-                            <div className="font-semibold text-gray-800">{inv.candidateName}</div>
-                            <div className="text-[11px] text-gray-500">{inv.round} • {inv.jobOrderId}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-medium text-blue-700">{inv.interviewDateStr}</div>
-                            <div className="text-[11px] text-gray-400">{inv.interviewTime}</div>
-                          </div>
+              {/* Autocomplete Suggestions Popup */}
+              {showDashboardSuggestions && dashboardSearchTerm.trim() && (
+                <div className="it-search-autocomplete">
+                  {dashboardSuggestions.matchedClients.length > 0 && (
+                    <div>
+                      <div className="it-autocomplete-group-title">Clients</div>
+                      {dashboardSuggestions.matchedClients.map(c => (
+                        <div
+                          key={c._id}
+                          className="it-autocomplete-item"
+                          onClick={() => {
+                            setDashboardSearchTerm(c.clientName);
+                            setShowDashboardSuggestions(false);
+                            executeDashboardSearch(c.clientName);
+                          }}
+                        >
+                          <span className="font-semibold">{c.clientName}</span>
+                          <span className="text-[11px] text-gray-400">Client</span>
                         </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="it-alert-box it-alert-box--pending">
-                  <div className="flex items-center justify-between pb-2 border-b border-amber-100">
-                    <span className="font-bold text-xs uppercase tracking-wider text-amber-900 flex items-center gap-1.5">
-                      <AlertCircle size={14} /> Awaiting Feedback / Decision
-                    </span>
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">
-                      {dashboardData.actionableIndicators?.awaitingFeedbackCount || 0}
-                    </span>
-                  </div>
-                  <div className="mt-3 space-y-2 text-xs">
-                    {(dashboardData.actionableIndicators?.awaitingFeedback || []).length === 0 ? (
-                      <div className="text-gray-400 italic">No pending interview feedback</div>
-                    ) : (
-                      dashboardData.actionableIndicators.awaitingFeedback.map(inv => (
-                        <div key={inv._id} className="flex items-center justify-between bg-white/70 p-2 rounded border border-amber-100">
-                          <div>
-                            <div className="font-semibold text-gray-800">{inv.candidateName}</div>
-                            <div className="text-[11px] text-gray-500">{inv.round} ({inv.interviewDateStr})</div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenFeedback(inv)}
-                            className="rounded bg-amber-500 px-2 py-1 text-[11px] font-semibold text-white hover:bg-amber-600"
-                          >
-                            Record Feedback
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="it-alert-box it-alert-box--next">
-                  <div className="flex items-center justify-between pb-2 border-b border-emerald-100">
-                    <span className="font-bold text-xs uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
-                      <UserCheck size={14} /> Ready for Next Round
-                    </span>
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">
-                      {dashboardData.actionableIndicators?.requiringNextRoundCount || 0}
-                    </span>
-                  </div>
-                  <div className="mt-3 space-y-2 text-xs">
-                    {(dashboardData.actionableIndicators?.requiringNextRound || []).length === 0 ? (
-                      <div className="text-gray-400 italic">No shortlisted candidates awaiting next schedule</div>
-                    ) : (
-                      dashboardData.actionableIndicators.requiringNextRound.map((cand, cIdx) => (
-                        <div key={cIdx} className="flex items-center justify-between bg-white/70 p-2 rounded border border-emerald-100">
-                          <div>
-                            <div className="font-semibold text-gray-800">{cand.candidateName}</div>
-                            <div className="text-[11px] text-emerald-700 font-medium">
-                              Passed {cand.lastCompletedRound} → Ready for {cand.suggestedNextRound}
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenScheduleModal(cand.positionId)}
-                            className="rounded bg-forest-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-forest-700"
-                          >
-                            Schedule
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Interview Pipeline Breakdown */}
-              <div className="it-pipeline-card">
-                <div className="it-pipeline-head">
-                  <div>
-                    <h3 className="text-sm font-bold text-gray-900">Candidate Pipeline Across Interview Rounds</h3>
-                    <p className="text-xs text-gray-500">Distribution of candidate volume and recruitment decisions by round</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 p-5">
-                  {(dashboardData.pipeline || []).map((roundStats, rIdx) => (
-                    <div key={roundStats.round} className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                      <div className="flex items-center justify-between border-b border-gray-200 pb-2">
-                        <span className="font-bold text-xs text-gray-800 uppercase">
-                          Round {rIdx + 1}: {roundStats.round}
-                        </span>
-                        <span className="rounded-full bg-forest-100 px-2 py-0.5 text-[11px] font-bold text-forest-800">
-                          {roundStats.uniqueCandidates} Cand.
-                        </span>
-                      </div>
-
-                      <div className="mt-3 space-y-1.5 text-xs text-gray-600">
-                        <div className="flex justify-between">
-                          <span>Scheduled:</span>
-                          <span className="font-semibold text-blue-700">{roundStats.scheduled}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Completed:</span>
-                          <span className="font-semibold text-emerald-700">{roundStats.completed}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Shortlisted for next:</span>
-                          <span className="font-semibold text-emerald-700">{roundStats.shortlisted}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Pending decision:</span>
-                          <span className="font-semibold text-amber-700">{roundStats.pending}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Rejected:</span>
-                          <span className="font-semibold text-red-700">{roundStats.rejected}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Dropped:</span>
-                          <span className="font-semibold text-gray-700">{roundStats.dropped}</span>
-                        </div>
-                      </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+                  {dashboardSuggestions.matchedPositions.length > 0 && (
+                    <div>
+                      <div className="it-autocomplete-group-title">Positions</div>
+                      {dashboardSuggestions.matchedPositions.map(p => (
+                        <div
+                          key={p._id}
+                          className="it-autocomplete-item"
+                          onClick={() => {
+                            const term = p.position || p.jobOrderId;
+                            setDashboardSearchTerm(term);
+                            setShowDashboardSuggestions(false);
+                            executeDashboardSearch(term);
+                          }}
+                        >
+                          <div>
+                            <span className="font-semibold">{p.position}</span>
+                            <span className="text-[11px] text-gray-500 ml-2 font-mono">({p.jobOrderId})</span>
+                          </div>
+                          <span className="text-[11px] text-forest-700 font-medium">{p.clientName}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {dashboardSuggestions.matchedClients.length === 0 && dashboardSuggestions.matchedPositions.length === 0 && (
+                    <div className="p-3 text-xs text-gray-400 italic">Press Enter to search for "{dashboardSearchTerm}"</div>
+                  )}
                 </div>
+              )}
+            </form>
+          </div>
+
+          {loadingDashboardResults ? (
+            <div className="it-loading">Searching candidate interviews...</div>
+          ) : !hasExecutedDashboardSearch || !dashboardSearchTerm.trim() ? (
+            /* Empty Initial State: Zero KPI cards or breakdowns */
+            <div className="it-dashboard-empty">
+              <Search size={40} className="text-gray-300 mb-3" />
+              <h3 className="text-sm font-semibold text-gray-700">
+                Search for a client or position to view interview activity.
+              </h3>
+              <p className="text-xs text-gray-400 mt-1 max-w-md text-center">
+                Type any client or position name in the search box above to view completed and upcoming interview activity.
+              </p>
+            </div>
+          ) : (
+            /* Exactly Two Main Sections After Search (Segregated Position-Wise, 1 Timeline Card per Candidate) */
+            <div className="space-y-6">
+              {/* SECTION 1: INTERVIEW COMPLETED */}
+              <div className="it-section-block">
+                <div className="it-section-header">
+                  <div className="it-section-title">
+                    <CheckCircle2 size={18} className="text-emerald-600" />
+                    <span>Section 1: Interview Completed</span>
+                  </div>
+                  <span className="it-section-count it-section-count--completed">
+                    {totalCompletedCandidates}
+                  </span>
+                </div>
+
+                {completedPositionGroups.length === 0 ? (
+                  <div className="it-empty py-6">No completed interviews found for this search.</div>
+                ) : (
+                  <div>
+                    {completedPositionGroups.map(posGroup => (
+                      <div key={posGroup.posKey} className="it-position-group">
+                        {/* Position Group Header */}
+                        <div className="it-position-group-header">
+                          <div className="it-position-group-title-wrap">
+                            <span className="it-position-client-pill">{posGroup.clientName}</span>
+                            <span className="it-position-title-text">{posGroup.positionName}</span>
+                            {posGroup.jobOrderId && (
+                              <span className="it-position-jo-pill">{posGroup.jobOrderId}</span>
+                            )}
+                          </div>
+                          <span className="it-position-cand-count">
+                            {posGroup.candidates.length} {posGroup.candidates.length === 1 ? 'Candidate' : 'Candidates'}
+                          </span>
+                        </div>
+
+                        {/* One Timeline Card per Candidate */}
+                        <div className="it-candidate-grid">
+                          {posGroup.candidates.map(cand => {
+                            const latestBadge = getCompletedBadge(cand.latestRound);
+                            return (
+                              <div key={cand.candKey} className="it-candidate-card">
+                                {/* Candidate Header */}
+                                <div className="it-card-top">
+                                  <div>
+                                    <h4 className="it-candidate-name">{cand.candidateName}</h4>
+                                    <div className="text-[11px] text-gray-500 mt-0.5">
+                                      TA: <span className="font-medium text-gray-700">{cand.taName}</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${latestBadge.class}`}>
+                                      {latestBadge.text}
+                                    </span>
+                                    {cand.candidateSubId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setHistoryCandidateId(cand.candidateSubId)}
+                                        className="it-btn-icon text-forest-700 hover:bg-forest-50"
+                                        title="View Full Candidate Journey Modal"
+                                      >
+                                        <History size={13} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Chronological Round-by-Round Candidate Timeline */}
+                                <div className="it-timeline">
+                                  {cand.rounds.map(r => {
+                                    const stepMeta = getRoundStepMeta(r);
+                                    const noteText = r.feedback || r.interviewerComments || r.candidatePerformanceNotes || '';
+                                    return (
+                                      <div key={r._id} className="it-timeline-step">
+                                        <span
+                                          className="it-timeline-dot"
+                                          style={{ backgroundColor: stepMeta.dotColor }}
+                                        />
+                                        <div className="it-timeline-step-head">
+                                          <div className="it-timeline-round-info">
+                                            <span className="it-timeline-round-name">{r.round}</span>
+                                            <span className="it-timeline-round-date">• {r.interviewDateStr}</span>
+                                          </div>
+                                          <div className="it-timeline-step-right">
+                                            <span className={`inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold ${stepMeta.pillClass}`}>
+                                              {stepMeta.label}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleOpenFeedback(r)}
+                                              className="it-btn-icon text-emerald-700 hover:bg-emerald-50"
+                                              style={{ width: '1.4rem', height: '1.4rem' }}
+                                              title={`Edit ${r.round} Feedback & Decision`}
+                                            >
+                                              <FileText size={11} />
+                                            </button>
+                                          </div>
+                                        </div>
+                                        {noteText && (
+                                          <div className="it-timeline-feedback">
+                                            "{noteText}"
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </>
+
+              {/* SECTION 2: UPCOMING INTERVIEWS */}
+              <div className="it-section-block">
+                <div className="it-section-header">
+                  <div className="it-section-title">
+                    <Clock size={18} className="text-blue-600" />
+                    <span>Section 2: Upcoming Interviews</span>
+                  </div>
+                  <span className="it-section-count it-section-count--upcoming">
+                    {totalUpcomingCandidates}
+                  </span>
+                </div>
+
+                {upcomingPositionGroups.length === 0 ? (
+                  <div className="it-empty py-6">No upcoming interviews found for this search.</div>
+                ) : (
+                  <div>
+                    {upcomingPositionGroups.map(posGroup => (
+                      <div key={posGroup.posKey} className="it-position-group">
+                        {/* Position Group Header */}
+                        <div className="it-position-group-header">
+                          <div className="it-position-group-title-wrap">
+                            <span className="it-position-client-pill">{posGroup.clientName}</span>
+                            <span className="it-position-title-text">{posGroup.positionName}</span>
+                            {posGroup.jobOrderId && (
+                              <span className="it-position-jo-pill">{posGroup.jobOrderId}</span>
+                            )}
+                          </div>
+                          <span className="it-position-cand-count">
+                            {posGroup.candidates.length} {posGroup.candidates.length === 1 ? 'Candidate' : 'Candidates'}
+                          </span>
+                        </div>
+
+                        {/* One Timeline Card per Candidate */}
+                        <div className="it-candidate-grid">
+                          {posGroup.candidates.map(cand => {
+                            const latestBadge = getUpcomingBadge(cand.latestRound);
+                            return (
+                              <div key={cand.candKey} className="it-candidate-card">
+                                {/* Candidate Header */}
+                                <div className="it-card-top">
+                                  <div>
+                                    <h4 className="it-candidate-name">{cand.candidateName}</h4>
+                                    <div className="text-[11px] text-gray-500 mt-0.5">
+                                      TA: <span className="font-medium text-gray-700">{cand.taName}</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${latestBadge.class}`}>
+                                      {latestBadge.text}
+                                    </span>
+                                    {cand.candidateSubId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setHistoryCandidateId(cand.candidateSubId)}
+                                        className="it-btn-icon text-forest-700 hover:bg-forest-50"
+                                        title="View Full Candidate Journey Modal"
+                                      >
+                                        <History size={13} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Chronological Round-by-Round Candidate Timeline */}
+                                <div className="it-timeline">
+                                  {cand.rounds.map(r => {
+                                    const stepMeta = getRoundStepMeta(r);
+                                    const isUpcomingRound = r.status === 'Scheduled' || r.status === 'Rescheduled';
+                                    const noteText = r.feedback || r.interviewerComments || r.schedulingNotes || '';
+                                    return (
+                                      <div key={r._id} className="it-timeline-step">
+                                        <span
+                                          className="it-timeline-dot"
+                                          style={{ backgroundColor: stepMeta.dotColor }}
+                                        />
+                                        <div className="it-timeline-step-head">
+                                          <div className="it-timeline-round-info">
+                                            <span className="it-timeline-round-name">{r.round}</span>
+                                            <span className="it-timeline-round-date">
+                                              • {r.interviewDateStr}
+                                              {isUpcomingRound && r.interviewTime ? ` at ${r.interviewTime}` : ''}
+                                              {isUpcomingRound && r.interviewMode ? ` (${r.interviewMode})` : ''}
+                                            </span>
+                                          </div>
+                                          <div className="it-timeline-step-right">
+                                            <span className={`inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold ${stepMeta.pillClass}`}>
+                                              {stepMeta.label}
+                                            </span>
+                                            {isUpcomingRound && (
+                                              <>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleOpenReschedule(r)}
+                                                  className="it-btn-icon text-amber-700 hover:bg-amber-50"
+                                                  style={{ width: '1.4rem', height: '1.4rem' }}
+                                                  title={`Reschedule ${r.round}`}
+                                                >
+                                                  <Clock size={11} />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleOpenStatus(r)}
+                                                  className="it-btn-icon text-blue-700 hover:bg-blue-50"
+                                                  style={{ width: '1.4rem', height: '1.4rem' }}
+                                                  title={`Change ${r.round} Status`}
+                                                >
+                                                  <CheckCircle2 size={11} />
+                                                </button>
+                                              </>
+                                            )}
+                                            <button
+                                              type="button"
+                                              onClick={() => handleOpenFeedback(r)}
+                                              className="it-btn-icon text-emerald-700 hover:bg-emerald-50"
+                                              style={{ width: '1.4rem', height: '1.4rem' }}
+                                              title={`Record ${r.round} Feedback & Decision`}
+                                            >
+                                              <FileText size={11} />
+                                            </button>
+                                          </div>
+                                        </div>
+                                        {r.meetingLinkOrLocation && isUpcomingRound && (
+                                          <div className="text-[10px] text-blue-600 truncate mt-1 font-mono">
+                                            {r.meetingLinkOrLocation}
+                                          </div>
+                                        )}
+                                        {noteText && (
+                                          <div className="it-timeline-feedback">
+                                            "{noteText}"
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* TAB 2: INTERVIEW SCHEDULE & MASTER TABLE */}
+      {/* TAB 2: INTERVIEW SCHEDULE & MASTER TABLE (12 EXACT COLUMNS) */}
       {/* ========================================================= */}
       {activeTab === 'master' && (
         <div className="it-tab-content">
+          {/* Master Table Filter Bar */}
+          <div className="it-filter-card">
+            <div className="it-filter-grid">
+              <div className="it-filter-item">
+                <label>From Date</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={e => { setDateFrom(e.target.value); setPage(1); }}
+                />
+              </div>
+
+              <div className="it-filter-item">
+                <label>To Date</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={e => { setDateTo(e.target.value); setPage(1); }}
+                />
+              </div>
+
+              <div className="it-filter-item">
+                <label>Client</label>
+                <select
+                  value={selectedClient}
+                  onChange={e => { setSelectedClient(e.target.value); setPage(1); }}
+                >
+                  <option value="">All Clients</option>
+                  {clients.map(c => (
+                    <option key={c._id} value={c._id}>{c.clientName}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="it-filter-item">
+                <label>Position / JO ID</label>
+                <select
+                  value={selectedPosition}
+                  onChange={e => { setSelectedPosition(e.target.value); setPage(1); }}
+                >
+                  <option value="">All Positions</option>
+                  {positions.map(p => (
+                    <option key={p._id} value={p._id}>
+                      {p.jobOrderId} — {p.position}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="it-filter-item">
+                <label>TA</label>
+                <select
+                  value={selectedTA}
+                  onChange={e => { setSelectedTA(e.target.value); setPage(1); }}
+                >
+                  <option value="">All TAs</option>
+                  {tas.map(ta => (
+                    <option key={ta._id} value={ta._id}>{ta.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="it-filter-item">
+                <label>Round</label>
+                <select
+                  value={selectedRound}
+                  onChange={e => { setSelectedRound(e.target.value); setPage(1); }}
+                >
+                  <option value="">All Rounds</option>
+                  {ROUNDS.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="it-filter-item">
+                <label>Status</label>
+                <select
+                  value={selectedStatus}
+                  onChange={e => { setSelectedStatus(e.target.value); setPage(1); }}
+                >
+                  <option value="">All Statuses</option>
+                  {STATUSES.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="it-filter-item">
+                <label>Decision</label>
+                <select
+                  value={selectedDecision}
+                  onChange={e => { setSelectedDecision(e.target.value); setPage(1); }}
+                >
+                  <option value="">All Decisions</option>
+                  {DECISIONS.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="it-filter-item it-filter-search">
+                <label>Search</label>
+                <div className="it-search-wrap">
+                  <Search size={14} className="it-search-icon" />
+                  <input
+                    type="text"
+                    placeholder="Candidate, client, contact, email, JO ID..."
+                    value={searchTerm}
+                    onChange={e => { setSearchTerm(e.target.value); setPage(1); }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="it-filter-actions">
+              <button
+                type="button"
+                className="it-reset-btn"
+                onClick={handleResetFilters}
+                title="Clear all filters"
+              >
+                <RotateCcw size={13} />
+                <span>Reset Filters</span>
+              </button>
+            </div>
+          </div>
+
           <div className="it-table-card">
             <div className="it-table-header">
               <div>
-                <h3 className="text-sm font-bold text-gray-900">Interview Master List</h3>
+                <h3 className="text-sm font-bold text-gray-900">Interview Schedule & Master List</h3>
                 <p className="text-xs text-gray-500">
                   Showing {interviews.length} of {totalInterviews} recorded interviews
                 </p>
@@ -873,29 +1204,32 @@ export default function InterviewTracker() {
             ) : interviews.length === 0 ? (
               <div className="it-empty">No interviews match the current filters.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="it-master-table">
+              <div className="it-excel-table-container">
+                <table className="it-excel-table">
                   <thead>
                     <tr>
-                      <th onClick={() => { setSortBy('interviewId'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }}>
-                        Interview ID
+                      {/* EXACT 12 COLUMNS IN REQUESTED ORDER */}
+                      <th onClick={() => { setSortBy('clientName'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }}>
+                        CLIENT
+                      </th>
+                      <th onClick={() => { setSortBy('positionName'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }}>
+                        POSITION
                       </th>
                       <th onClick={() => { setSortBy('candidateName'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }}>
-                        Candidate Name
+                        CANDIDATE NAME
                       </th>
-                      <th>Position / JO ID</th>
-                      <th>Client</th>
-                      <th>Sourcing TA</th>
-                      <th>Coordinator</th>
-                      <th>Round</th>
+                      <th>CONTACT NUMBER</th>
+                      <th>EMAIL</th>
                       <th onClick={() => { setSortBy('interviewDate'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }}>
-                        Date & Time
+                        INTERVIEW DATE
                       </th>
-                      <th>Mode</th>
-                      <th>Status</th>
-                      <th>Decision</th>
-                      <th>Next Interview</th>
-                      <th className="text-right">Actions</th>
+                      <th>INTERVIEW TIME</th>
+                      <th>INTERVIEW MODE</th>
+                      <th>INTERVIEW STATUS</th>
+                      <th>INTERVIEW ROUND</th>
+                      <th>DECISION</th>
+                      <th>TA</th>
+                      <th className="text-right">ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -906,59 +1240,82 @@ export default function InterviewTracker() {
 
                       return (
                         <tr key={inv._id}>
-                          <td className="font-mono text-xs font-semibold text-gray-500">
-                            {inv.interviewId}
-                          </td>
+                          {/* 1. CLIENT */}
                           <td className="font-semibold text-gray-900">
-                            {inv.candidateName}
+                            {inv.clientName || inv.client?.clientName || '—'}
                           </td>
+
+                          {/* 2. POSITION */}
                           <td>
-                            <div className="font-medium text-gray-800">{inv.jobOrderId}</div>
-                            <div className="text-[11px] text-gray-400">{inv.positionName}</div>
+                            <div className="font-medium text-gray-800">
+                              {inv.positionName || inv.position?.position || inv.jobOrderId || '—'}
+                            </div>
+                            {inv.jobOrderId && (
+                              <div className="text-[10px] text-gray-400 font-mono">
+                                {inv.jobOrderId}
+                              </div>
+                            )}
                           </td>
-                          <td>{inv.clientName}</td>
+
+                          {/* 3. CANDIDATE NAME */}
+                          <td className="font-semibold text-gray-900">
+                            {inv.candidateName || '—'}
+                          </td>
+
+                          {/* 4. CONTACT NUMBER */}
+                          <td className="font-mono text-xs text-gray-600">
+                            {inv.contactNumber || inv.candidateSubmission?.contactNumber || '—'}
+                          </td>
+
+                          {/* 5. EMAIL */}
+                          <td className="text-xs text-blue-600">
+                            {inv.email || inv.candidateSubmission?.email || '—'}
+                          </td>
+
+                          {/* 6. INTERVIEW DATE */}
+                          <td className="font-medium text-gray-800">
+                            {inv.interviewDateStr || (inv.interviewDate ? new Date(inv.interviewDate).toLocaleDateString() : '—')}
+                          </td>
+
+                          {/* 7. INTERVIEW TIME */}
+                          <td className="font-medium text-gray-700">
+                            {inv.interviewTime || '—'}
+                          </td>
+
+                          {/* 8. INTERVIEW MODE */}
                           <td>
-                            <span className="text-xs font-medium text-gray-700">
-                              {inv.sourcingTA?.name || '—'}
-                            </span>
+                            <span className="text-xs text-gray-600">{inv.interviewMode || 'Online'}</span>
                           </td>
-                          <td>
-                            <span className="text-xs font-medium text-gray-700">
-                              {inv.interviewCoordinator?.name || '—'}
-                            </span>
-                          </td>
-                          <td>
-                            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-                              {inv.round}
-                            </span>
-                          </td>
-                          <td>
-                            <div className="font-medium text-gray-800">{inv.interviewDateStr}</div>
-                            <div className="text-[11px] text-gray-400">{inv.interviewTime}</div>
-                          </td>
-                          <td>
-                            <span className="text-xs text-gray-600">{inv.interviewMode}</span>
-                          </td>
+
+                          {/* 9. INTERVIEW STATUS */}
                           <td>
                             <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${statusStyle}`}>
                               {inv.status}
                             </span>
                           </td>
+
+                          {/* 10. INTERVIEW ROUND */}
+                          <td>
+                            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                              {inv.round}
+                            </span>
+                          </td>
+
+                          {/* 11. DECISION */}
                           <td>
                             <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${decisionStyle}`}>
                               {inv.decision}
                             </span>
                           </td>
-                          <td className="text-xs text-gray-600">
-                            {inv.nextInterviewDateStr ? (
-                              <div>
-                                <span className="font-semibold text-emerald-700">{inv.nextInterviewRound || 'Next Round'}</span>
-                                <div className="text-[11px] text-gray-400">{inv.nextInterviewDateStr}</div>
-                              </div>
-                            ) : (
-                              '—'
-                            )}
+
+                          {/* 12. TA */}
+                          <td>
+                            <span className="text-xs font-medium text-gray-700">
+                              {inv.sourcingTA?.name || inv.taName || inv.candidateSubmission?.sourcedBy?.name || inv.interviewCoordinator?.name || '—'}
+                            </span>
                           </td>
+
+                          {/* Actions */}
                           <td className="text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               <button
@@ -1201,6 +1558,30 @@ export default function InterviewTracker() {
                       <option key={r} value={r}>{r}</option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              {/* Contact Number & Email */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Contact Number</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 077 123 4567"
+                    value={scheduleForm.contactNumber || ''}
+                    onChange={e => setScheduleForm({ ...scheduleForm, contactNumber: e.target.value })}
+                    className="it-input mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Email Address</label>
+                  <input
+                    type="email"
+                    placeholder="e.g. candidate@example.com"
+                    value={scheduleForm.email || ''}
+                    onChange={e => setScheduleForm({ ...scheduleForm, email: e.target.value })}
+                    className="it-input mt-1"
+                  />
                 </div>
               </div>
 

@@ -9,12 +9,10 @@ const { enrichPositionsWithCvAndSetMetrics } = require('../utils/cvSync');
 async function getAllPositions(req, res) {
   try {
     const filter = {};
-    if (req.query.engaged === 'true') {
-      const engagedClientIds = await Client.find({ isEngaged: true }).distinct('_id');
-      filter.client = { $in: engagedClientIds };
-    } else if (req.query.engaged === 'false') {
-      const engagedClientIds = await Client.find({ isEngaged: true }).distinct('_id');
-      filter.client = { $nin: engagedClientIds };
+    if (req.query.engaged === 'true' || req.query.confident === 'true') {
+      filter.isEngaged = true;
+    } else if (req.query.engaged === 'false' || req.query.confident === 'false') {
+      filter.isEngaged = { $ne: true };
     }
 
     const positions = await Position.find(filter)
@@ -152,8 +150,7 @@ async function createPosition(req, res) {
     const isReactivated = Boolean(req.body.isReactivated || status === 'Reactivated');
     const reactivatedAt = isReactivated ? (req.body.reactivatedAt || new Date()) : null;
 
-    const clientDoc = await Client.findById(client).lean();
-    const clientIsEngaged = Boolean(clientDoc && clientDoc.isEngaged);
+    const positionIsConfident = Boolean(req.body.isEngaged ?? req.body.isConfident);
 
     const now = new Date();
     const finalReceivedDate = receivedDate ? new Date(receivedDate) : now;
@@ -210,8 +207,8 @@ async function createPosition(req, res) {
       position,
       pLevel,
       status,
-      isEngaged: clientIsEngaged,
-      engagedAt: clientIsEngaged ? (clientDoc.engagedAt || now) : null,
+      isEngaged: positionIsConfident,
+      engagedAt: positionIsConfident ? now : null,
       isReactivated,
       reactivatedAt,
       pipelineStage,
@@ -726,40 +723,29 @@ async function deletePosition(req, res) {
   }
 }
 
-// BULK UPDATE ENGAGEMENT (Client-level engagement)
+// BULK UPDATE ENGAGEMENT / CONFIDENCE (Position-level)
 async function bulkUpdateEngagement(req, res) {
   try {
     const { positionIds, clientIds, isEngaged } = req.body;
-    let targetClientIds = [];
+    let targetPositionIds = [];
 
-    if (Array.isArray(clientIds) && clientIds.length > 0) {
-      targetClientIds = [...new Set(clientIds.map(String))];
-    } else if (Array.isArray(positionIds) && positionIds.length > 0) {
-      const positions = await Position.find({ _id: { $in: positionIds } }, 'client').lean();
-      targetClientIds = [...new Set(positions.map(p => p.client?.toString()).filter(Boolean))];
+    if (Array.isArray(positionIds) && positionIds.length > 0) {
+      targetPositionIds = [...new Set(positionIds.map(String))];
+    } else if (Array.isArray(clientIds) && clientIds.length > 0) {
+      const positions = await Position.find({ client: { $in: clientIds } }, '_id').lean();
+      targetPositionIds = positions.map(p => p._id.toString());
     }
 
-    if (targetClientIds.length === 0) {
-      return res.status(400).json({ error: 'No valid clients or positions provided' });
+    if (targetPositionIds.length === 0) {
+      return res.status(400).json({ error: 'No valid positions provided' });
     }
 
     const engagedBool = Boolean(isEngaged);
     const engagedDate = engagedBool ? new Date() : null;
 
-    // 1. Update all identified distinct clients
-    await Client.updateMany(
-      { _id: { $in: targetClientIds } },
-      {
-        $set: {
-          isEngaged: engagedBool,
-          engagedAt: engagedDate
-        }
-      }
-    );
-
-    // 2. Update ALL positions belonging to these clients
+    // Update only the specified positions (Position-based)
     const positionUpdateResult = await Position.updateMany(
-      { client: { $in: targetClientIds } },
+      { _id: { $in: targetPositionIds } },
       {
         $set: {
           isEngaged: engagedBool,
@@ -768,14 +754,19 @@ async function bulkUpdateEngagement(req, res) {
       }
     );
 
-    const clientDocs = await Client.find({ _id: { $in: targetClientIds } }, 'clientName').lean();
+    const updatedPositions = await Position.find({ _id: { $in: targetPositionIds } })
+      .populate('client', 'clientName')
+      .lean();
 
     liveEvents.emit('positions:changed');
     res.json({
       success: true,
-      clientCount: targetClientIds.length,
-      clients: clientDocs.map(c => c.clientName),
       modifiedPositionsCount: positionUpdateResult.modifiedCount,
+      positions: updatedPositions.map(p => ({
+        id: p._id,
+        position: p.position,
+        clientName: p.client?.clientName
+      })),
       isEngaged: engagedBool
     });
   } catch (err) {

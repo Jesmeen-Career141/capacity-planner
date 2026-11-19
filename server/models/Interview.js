@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const ROUND_VALUES = ['First Round', 'Second Round', 'Third Round', 'Final Round'];
 const STATUS_VALUES = ['Scheduled', 'Completed', 'Cancelled', 'No Show', 'Rescheduled', 'Withdrew'];
 const DECISION_VALUES = ['Reschedule', 'Pending', 'Shortlisted', 'Rejected', 'Dropped'];
-const MODE_VALUES = ['Online', 'Physical', 'Telephone'];
+const MODE_VALUES = ['Online', 'Physical', 'Onsite', 'Telephone'];
 
 const rescheduleEntrySchema = new mongoose.Schema({
   previousDate: {
@@ -94,6 +94,21 @@ const interviewSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Candidate name is required'],
     trim: true
+  },
+  contactNumber: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  email: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  taName: {
+    type: String,
+    trim: true,
+    default: ''
   },
   position: {
     type: mongoose.Schema.Types.ObjectId,

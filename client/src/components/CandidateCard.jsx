@@ -1,21 +1,17 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import {
-  Download,
-  Trash2,
-  FileEdit,
-  UserMinus,
-  UserCheck,
-  MoreVertical,
-  History
-} from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 
-function formatBytes(bytes) {
-  if (!bytes || isNaN(bytes)) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
+export const INTERVIEW_OUTCOME_OPTIONS = [
+  'In Progress',
+  '1st Int. Shortlisted',
+  '2nd Int. Shortlisted',
+  'Rejected – 1st Interview',
+  'Rejected – 2nd Interview',
+  'Rejected – 3rd Interview',
+  'Rejected – Final Interview',
+  'Withdrawn',
+  'Selected'
+];
 
 function formatDate(dateStr) {
   if (!dateStr) return null;
@@ -23,36 +19,78 @@ function formatDate(dateStr) {
   return isNaN(d.getTime()) ? null : d.toLocaleDateString();
 }
 
+export function getEffectiveOutcome(candidate) {
+  if (!candidate || candidate.clientShortlistStatus !== 'Shortlisted') {
+    return '';
+  }
+  if (candidate.interviewOutcome) {
+    return candidate.interviewOutcome;
+  }
+  if (candidate.isWithdrawn === true) {
+    return 'Withdrawn';
+  }
+  if (candidate.isPlaced === true) {
+    return 'Selected';
+  }
+  return 'In Progress';
+}
+
+export function getOutcomeColorClass(outcome) {
+  if (!outcome) return '';
+  if (outcome === 'Withdrawn') return 'cv-demo3-select--withdrawn';
+  if (outcome === 'Selected') return 'cv-demo3-select--selected';
+  if (outcome.startsWith('Rejected')) return 'cv-demo3-select--rejected';
+  if (outcome === 'In Progress') return 'cv-demo3-select--progress';
+  return 'cv-demo3-select--shortlisted';
+}
+
+export function getEffectiveCandidateNote(candidate) {
+  if (!candidate) return '';
+  if (candidate.candidateNote !== undefined && candidate.candidateNote !== null) {
+    return String(candidate.candidateNote).trim();
+  }
+  if (candidate.isWithdrawn && candidate.withdrawalReason) {
+    return candidate.withdrawalExplanation
+      ? `${candidate.withdrawalReason} (${candidate.withdrawalExplanation})`
+      : String(candidate.withdrawalReason).trim();
+  }
+  if (candidate.clientFeedback) {
+    return String(candidate.clientFeedback).trim();
+  }
+  return '';
+}
+
 /**
- * CandidateCard
- * Renders a compact candidate row for HTML Demo 3 (Option 3 — Compact Searchable List):
- * - Candidate name & CV file metadata (filename, size, dates, feedback, optional sourcing attribution)
- * - Internal status pill ("Internally shortlisted")
- * - Quality rating selector (Not rated / Good / Optional)
- * - Client decision selector (Pending / Shortlisted / Rejected) or Withdrawn badge
- * - Accessible actions for viewing/downloading CV, and three-dot actions menu for withdrawal, attribution, notes, delete
+ * CandidateCard (CV Tracking V3 — Two-Stage Client Shortlist & Interview Outcome)
+ * Renders the 4-column candidate row:
+ * 1. Candidate / CV (clicking candidate name or file name opens CV; optional sourcing attribution & note editor)
+ * 2. Quality (Not rated / Good / Optional)
+ * 3. Client CV Decision (Pending / Shortlisted / CV Rejected)
+ * 4. Interview / Final Outcome (Appears when Shortlisted: In Progress, 1st/2nd Int. Shortlisted, Rejected rounds, Withdrawn, Selected + hover Note icon when note exists)
  */
 export default function CandidateCard({
   candidate,
+  position = null,
   selectedAttempt = null,
   tas = [],
   positionSets = [],
   isReadOnly = false,
   onUpdateStatus,
-  onDelete,
-  onDownload,
-  onRequestClientDecisionConfirmation,
-  onRequestWithdrawal,
-  onViewInterviewHistory
+  onDownload
 }) {
   const [isUpdatingRating, setIsUpdatingRating] = useState(false);
   const [isUpdatingDecision, setIsUpdatingDecision] = useState(false);
+  const [isUpdatingOutcome, setIsUpdatingOutcome] = useState(false);
   const [isUpdatingSource, setIsUpdatingSource] = useState(false);
   const [isEditingSource, setIsEditingSource] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [openUpward, setOpenUpward] = useState(false);
-  const menuRef = useRef(null);
+
+  // Optional candidate note editing state
+  const [isEditingNote, setIsEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [isSavingNote, setIsSavingNote] = useState(false);
+
   const sourcePopoverRef = useRef(null);
+  const noteInputRef = useRef(null);
 
   // Derive the TAs assigned to the selected recruitment attempt (Primary TA + Supporting TAs)
   const assignedTAs = useMemo(() => {
@@ -88,8 +126,8 @@ export default function CandidateCard({
     return list;
   }, [selectedAttempt, tas]);
 
-  // Resolve explicitly recorded sourcing attribution (or set-level sourcing TAs when multiple TAs sourced the set)
-  const { sourcedById, sourcedByName, displaySourcedName } = useMemo(() => {
+  // Resolve explicitly recorded sourcing attribution
+  const { sourcedById, displaySourcedName } = useMemo(() => {
     const allTas = Array.isArray(tas) ? tas : [];
     const raw = candidate?.sourcedBy;
     if (raw) {
@@ -101,12 +139,11 @@ export default function CandidateCard({
           allTas.find(t => String(t._id) === idStr)?.name ||
           null;
         if (name) {
-          return { sourcedById: idStr, sourcedByName: name, displaySourcedName: name };
+          return { sourcedById: idStr, displaySourcedName: name };
         }
       }
     }
 
-    // Check set-level sourcingTAs if candidate belongs to a submission set with sourcingTAs
     const safeSets = Array.isArray(positionSets) ? positionSets : [];
     const candidateSetId = candidate?.submissionSet?._id || candidate?.submissionSet;
     const matchedSet = safeSets.find(
@@ -124,35 +161,13 @@ export default function CandidateCard({
         })
         .filter(Boolean);
       if (names.length > 0) {
-        return { sourcedById: '', sourcedByName: null, displaySourcedName: names.join(', ') };
+        return { sourcedById: '', displaySourcedName: names.join(', ') };
       }
     }
 
-    return { sourcedById: '', sourcedByName: null, displaySourcedName: null };
+    return { sourcedById: '', displaySourcedName: null };
   }, [candidate?.sourcedBy, candidate?.submissionSet, candidate?.setNumber, assignedTAs, tas, positionSets]);
 
-  // Close actions menu on click outside or Escape key
-  useEffect(() => {
-    if (!isMenuOpen) return;
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setIsMenuOpen(false);
-      }
-    };
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setIsMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isMenuOpen]);
-
-  // Close inline sourcing popover on click outside or Escape key
   useEffect(() => {
     if (!isEditingSource) return;
     const handleClickOutside = (e) => {
@@ -173,14 +188,11 @@ export default function CandidateCard({
     };
   }, [isEditingSource]);
 
-  const handleToggleMenu = () => {
-    if (!isMenuOpen && menuRef.current) {
-      const rect = menuRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      setOpenUpward(spaceBelow < 190);
+  useEffect(() => {
+    if (isEditingNote) {
+      setTimeout(() => noteInputRef.current?.focus(), 10);
     }
-    setIsMenuOpen(prev => !prev);
-  };
+  }, [isEditingNote]);
 
   const handleRatingChange = async (newRating) => {
     if (isReadOnly || isUpdatingRating || candidate.qualityRating === newRating) return;
@@ -196,25 +208,56 @@ export default function CandidateCard({
     }
   };
 
+  // Stage 1: Client CV Decision Change (Pending / Shortlisted / CV Rejected)
   const handleClientDecisionChange = async (newDecision) => {
+    const normalizedDecision = newDecision === 'CV Rejected' ? 'Rejected' : newDecision;
     const currentDecision = candidate.clientShortlistStatus || 'Pending';
-    if (isReadOnly || isUpdatingDecision || currentDecision === newDecision) return;
+    if (isReadOnly || isUpdatingDecision || currentDecision === normalizedDecision) return;
     setIsUpdatingDecision(true);
     try {
-      if (newDecision === 'Pending') {
+      if (normalizedDecision === 'Pending') {
         await onUpdateStatus(candidate._id, {
           clientShortlistStatus: 'Pending',
-          clientShortlistDate: null
+          clientShortlistDate: null,
+          isWithdrawn: false
         });
-      } else {
+      } else if (normalizedDecision === 'Shortlisted') {
+        const nextOutcome = candidate.interviewOutcome || 'In Progress';
         await onUpdateStatus(candidate._id, {
           sentToClient: true,
-          clientShortlistStatus: newDecision,
-          clientShortlistDate: candidate.clientShortlistDate || new Date().toISOString()
+          clientShortlistStatus: 'Shortlisted',
+          clientShortlistDate: candidate.clientShortlistDate || new Date().toISOString(),
+          interviewOutcome: nextOutcome,
+          isWithdrawn: nextOutcome === 'Withdrawn'
+        });
+      } else if (normalizedDecision === 'Rejected') {
+        await onUpdateStatus(candidate._id, {
+          sentToClient: true,
+          clientShortlistStatus: 'Rejected',
+          clientShortlistDate: candidate.clientShortlistDate || new Date().toISOString(),
+          isWithdrawn: false
         });
       }
     } finally {
       setIsUpdatingDecision(false);
+    }
+  };
+
+  // Stage 2: Interview / Final Outcome Change
+  const handleInterviewOutcomeChange = async (newOutcome) => {
+    const currentOutcome = getEffectiveOutcome(candidate);
+    if (isReadOnly || isUpdatingOutcome || currentOutcome === newOutcome) return;
+    setIsUpdatingOutcome(true);
+    try {
+      await onUpdateStatus(candidate._id, {
+        sentToClient: true,
+        clientShortlistStatus: 'Shortlisted',
+        interviewOutcome: newOutcome,
+        interviewOutcomeDate: new Date().toISOString(),
+        isWithdrawn: newOutcome === 'Withdrawn'
+      });
+    } finally {
+      setIsUpdatingOutcome(false);
     }
   };
 
@@ -235,28 +278,67 @@ export default function CandidateCard({
     }
   };
 
-  const uploadDate = formatDate(candidate.uploadedAt || candidate.internalShortlistDate);
-  const clientDate = formatDate(candidate.clientShortlistDate);
-  const withdrawalDate = formatDate(candidate.withdrawalDate);
+  const noteText = getEffectiveCandidateNote(candidate);
+  const hasNote = Boolean(noteText);
 
-  const isWithdrawn = candidate.isWithdrawn === true;
-  const isClientShortlisted = candidate.clientShortlistStatus === 'Shortlisted';
-  const canWithdraw = !isReadOnly && isClientShortlisted && !isWithdrawn && typeof onRequestWithdrawal === 'function';
+  const handleOpenNoteEditor = () => {
+    if (isReadOnly) return;
+    setNoteDraft(noteText);
+    setIsEditingNote(true);
+  };
+
+  const handleSaveNote = async () => {
+    if (isReadOnly || isSavingNote) return;
+    setIsSavingNote(true);
+    try {
+      const trimmed = noteDraft.trim();
+      await onUpdateStatus(candidate._id, {
+        candidateNote: trimmed
+      });
+      setIsEditingNote(false);
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
+  const uploadDate = formatDate(candidate.uploadedAt || candidate.internalShortlistDate);
   const canEditAttribution = !isReadOnly && assignedTAs.length > 0;
 
+  const interviewTrackerLink = useMemo(() => {
+    const params = new URLSearchParams();
+    const candName = candidate?.unverifiedLabel || candidate?.candidateName || '';
+    if (candName) params.set('search', candName);
+    const clientName = position?.clientName || position?.client?.clientName || (typeof position?.client === 'string' ? position.client : '');
+    if (clientName) params.set('client', clientName);
+    const posName = position?.position || position?.title || position?.positionName || '';
+    if (posName) params.set('position', posName);
+    return `/interviews?${params.toString()}`;
+  }, [candidate, position]);
+
   const qualityValue = candidate.qualityRating || 'Not Rated';
-  const clientDecisionValue = candidate.clientShortlistStatus || 'Pending';
-  const isLegacyReviewStatus =
-    clientDecisionValue === 'Review' || clientDecisionValue === 'Client Review';
+  const clientDecisionValue =
+    candidate.clientShortlistStatus === 'Review' || candidate.clientShortlistStatus === 'Client Review'
+      ? 'Shortlisted'
+      : candidate.clientShortlistStatus || 'Pending';
+  const isClientShortlisted = clientDecisionValue === 'Shortlisted';
+  const effectiveOutcome = getEffectiveOutcome({
+    ...candidate,
+    clientShortlistStatus: clientDecisionValue
+  });
 
   return (
-    <div className={`cv-demo3-row ${isWithdrawn ? 'cv-demo3-row--withdrawn' : ''}`}>
+    <div className="cv-demo3-row">
       {/* Column 1: Candidate / CV */}
       <div className="cv-demo3-cell-candidate">
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-          <strong className="cv-demo3-candidate-name" title={candidate.unverifiedLabel || 'Candidate'}>
+          <button
+            type="button"
+            className="cv-demo3-candidate-name-btn"
+            onClick={() => onDownload(candidate._id)}
+            title={`Open CV for ${candidate.unverifiedLabel || 'Candidate'}`}
+          >
             {candidate.unverifiedLabel || 'Candidate'}
-          </strong>
+          </button>
           {candidate.setNumber && (
             <span
               style={{
@@ -274,25 +356,99 @@ export default function CandidateCard({
               {candidate.setNumber}
             </span>
           )}
-        </div>
-        <small className="cv-demo3-candidate-meta">
-          <button
-            type="button"
-            className="cv-demo3-file-link"
-            onClick={() => onDownload(candidate._id)}
-            title={`Open / download ${candidate.originalFileName}`}
+          <a
+            href={interviewTrackerLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open in Interview Tracker"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '2px',
+              color: '#059669',
+              borderRadius: '4px',
+              textDecoration: 'none'
+            }}
           >
-            {candidate.originalFileName}
-          </button>
-          <span> · {formatBytes(candidate.fileSize)}</span>
-          {uploadDate && <span> · Added {uploadDate}</span>}
-          {clientDate && clientDecisionValue !== 'Pending' && (
-            <span> · Decided {clientDate}</span>
-          )}
-          {isWithdrawn && withdrawalDate && (
-            <span> · Withdrawn {withdrawalDate}</span>
+            <ArrowUpRight size={14} />
+          </a>
+        </div>
+
+        <small className="cv-demo3-candidate-meta">
+          {uploadDate && <span>Added {uploadDate}</span>}
+          {!isReadOnly && (
+            <>
+              {uploadDate && <span> · </span>}
+              <button
+                type="button"
+                className="cv-demo3-note-trigger-link"
+                onClick={handleOpenNoteEditor}
+                title={hasNote ? 'Edit candidate note' : 'Add optional candidate note'}
+              >
+                {hasNote ? 'Edit note' : '+ Note'}
+              </button>
+            </>
           )}
         </small>
+
+        {isEditingNote && (
+          <div className="cv-demo3-note-editor">
+            <input
+              ref={noteInputRef}
+              type="text"
+              className="cv-demo3-note-input"
+              placeholder="Optional note (e.g. Candidate withdrew, feedback...)"
+              value={noteDraft}
+              disabled={isSavingNote}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSaveNote();
+                } else if (e.key === 'Escape') {
+                  setIsEditingNote(false);
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="cv-demo3-note-save-btn"
+              onClick={handleSaveNote}
+              disabled={isSavingNote}
+            >
+              Save
+            </button>
+            {hasNote && (
+              <button
+                type="button"
+                className="cv-demo3-note-clear-btn"
+                onClick={async () => {
+                  setNoteDraft('');
+                  setIsSavingNote(true);
+                  try {
+                    await onUpdateStatus(candidate._id, { candidateNote: '' });
+                    setIsEditingNote(false);
+                  } finally {
+                    setIsSavingNote(false);
+                  }
+                }}
+                disabled={isSavingNote}
+              >
+                Clear
+              </button>
+            )}
+            <button
+              type="button"
+              className="cv-demo3-source-cancel-btn"
+              onClick={() => setIsEditingNote(false)}
+              disabled={isSavingNote}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         {displaySourcedName && !isEditingSource && (
           <div
             className="cv-demo3-candidate-sourced"
@@ -311,6 +467,7 @@ export default function CandidateCard({
             <span>{displaySourcedName}</span>
           </div>
         )}
+
         {isEditingSource && canEditAttribution && (
           <div className="cv-demo3-source-popover" ref={sourcePopoverRef}>
             <select
@@ -337,32 +494,9 @@ export default function CandidateCard({
             </button>
           </div>
         )}
-        {candidate.clientFeedback && (
-          <small className="cv-demo3-candidate-feedback" title={candidate.clientFeedback}>
-            Note: {candidate.clientFeedback}
-          </small>
-        )}
-        {isWithdrawn && (
-          <small
-            className="cv-demo3-candidate-withdrawal"
-            title={candidate.withdrawalExplanation ? `${candidate.withdrawalReason}: ${candidate.withdrawalExplanation}` : candidate.withdrawalReason}
-          >
-            Withdrawal: {candidate.withdrawalReason}
-            {candidate.withdrawalExplanation ? ` (${candidate.withdrawalExplanation})` : ''}
-          </small>
-        )}
       </div>
 
-      {/* Column 2: Internal status */}
-      <div className="cv-demo3-cell-status">
-        <span className="cv-demo3-pill">
-          {candidate.internalShortlistStatus === 'Shortlisted'
-            ? 'Internally shortlisted'
-            : candidate.internalShortlistStatus || 'Internally shortlisted'}
-        </span>
-      </div>
-
-      {/* Column 3: Quality rating */}
+      {/* Column 2: Quality Rating */}
       <div className="cv-demo3-cell-quality">
         <select
           aria-label={`Quality rating for ${candidate.unverifiedLabel || 'Candidate'}`}
@@ -383,174 +517,63 @@ export default function CandidateCard({
         </select>
       </div>
 
-      {/* Column 4: Client decision */}
+      {/* Column 3: Dropdown 1 — Client CV Decision */}
       <div className="cv-demo3-cell-decision">
-        {isWithdrawn ? (
-          <div className="cv-demo3-withdrawn-status">
-            <span
-              className="cv-demo3-pill cv-demo3-pill--withdrawn"
-              title={candidate.withdrawalReason || 'Withdrawn'}
-            >
-              Withdrawn
-            </span>
-            <span
-              className="cv-demo3-withdrawn-sub"
-              title={candidate.withdrawalReason || 'Candidate withdrew'}
-            >
-              {candidate.withdrawalReason || 'Candidate withdrew'}
-            </span>
-          </div>
-        ) : (
-          <select
-            aria-label={`Client decision for ${candidate.unverifiedLabel || 'Candidate'}`}
-            value={clientDecisionValue}
-            disabled={isReadOnly || isUpdatingDecision}
-            onChange={(e) => handleClientDecisionChange(e.target.value)}
-            className={`cv-demo3-select ${
-              clientDecisionValue === 'Shortlisted'
-                ? 'cv-demo3-select--shortlisted'
-                : clientDecisionValue === 'Rejected'
-                ? 'cv-demo3-select--rejected'
-                : ''
-            }`}
-          >
-            <option value="Pending">
-              {candidate.sentToClient === false ? 'Not sent' : 'Pending'}
-            </option>
-            <option value="Shortlisted">Shortlisted</option>
-            <option value="Rejected">Rejected</option>
-            {isLegacyReviewStatus && (
-              <option value={clientDecisionValue}>{clientDecisionValue}</option>
-            )}
-          </select>
-        )}
+        <select
+          aria-label={`Client CV decision for ${candidate.unverifiedLabel || 'Candidate'}`}
+          value={clientDecisionValue}
+          disabled={isReadOnly || isUpdatingDecision}
+          onChange={(e) => handleClientDecisionChange(e.target.value)}
+          className={`cv-demo3-select ${
+            clientDecisionValue === 'Shortlisted'
+              ? 'cv-demo3-select--shortlisted'
+              : clientDecisionValue === 'Rejected'
+              ? 'cv-demo3-select--rejected'
+              : ''
+          }`}
+        >
+          <option value="Pending">Pending</option>
+          <option value="Shortlisted">Shortlisted</option>
+          <option value="Rejected">CV Rejected</option>
+        </select>
       </div>
 
-      {/* Column 5: Actions (Open/Download CV, Three-dot Menu) */}
-      <div className="cv-demo3-cell-actions">
-        <button
-          type="button"
-          className="cv-demo3-action-btn cv-demo3-action-btn--download"
-          onClick={() => onDownload(candidate._id)}
-          title={`View / download ${candidate.originalFileName}`}
-        >
-          <Download size={13} />
-          <span>CV</span>
-        </button>
-
-        {/* Three-Dot Actions Menu */}
-        <div className="cv-demo3-menu-container" ref={menuRef}>
-          <button
-            type="button"
-            className={`cv-demo3-icon-btn cv-demo3-menu-trigger ${isMenuOpen ? 'cv-demo3-menu-trigger--active' : ''}`}
-            onClick={handleToggleMenu}
-            aria-haspopup="true"
-            aria-expanded={isMenuOpen}
-            aria-label={`More actions for ${candidate.unverifiedLabel || 'Candidate'}`}
-            title="More actions"
-          >
-            <MoreVertical size={14} />
-          </button>
-
-          {isMenuOpen && (
-            <div
-              className={`cv-demo3-actions-dropdown ${openUpward ? 'cv-demo3-actions-dropdown--upward' : ''}`}
-              role="menu"
+      {/* Column 4: Dropdown 2 — Interview / Final Outcome + Optional Hover Note Icon */}
+      <div className="cv-demo3-cell-outcome">
+        <div className="cv-v3-second-wrap">
+          {isClientShortlisted ? (
+            <select
+              aria-label={`Interview outcome for ${candidate.unverifiedLabel || 'Candidate'}`}
+              value={effectiveOutcome}
+              disabled={isReadOnly || isUpdatingOutcome}
+              onChange={(e) => handleInterviewOutcomeChange(e.target.value)}
+              className={`cv-demo3-select ${getOutcomeColorClass(effectiveOutcome)}`}
             >
-              {canWithdraw && (
-                <button
-                  type="button"
-                  className="cv-demo3-dropdown-item cv-demo3-dropdown-item--warning"
-                  role="menuitem"
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    onRequestWithdrawal(candidate);
-                  }}
-                >
-                  <UserMinus size={13} />
-                  <span>Record withdrawal</span>
-                </button>
-              )}
+              {INTERVIEW_OUTCOME_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="cv-v3-empty">Shown when shortlisted</span>
+          )}
 
-              {canEditAttribution && (
-                <button
-                  type="button"
-                  className="cv-demo3-dropdown-item"
-                  role="menuitem"
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    setIsEditingSource(true);
-                  }}
-                >
-                  <UserCheck size={13} />
-                  <span>{sourcedByName ? 'Change sourcing TA' : 'Set sourcing TA'}</span>
-                </button>
-              )}
-
-              {!isReadOnly && onRequestClientDecisionConfirmation && !isWithdrawn && (
-                <button
-                  type="button"
-                  className="cv-demo3-dropdown-item"
-                  role="menuitem"
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    onRequestClientDecisionConfirmation(
-                      candidate,
-                      candidate.clientShortlistStatus === 'Rejected' ? 'Rejected' : 'Shortlisted'
-                    );
-                  }}
-                >
-                  <FileEdit size={13} />
-                  <span>Decision notes & date</span>
-                </button>
-              )}
-
-              {onViewInterviewHistory && (
-                <button
-                  type="button"
-                  className="cv-demo3-dropdown-item"
-                  role="menuitem"
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    onViewInterviewHistory(candidate);
-                  }}
-                >
-                  <History size={13} />
-                  <span>Interview journey</span>
-                </button>
-              )}
-
+          {hasNote && (
+            <span className="reason-wrap">
               <button
+                className="reason-btn"
                 type="button"
-                className="cv-demo3-dropdown-item"
-                role="menuitem"
-                onClick={() => {
-                  setIsMenuOpen(false);
-                  onDownload(candidate._id);
-                }}
+                aria-label="View note"
+                onClick={handleOpenNoteEditor}
               >
-                <Download size={13} />
-                <span>Download CV</span>
+                i
               </button>
-
-              {!isReadOnly && onDelete && (
-                <>
-                  <div className="cv-demo3-dropdown-divider" />
-                  <button
-                    type="button"
-                    className="cv-demo3-dropdown-item cv-demo3-dropdown-item--danger"
-                    role="menuitem"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      onDelete(candidate);
-                    }}
-                  >
-                    <Trash2 size={13} />
-                    <span>Delete CV</span>
-                  </button>
-                </>
-              )}
-            </div>
+              <span className="reason-tooltip" role="tooltip">
+                <strong>Note</strong>
+                {noteText}
+              </span>
+            </span>
           )}
         </div>
       </div>

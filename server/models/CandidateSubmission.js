@@ -118,7 +118,7 @@ const candidateSubmissionSchema = new mongoose.Schema({
     default: null
   },
 
-  // Workflow Event 4: Client Response
+  // Workflow Event 4: Client CV Decision (Stage 1: Initial CV Review)
   clientShortlistStatus: {
     type: String,
     enum: ['Pending', 'Shortlisted', 'Rejected', 'Client Review', 'Review'],
@@ -132,6 +132,36 @@ const candidateSubmissionSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: ''
+  },
+
+  // Workflow Event 4B: Interview / Final Outcome (Stage 2: Post-Shortlist Outcome)
+  interviewOutcome: {
+    type: String,
+    enum: [
+      'In Progress',
+      '1st Int. Shortlisted',
+      '2nd Int. Shortlisted',
+      'Rejected – 1st Interview',
+      'Rejected – 2nd Interview',
+      'Rejected – 3rd Interview',
+      'Rejected – Final Interview',
+      'Withdrawn',
+      'Selected',
+      null,
+      ''
+    ],
+    default: null
+  },
+  interviewOutcomeDate: {
+    type: Date,
+    default: null
+  },
+
+  // Optional Candidate Note (independent of status, displayed on hover)
+  candidateNote: {
+    type: String,
+    trim: true,
+    default: null
   },
 
   // Workflow Event 5: Candidate Withdrawal (only permitted after client shortlisting)
@@ -203,6 +233,19 @@ candidateSubmissionSchema.pre('validate', function() {
   // Withdrawal explanation required when reason is Other
   if (this.isWithdrawn && this.withdrawalReason === 'Other' && (!this.withdrawalExplanation || !this.withdrawalExplanation.trim())) {
     this.invalidate('withdrawalExplanation', 'An explanation is required when "Other" is selected as the withdrawal reason');
+  }
+  // Auto-initialize interviewOutcome when candidate is first shortlisted
+  if (this.clientShortlistStatus === 'Shortlisted' && !this.interviewOutcome) {
+    if (this.isWithdrawn) {
+      this.interviewOutcome = 'Withdrawn';
+    } else if (this.isPlaced) {
+      this.interviewOutcome = 'Selected';
+    } else {
+      this.interviewOutcome = 'In Progress';
+    }
+    if (!this.interviewOutcomeDate) {
+      this.interviewOutcomeDate = this.clientShortlistDate || new Date();
+    }
   }
 });
 

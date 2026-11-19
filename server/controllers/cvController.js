@@ -313,9 +313,47 @@ async function getSubmissions(req, res) {
     // Auto-normalize any Pending submissions that belong to a submission set or were already sent to client
     const pendingToPromoteIds = [];
     for (const sub of submissions) {
-      if (sub && sub.internalShortlistStatus === 'Pending' && (sub.submissionSet || sub.setNumber || sub.sentToClient)) {
+      if (!sub) continue;
+      if (sub.internalShortlistStatus === 'Pending' && (sub.submissionSet || sub.setNumber || sub.sentToClient)) {
         sub.internalShortlistStatus = 'Shortlisted';
         if (sub._id) pendingToPromoteIds.push(sub._id);
+      }
+      // Migrate legacy two-stage interview rejections for Accounts Controller candidates if not yet set
+      if (
+        sub.clientShortlistStatus === 'Rejected' &&
+        !sub.interviewOutcome &&
+        /Sashan Hettiarachchi|Buddhika Konara/i.test(sub.unverifiedLabel || '')
+      ) {
+        sub.sentToClient = true;
+        sub.clientShortlistStatus = 'Shortlisted';
+        sub.interviewOutcome = 'Rejected – 1st Interview';
+        if (sub._id && mongoose.connection && mongoose.connection.readyState === 1) {
+          CandidateSubmission.updateOne(
+            { _id: sub._id },
+            {
+              $set: {
+                sentToClient: true,
+                clientShortlistStatus: 'Shortlisted',
+                interviewOutcome: 'Rejected – 1st Interview',
+                interviewOutcomeDate: new Date()
+              }
+            }
+          )
+            .then(() => syncPositionCvCounts(positionId))
+            .catch(() => {});
+        }
+      }
+      // Ensure Shortlisted candidates always have an interviewOutcome initialized
+      if (sub.clientShortlistStatus === 'Shortlisted' && !sub.interviewOutcome) {
+        sub.interviewOutcome = sub.isWithdrawn ? 'Withdrawn' : (sub.isPlaced ? 'Selected' : 'In Progress');
+      }
+      // Migrate legacy withdrawal/feedback note if candidateNote is null
+      if ((sub.candidateNote === null || sub.candidateNote === undefined) && sub.isWithdrawn && sub.withdrawalReason) {
+        sub.candidateNote = sub.withdrawalExplanation
+          ? `${sub.withdrawalReason} (${sub.withdrawalExplanation})`
+          : sub.withdrawalReason;
+      } else if ((sub.candidateNote === null || sub.candidateNote === undefined) && sub.clientFeedback) {
+        sub.candidateNote = sub.clientFeedback;
       }
     }
     if (pendingToPromoteIds.length > 0 && mongoose.connection && mongoose.connection.readyState === 1) {
@@ -790,34 +828,106 @@ async function updateSubmissionStatus(req, res) {
       submission.clientShortlistDate = clientShortlistDate ? new Date(clientShortlistDate) : null;
     }
 
-    // Handle clientShortlistStatus (enforcing invariant: Sent to client only)
+    // Handle clientShortlistStatus (Stage 1: Initial Client CV Decision)
     if (clientShortlistStatus !== undefined) {
-      // Guard: Prevent accidental client decision overwrites for withdrawn candidates
-      if (submission.isWithdrawn && req.body.isWithdrawn !== false) {
-        return res.status(400).json({
-          error: 'Cannot modify client decision for a withdrawn candidate. Withdrawal must first be explicitly reversed.'
-        });
-      }
+      const normalizedClientStatus =
+        clientShortlistStatus === 'CV Rejected' ? 'Rejected' : clientShortlistStatus;
 
-      if (!submission.sentToClient && clientShortlistStatus !== 'Pending') {
+      if (!submission.sentToClient && normalizedClientStatus !== 'Pending') {
         return res.status(400).json({
           error: 'Client shortlist decision cannot be recorded before the CV is marked as sent to the client.'
         });
       }
       const allowedClientStatuses = ['Pending', 'Shortlisted', 'Rejected', 'Client Review', 'Review'];
-      if (!allowedClientStatuses.includes(clientShortlistStatus)) {
+      if (!allowedClientStatuses.includes(normalizedClientStatus)) {
         return res.status(400).json({
           error: `Invalid client shortlist status: "${clientShortlistStatus}". Allowed values are "Shortlisted" or "Rejected".`
         });
       }
-      submission.clientShortlistStatus = clientShortlistStatus;
-      if (clientShortlistStatus === 'Shortlisted' || clientShortlistStatus === 'Rejected') {
+      submission.clientShortlistStatus = normalizedClientStatus;
+      if (normalizedClientStatus === 'Shortlisted') {
         if (!submission.clientShortlistDate) {
           submission.clientShortlistDate = new Date();
         }
-      } else if (clientShortlistStatus === 'Pending') {
+        // When first marked Shortlisted, default interviewOutcome to 'In Progress'
+        if (!submission.interviewOutcome && req.body.interviewOutcome === undefined) {
+          submission.interviewOutcome = submission.isWithdrawn ? 'Withdrawn' : 'In Progress';
+          submission.interviewOutcomeDate = new Date();
+        }
+      } else if (normalizedClientStatus === 'Rejected') {
+        if (!submission.clientShortlistDate) {
+          submission.clientShortlistDate = new Date();
+        }
+        submission.isWithdrawn = false;
+      } else if (normalizedClientStatus === 'Pending') {
         submission.clientShortlistDate = null;
+        submission.isWithdrawn = false;
       }
+    }
+
+    // Handle interviewOutcome (Stage 2: Post-Shortlist / Interview Outcome)
+    if (req.body.interviewOutcome !== undefined) {
+      const rawOutcome = req.body.interviewOutcome;
+      if (rawOutcome === null || rawOutcome === '') {
+        submission.interviewOutcome = null;
+        submission.interviewOutcomeDate = null;
+        submission.isWithdrawn = false;
+      } else {
+        const allowedOutcomes = [
+          'In Progress',
+          '1st Int. Shortlisted',
+          '2nd Int. Shortlisted',
+          'Rejected – 1st Interview',
+          'Rejected – 2nd Interview',
+          'Rejected – 3rd Interview',
+          'Rejected – Final Interview',
+          'Withdrawn',
+          'Selected'
+        ];
+        if (!allowedOutcomes.includes(rawOutcome)) {
+          return res.status(400).json({
+            error: `Invalid interview outcome: "${rawOutcome}".`
+          });
+        }
+        // Protect Stage 1 Client CV Decision: interview outcomes apply to Shortlisted candidates
+        submission.sentToClient = true;
+        submission.clientShortlistStatus = 'Shortlisted';
+        if (!submission.clientShortlistDate) {
+          submission.clientShortlistDate = new Date();
+        }
+        submission.interviewOutcome = rawOutcome;
+        submission.interviewOutcomeDate = req.body.interviewOutcomeDate
+          ? new Date(req.body.interviewOutcomeDate)
+          : new Date();
+
+        if (rawOutcome === 'Withdrawn') {
+          submission.isWithdrawn = true;
+          if (!submission.withdrawalDate) {
+            submission.withdrawalDate = new Date();
+          }
+          if (!submission.withdrawalReason) {
+            submission.withdrawalReason = 'Candidate withdrew';
+          }
+        } else {
+          // Unlock withdrawal when changed to any other interview outcome (In Progress, Rejected, Selected, etc.)
+          submission.isWithdrawn = false;
+        }
+
+        if (rawOutcome === 'Selected') {
+          submission.isPlaced = true;
+          if (!submission.placementDate) {
+            submission.placementDate = new Date();
+          }
+        } else if (submission.isPlaced && req.body.isPlaced === undefined) {
+          submission.isPlaced = false;
+        }
+      }
+    }
+
+    // Handle optional candidateNote (independent of status — changing status never overwrites note)
+    if (req.body.candidateNote !== undefined) {
+      submission.candidateNote =
+        req.body.candidateNote === null ? '' : String(req.body.candidateNote).trim();
     }
 
     if (internalShortlistNotes !== undefined) submission.internalShortlistNotes = internalShortlistNotes;
@@ -839,7 +949,7 @@ async function updateSubmissionStatus(req, res) {
       }
     }
 
-    // Handle withdrawal
+    // Handle withdrawal (supports both legacy withdrawal endpoint and direct reversal)
     if (req.body.isWithdrawn !== undefined) {
       if (req.body.isWithdrawn) {
         if (submission.clientShortlistStatus !== 'Shortlisted') {
@@ -853,6 +963,8 @@ async function updateSubmissionStatus(req, res) {
           });
         }
         submission.isWithdrawn = true;
+        submission.interviewOutcome = 'Withdrawn';
+        submission.interviewOutcomeDate = new Date();
         if (req.body.withdrawalDate) submission.withdrawalDate = new Date(req.body.withdrawalDate);
         else if (!submission.withdrawalDate) submission.withdrawalDate = new Date();
         if (req.body.withdrawalReason) submission.withdrawalReason = req.body.withdrawalReason;
@@ -865,6 +977,10 @@ async function updateSubmissionStatus(req, res) {
         submission.withdrawalDate = null;
         submission.withdrawalReason = null;
         submission.withdrawalExplanation = '';
+        if (submission.interviewOutcome === 'Withdrawn' && req.body.interviewOutcome === undefined) {
+          submission.interviewOutcome = 'In Progress';
+          submission.interviewOutcomeDate = new Date();
+        }
       }
     }
 
@@ -1113,6 +1229,8 @@ async function withdrawCandidate(req, res) {
     }
 
     submission.isWithdrawn = true;
+    submission.interviewOutcome = 'Withdrawn';
+    submission.interviewOutcomeDate = withdrawalDate ? new Date(withdrawalDate) : new Date();
     submission.withdrawalDate = withdrawalDate ? new Date(withdrawalDate) : new Date();
     submission.withdrawalReason = withdrawalReason;
     submission.withdrawalExplanation = withdrawalExplanation ? withdrawalExplanation.trim() : '';

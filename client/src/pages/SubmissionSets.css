@@ -685,7 +685,55 @@
 .ss-status-badge--withdrawn {
   background: #fff2d9;
   color: #93610b;
-  margin-left: 6px;
+}
+
+.ss-status-badge--good {
+  background: #e6f9f0;
+  color: #087344;
+}
+
+.ss-status-badge--progress {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.ss-status-badge--selected {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.ss-status-badge--muted {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.ss-cand-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ss-cand-name-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0f172a;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ss-cand-name-link:hover {
+  color: #047857;
+}
+
+.ss-cand-meta {
+  font-size: 11px;
+  color: #64748b;
 }
 
 .ss-client-decision-cell {

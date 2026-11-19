@@ -66,7 +66,9 @@ function computeSetMetrics(submissions = []) {
     else if (sub.clientShortlistStatus === 'Client Review' || sub.clientShortlistStatus === 'Review') clientReview++;
     else clientPending++;
 
-    if (sub.isWithdrawn) withdrawn++;
+    if (sub.interviewOutcome === 'Withdrawn' || (!sub.interviewOutcome && sub.isWithdrawn)) {
+      withdrawn++;
+    }
   }
 
   return {

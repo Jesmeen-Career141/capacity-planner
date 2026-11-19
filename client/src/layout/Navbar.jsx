@@ -14,7 +14,7 @@ const navItems = [
   { to: "/submission-sets", label: "Submission Sets" },
   { to: "/ta-board", label: "TA Board" },
   { to: "/positions", label: "Positions" },
-  { to: "/engaged-clients", label: "Engaged Clients" },
+  { to: "/confident-positions", label: "Confident Positions" },
   { to: "/strategies", label: "Strategies" },
   { to: "/clients", label: "Clients" },
   { to: "/tas", label: "TAs" },

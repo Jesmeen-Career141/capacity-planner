@@ -20,11 +20,14 @@ export default function AttemptMetricsCard({
   const shortlistedSubmissions = safeSubmissions.filter(s => s && s.internalShortlistStatus !== 'Rejected');
   const totalShortlistedCount = shortlistedSubmissions.length;
   const goodCount = shortlistedSubmissions.filter(s => s && s.qualityRating === 'Good').length;
-  const clientShortlistedCount = safeSubmissions.filter(
-    s => s && s.sentToClient === true && s.clientShortlistStatus === 'Shortlisted'
+  const clientShortlistedCount = shortlistedSubmissions.filter(
+    s => s && s.clientShortlistStatus === 'Shortlisted'
   ).length;
-  const withdrawnCount = safeSubmissions.filter(
-    s => s && s.internalShortlistStatus !== 'Rejected' && s.isWithdrawn === true
+  const withdrawnCount = shortlistedSubmissions.filter(
+    s =>
+      s &&
+      s.clientShortlistStatus === 'Shortlisted' &&
+      (s.interviewOutcome === 'Withdrawn' || (!s.interviewOutcome && s.isWithdrawn === true))
   ).length;
 
   const canEditTarget = !isReadOnly && typeof onEditTarget === 'function';

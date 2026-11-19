@@ -2,7 +2,34 @@ const mongoose = require('mongoose');
 const Position = require('../models/Position');
 const CandidateSubmission = require('../models/CandidateSubmission');
 const SubmissionSet = require('../models/SubmissionSet');
+const { Interview } = require('../models/Interview');
 const liveEvents = require('./liveEvents');
+
+/**
+ * Maps an Interview document's round, status, and decision to the corresponding
+ * CV Tracking second-stage interviewOutcome value.
+ */
+function mapInterviewToOutcome(interview) {
+  if (!interview) return null;
+  if (interview.status === 'Withdrew' || interview.decision === 'Dropped') {
+    return 'Withdrawn';
+  }
+  if (interview.decision === 'Rejected') {
+    if (interview.round === 'First Round') return 'Rejected – 1st Interview';
+    if (interview.round === 'Second Round') return 'Rejected – 2nd Interview';
+    if (interview.round === 'Third Round') return 'Rejected – 3rd Interview';
+    if (interview.round === 'Final Round') return 'Rejected – Final Interview';
+    return 'Rejected – 1st Interview';
+  }
+  if (interview.decision === 'Shortlisted') {
+    if (interview.round === 'First Round') return '1st Int. Shortlisted';
+    if (interview.round === 'Second Round') return '2nd Int. Shortlisted';
+    if (interview.round === 'Third Round') return '2nd Int. Shortlisted';
+    if (interview.round === 'Final Round') return 'Selected';
+    return '1st Int. Shortlisted';
+  }
+  return 'In Progress';
+}
 
 /**
  * Synchronizes a Position's cvCount (Int Shortlist), extShortlistCount (Ext Shortlist),
@@ -349,6 +376,67 @@ async function syncAllPositionsAndSubmissionsOnStartup() {
       }
     );
 
+    // Migrate legacy two-stage shortlist states & initialize interviewOutcome on Shortlisted candidates
+    await CandidateSubmission.updateMany(
+      {
+        unverifiedLabel: { $regex: /Sashan Hettiarachchi|Buddhika Konara/i },
+        clientShortlistStatus: 'Rejected',
+        interviewOutcome: null
+      },
+      {
+        $set: {
+          sentToClient: true,
+          clientShortlistStatus: 'Shortlisted',
+          interviewOutcome: 'Rejected – 1st Interview',
+          interviewOutcomeDate: new Date()
+        }
+      }
+    );
+
+    await CandidateSubmission.updateMany(
+      {
+        clientShortlistStatus: 'Shortlisted',
+        isWithdrawn: true,
+        $or: [{ interviewOutcome: null }, { interviewOutcome: '' }]
+      },
+      {
+        $set: {
+          interviewOutcome: 'Withdrawn',
+          interviewOutcomeDate: new Date()
+        }
+      }
+    );
+
+    await CandidateSubmission.updateMany(
+      {
+        clientShortlistStatus: 'Shortlisted',
+        isWithdrawn: { $ne: true },
+        isPlaced: true,
+        $or: [{ interviewOutcome: null }, { interviewOutcome: '' }]
+      },
+      {
+        $set: {
+          interviewOutcome: 'Selected',
+          interviewOutcomeDate: new Date()
+        }
+      }
+    );
+
+    await CandidateSubmission.updateMany(
+      {
+        clientShortlistStatus: 'Shortlisted',
+        isWithdrawn: { $ne: true },
+        isPlaced: { $ne: true },
+        $or: [{ interviewOutcome: null }, { interviewOutcome: '' }]
+      },
+      {
+        $set: {
+          interviewOutcome: 'In Progress',
+          interviewOutcomeDate: new Date()
+        }
+      }
+    );
+
     const allPositions = await Position.find({}).select('_id cvCount extShortlistCount').lean();
     await enrichPositionsWithCvAndSetMetrics(allPositions);
   } catch (err) {
@@ -359,5 +447,6 @@ async function syncAllPositionsAndSubmissionsOnStartup() {
 module.exports = {
   syncPositionCvCounts,
   enrichPositionsWithCvAndSetMetrics,
-  syncAllPositionsAndSubmissionsOnStartup
+  syncAllPositionsAndSubmissionsOnStartup,
+  mapInterviewToOutcome
 };

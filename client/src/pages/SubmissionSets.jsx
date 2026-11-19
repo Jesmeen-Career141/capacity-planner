@@ -663,14 +663,12 @@ export default function SubmissionSets() {
       }
       queryClient.invalidateQueries({ queryKey: ['positions'] });
     } catch (err) {
-      const isRouteNotLoaded =
-        err.response?.status === 404 &&
-        typeof err.response?.data === 'string' &&
-        err.response.data.includes('Cannot PUT');
+      const serverErrMsg = err.response?.data?.error || err.response?.data?.message;
+      const isRouteNotLoaded = err.response?.status === 404 && !serverErrMsg;
       alert(
         isRouteNotLoaded
-          ? 'Please restart the backend server (Ctrl+C and restart in the server terminal) to load the new date-update route.'
-          : err.response?.data?.error || 'Failed to update Sent to Client date.'
+          ? 'Cannot connect to the update route (404). Please restart your backend server terminal (press Ctrl+C, then run npm start or npm run dev) to load the new route.'
+          : serverErrMsg || (err.message ? `Error: ${err.message}` : 'Failed to update Sent to Client date.')
       );
     }
   };
@@ -1039,14 +1037,12 @@ function SetDetailsModal({ data, loading, onClose, onDownloadCv, onAddCvs, onUpd
       await updateSubmissionSet(set._id, { sentToClientAt: parsed });
       if (typeof onUpdated === 'function') onUpdated();
     } catch (err) {
-      const isRouteNotLoaded =
-        err.response?.status === 404 &&
-        typeof err.response?.data === 'string' &&
-        err.response.data.includes('Cannot PUT');
+      const serverErrMsg = err.response?.data?.error || err.response?.data?.message;
+      const isRouteNotLoaded = err.response?.status === 404 && !serverErrMsg;
       alert(
         isRouteNotLoaded
-          ? 'Please restart the backend server (Ctrl+C and restart in the server terminal) to load the new date-update route.'
-          : err.response?.data?.error || 'Failed to update Sent to Client date.'
+          ? 'Cannot connect to the update route (404). Please restart your backend server terminal (press Ctrl+C, then run npm start or npm run dev) to load the new route.'
+          : serverErrMsg || (err.message ? `Error: ${err.message}` : 'Failed to update Sent to Client date.')
       );
     } finally {
       setSavingDate(false);
@@ -1182,91 +1178,101 @@ function SetDetailsModal({ data, loading, onClose, onDownloadCv, onAddCvs, onUpd
             <table className="ss-candidate-table">
               <thead>
                 <tr>
-                  <th>Candidate Name</th>
-                  <th>File Metadata</th>
-                  <th>Internal Status</th>
+                  <th>Candidate / CV</th>
+                  <th>Quality</th>
                   <th>Client Decision</th>
+                  <th>Interview / Outcome</th>
+                  <th style={{ width: '40px' }}></th>
                 </tr>
               </thead>
               <tbody>
                 {submissions.length === 0 ? (
                   <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', padding: '28px', color: '#718078' }}>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: '28px', color: '#718078' }}>
                       No CVs uploaded in this set yet.
                     </td>
                   </tr>
                 ) : (
                   submissions.map(sub => {
-                    const internalLabel =
-                      sub.internalShortlistStatus === 'Shortlisted'
-                        ? 'Internally Shortlisted'
-                        : sub.internalShortlistStatus === 'Rejected'
-                        ? 'Not Shortlisted'
-                        : 'Pending';
                     const fileType = getFileTypeLabel(sub.mimeType, sub.originalFileName);
+                    const qualityBadgeClass =
+                      sub.qualityRating === 'Good'
+                        ? 'ss-status-badge--good'
+                        : sub.qualityRating === 'Reject'
+                        ? 'ss-status-badge--rejected'
+                        : 'ss-status-badge--muted';
+                    const qualityLabel = sub.qualityRating || 'Not rated';
+
+                    const isShortlisted = sub.clientShortlistStatus === 'Shortlisted';
+                    const isCvRejected = sub.clientShortlistStatus === 'Rejected';
+
+                    const outcome = sub.interviewOutcome;
+                    const outcomeBadgeClass =
+                      outcome === 'Selected'
+                        ? 'ss-status-badge--selected'
+                        : outcome === 'Withdrawn'
+                        ? 'ss-status-badge--withdrawn'
+                        : outcome && outcome.startsWith('Rejected')
+                        ? 'ss-status-badge--rejected'
+                        : outcome && outcome.includes('Shortlisted')
+                        ? 'ss-status-badge--shortlisted'
+                        : 'ss-status-badge--progress';
+
                     return (
                       <tr key={sub._id}>
                         <td>
-                          <span>{sub.unverifiedLabel || 'Candidate'}</span>
-                          {sub.isWithdrawn && (
-                            <span className="ss-status-badge ss-status-badge--withdrawn">
-                              Withdrawn
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <div className="ss-file-meta-cell">
-                            <span>
-                              {fileType} · {formatBytes(sub.fileSize)}
-                            </span>
+                          <div className="ss-cand-cell">
                             <button
                               type="button"
-                              className="ss-download-link"
+                              className="ss-cand-name-link"
                               onClick={() => onDownloadCv(sub._id)}
                               title={`Download ${sub.originalFileName || 'CV'}`}
                             >
-                              <Download size={12} />
-                              <span>Download</span>
+                              {sub.unverifiedLabel || 'Candidate'}
                             </button>
+                            <span className="ss-cand-meta">
+                              {fileType} · {formatBytes(sub.fileSize)}
+                            </span>
                           </div>
+                        </td>
+                        <td>
+                          <span className={`ss-status-badge ${qualityBadgeClass}`}>
+                            {qualityLabel}
+                          </span>
                         </td>
                         <td>
                           <span
                             className={`ss-status-badge ${
-                              sub.internalShortlistStatus === 'Shortlisted'
+                              isShortlisted
                                 ? 'ss-status-badge--shortlisted'
-                                : sub.internalShortlistStatus === 'Rejected'
+                                : isCvRejected
                                 ? 'ss-status-badge--rejected'
                                 : ''
                             }`}
                           >
-                            {internalLabel}
+                            {isCvRejected ? 'CV Rejected' : sub.clientShortlistStatus || 'Pending'}
                           </span>
                         </td>
                         <td>
-                          <div className="ss-client-decision-cell">
-                            <span
-                              className={`ss-status-badge ${
-                                sub.clientShortlistStatus === 'Shortlisted'
-                                  ? 'ss-status-badge--shortlisted'
-                                  : sub.clientShortlistStatus === 'Rejected'
-                                  ? 'ss-status-badge--rejected'
-                                  : ''
-                              }`}
-                            >
-                              {sub.clientShortlistStatus || 'Pending'}
+                          {isShortlisted && outcome ? (
+                            <span className={`ss-status-badge ${outcomeBadgeClass}`}>
+                              {outcome}
                             </span>
-                            <button
-                              type="button"
-                              className="ss-cv-delete-btn"
-                              onClick={() => handleDeleteCandidate(sub)}
-                              disabled={deletingSubId === sub._id}
-                              title={`Delete ${sub.unverifiedLabel || 'CV'}`}
-                              aria-label={`Delete ${sub.unverifiedLabel || 'CV'}`}
-                            >
-                              ×
-                            </button>
-                          </div>
+                          ) : (
+                            <span style={{ color: '#9ca3af', fontSize: '13px' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            className="ss-cv-delete-btn"
+                            onClick={() => handleDeleteCandidate(sub)}
+                            disabled={deletingSubId === sub._id}
+                            title={`Delete ${sub.unverifiedLabel || 'CV'}`}
+                            aria-label={`Delete ${sub.unverifiedLabel || 'CV'}`}
+                          >
+                            ×
+                          </button>
                         </td>
                       </tr>
                     );

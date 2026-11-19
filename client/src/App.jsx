@@ -10,7 +10,7 @@ import InterviewTracker from './pages/InterviewTracker';
 import Positions from './pages/Positions';
 import PositionDetails from './pages/PositionDetails';
 import NewPosition from './pages/NewPosition';
-import EngagedClients from './pages/EngagedClients';
+import ConfidentPositions from './pages/ConfidentPositions';
 import Clients from './pages/Clients';
 import TAs from './pages/TAs';
 import Archive from './pages/Archive';
@@ -43,7 +43,8 @@ function App() {
           <Route path="interviews" element={<InterviewTracker />} />
           <Route path="ta-board" element={<TABoard />} />
           <Route path="positions" element={<Positions />} />
-          <Route path="engaged-clients" element={<EngagedClients />} />
+          <Route path="confident-positions" element={<ConfidentPositions />} />
+          <Route path="engaged-clients" element={<ConfidentPositions />} />
           <Route path="positions/new" element={<NewPosition />} />
           <Route path="positions/:id" element={<PositionDetails />} />
           <Route path="clients" element={<Clients />} />

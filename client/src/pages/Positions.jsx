@@ -7,7 +7,7 @@ import { getActiveTAs } from '../api/tas';
 import { getColorLegend, updateColorLegend } from '../api/colorLegend';
 import FlagBadge from '../components/FlagBadge';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
-import { SlidersHorizontal, RotateCcw, FileText } from 'lucide-react';
+import { SlidersHorizontal, RotateCcw, FileText, Star } from 'lucide-react';
 import { formatSalary } from '../utils/salaryFormatter';
 import SalaryPackagePicker from '../components/SalaryPackagePicker';
 import PositionDetailModal from '../components/PositionDetailModal';
@@ -694,11 +694,22 @@ function CompactAssigneesCell({
 // ---- PositionDetailModal is now imported from ../components/PositionDetailModal ----
 
 // ---- PositionCard (grid view — Azeem's view) ----
-function PositionCard({ pos, onView, onDelete, isSelectMode, isSelected, onToggleSelect }) {
+function PositionCard({ pos, onView, onDelete, isSelectMode, isSelected, onToggleSelect, onToggleConfidence }) {
   const statusColor = STATUS_COLORS[pos.status] || { bg: '#e5e7eb', text: '#374151' };
   const levelColor = PLEVEL_COLORS[pos.pLevel] || { bg: '#e5e7eb', text: '#374151' };
   const primaryName = pos.assignee?.name || 'Unassigned';
   const parallelCount = pos.parallelAssignees?.length || 0;
+
+  const rawSc = pos.serviceContributionScore;
+  const hasSc = rawSc !== null && rawSc !== undefined && rawSc !== '' && !isNaN(Number(rawSc));
+  const scNumericVal = hasSc ? Math.max(0, Math.min(100, Number(rawSc))) : 0;
+  const scFillClass = !hasSc
+    ? ''
+    : scNumericVal < 50
+    ? 'sc-fill--low'
+    : scNumericVal < 70
+    ? 'sc-fill--mid'
+    : '';
 
   return (
     <div
@@ -736,14 +747,31 @@ function PositionCard({ pos, onView, onDelete, isSelectMode, isSelected, onToggl
         </button>
       )}
 
-      {/* Top row: enlarged P-Level circle only */}
+      {/* Top row: enlarged P-Level circle + Star on left, status on right (never overlaps) */}
       <div className="position-card-top">
-        <span
-          className="position-card-level-circle"
-          style={{ background: levelColor.bg, color: levelColor.text }}
-        >
-          {pos.pLevel}
-        </span>
+        <div className="position-card-top-left">
+          <span
+            className="position-card-level-circle"
+            style={{ background: levelColor.bg, color: levelColor.text }}
+          >
+            {pos.pLevel}
+          </span>
+          <button
+            type="button"
+            className={`position-card-star-btn ${pos.isEngaged ? 'active' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleConfidence && onToggleConfidence(pos);
+            }}
+            title={pos.isEngaged ? "Confident Position (Click to remove)" : "Click to mark as Confident Position"}
+          >
+            <Star
+              size={15}
+              className={`quick-confidence-star-icon ${pos.isEngaged ? 'star-filled' : 'star-outline'}`}
+            />
+          </button>
+        </div>
+
         <span className="position-card-status" style={{ background: statusColor.bg, color: statusColor.text }}>
           {pos.status}
         </span>
@@ -757,16 +785,29 @@ function PositionCard({ pos, onView, onDelete, isSelectMode, isSelected, onToggl
         {pos.client?.clientName || '—'}
       </div>
 
-      {/* Assignee */}
-      <div className="position-card-assignee">
-        {primaryName}{parallelCount > 0 && <span className="position-card-parallel"> +{parallelCount}</span>}
+      {/* Footer: Assignee on left, SC % bar on right */}
+      <div className="position-card-footer">
+        <div className="position-card-assignee">
+          {primaryName}{parallelCount > 0 && <span className="position-card-parallel"> +{parallelCount}</span>}
+        </div>
+
+        <div className="position-card-sc" title={hasSc ? `Service Contribution: ${scNumericVal}%` : 'SC % not set'}>
+          <span className="position-card-sc-label">SC:</span>
+          <span className="position-card-sc-track">
+            <span
+              className={`position-card-sc-fill ${scFillClass}`}
+              style={{ width: `${hasSc ? scNumericVal : 0}%` }}
+            />
+          </span>
+          <span className="position-card-sc-val">{hasSc ? `${scNumericVal}%` : '—'}</span>
+        </div>
       </div>
     </div>
   );
 }
 
 // ---- PositionGroup (grid view grouping by P-Level) ----
-function PositionGroup({ pLevel, positions, onView, onDelete, labelOverride, isSelectMode, selectedPositionIds, onToggleSelect }) {
+function PositionGroup({ pLevel, positions, onView, onDelete, labelOverride, isSelectMode, selectedPositionIds, onToggleSelect, onToggleConfidence }) {
   if (positions.length === 0) return null;
   const label = labelOverride || pLevel;
   const swatch = PLEVEL_COLORS[pLevel] || STATUS_COLORS[pLevel] || { bg: '#e5e7eb', text: '#374151' };
@@ -791,6 +832,7 @@ function PositionGroup({ pLevel, positions, onView, onDelete, labelOverride, isS
             isSelectMode={isSelectMode}
             isSelected={selectedPositionIds?.has(pos._id)}
             onToggleSelect={onToggleSelect}
+            onToggleConfidence={onToggleConfidence}
           />
         ))}
       </div>
@@ -905,7 +947,10 @@ const DEFAULT_FILTERS = {
 
 const getStoredPositionsState = (key = DEFAULT_STORAGE_KEY) => {
   try {
-    const raw = sessionStorage.getItem(key);
+    let raw = sessionStorage.getItem(key);
+    if (!raw && key === 'confidentPositionsPageState') {
+      raw = sessionStorage.getItem('engagedClientsPageState');
+    }
     if (raw) {
       return JSON.parse(raw);
     }
@@ -922,18 +967,20 @@ function Positions({ isEngagedMode = false }) {
   const queryClient = useQueryClient();
   useLiveRefresh();
 
-  const storageKey = isEngagedMode ? 'engagedClientsPageState' : DEFAULT_STORAGE_KEY;
-  const positionsQueryKey = useMemo(() => ['positions', isEngagedMode ? 'engaged' : 'standard'], [isEngagedMode]);
+  const storageKey = isEngagedMode ? 'confidentPositionsPageState' : DEFAULT_STORAGE_KEY;
+  const positionsQueryKey = useMemo(() => ['positions', isEngagedMode ? 'confident' : 'standard'], [isEngagedMode]);
   const setPositionsCache = (updater) => {
     queryClient.setQueryData(positionsQueryKey, updater);
   };
 
   const rootRef = useRef(null);
   const tableWrapperRef = useRef(null);
+  const searchContainerRef = useRef(null);
   const isRestoredRef = useRef(false);
   const scrollTimeoutRef = useRef(null);
   const lastScrollTimeRef = useRef(0);
 
+  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
   const [loading, setLoading] = useState(true); // covers clients/tas/legend fetch only
   const [error, setError] = useState(null);
   const [clients, setClients] = useState([]);
@@ -948,6 +995,10 @@ function Positions({ isEngagedMode = false }) {
     const statusParam = searchParams.get('status');
     if (statusParam !== null && statusParam !== '') {
       initialFilters.status = normalizeStatusParam(statusParam);
+    }
+    const searchParam = searchParams.get('search');
+    if (searchParam !== null && searchParam !== '') {
+      initialFilters.search = searchParam;
     }
     return initialFilters;
   });
@@ -1088,6 +1139,24 @@ function Positions({ isEngagedMode = false }) {
     queryFn: () => getPositions({ engaged: isEngagedMode }).then(res => res.data),
   });
 
+  // Global query across ALL positions for instant cross-tab search dropdown
+  const {
+    data: allPositions = []
+  } = useQuery({
+    queryKey: ['positions', 'all'],
+    queryFn: () => getPositions().then(res => res.data),
+  });
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setIsSearchDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // ---- Data fetch (clients / TAs — unrelated to live updates) ----
   useEffect(() => {
     const fetchData = async () => {
@@ -1217,6 +1286,15 @@ function Positions({ isEngagedMode = false }) {
         return prev;
       });
     }
+    const searchParam = searchParams.get('search');
+    if (searchParam !== null) {
+      setFilters(prev => {
+        if (prev.search !== searchParam) {
+          return { ...prev, search: searchParam };
+        }
+        return prev;
+      });
+    }
   }, [searchParams]);
 
   const handleFilterChange = (field, value) => {
@@ -1229,6 +1307,14 @@ function Positions({ isEngagedMode = false }) {
         nextParams.delete('status');
       }
       setSearchParams(nextParams, { replace: true });
+    } else if (field === 'search') {
+      const nextParams = new URLSearchParams(searchParams);
+      if (value) {
+        nextParams.set('search', value);
+      } else {
+        nextParams.delete('search');
+      }
+      setSearchParams(nextParams, { replace: true });
     }
   };
 
@@ -1236,7 +1322,9 @@ function Positions({ isEngagedMode = false }) {
     setFilters({ client: '', assignee: '', status: '', pLevel: '', highlightColor: '', flag: '', search: '' });
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('status');
+    nextParams.delete('search');
     setSearchParams(nextParams, { replace: true });
+    setIsSearchDropdownOpen(false);
   };
 
   const computeFlagPopoverDirection = (triggerElement) => {
@@ -1315,6 +1403,45 @@ function Positions({ isEngagedMode = false }) {
 
     return [...focus, ...others, ...clientDecision];
   }, [positions, filters]);
+
+  // Global matches across ALL positions for the instant search dropdown (Approach C)
+  const globalMatches = useMemo(() => {
+    if (!filters.search || !filters.search.trim()) return [];
+    const searchWords = filters.search.toLowerCase().split(/\s+/).filter(Boolean);
+    if (searchWords.length === 0) return [];
+
+    return allPositions.filter(pos => {
+      const joid = (pos.jobOrderId || '').toLowerCase();
+      const posTitle = (pos.position || '').toLowerCase();
+      const clientName = (pos.client?.clientName || '').toLowerCase();
+      const assigneeName = (pos.assignee?.name || '').toLowerCase();
+      const parallelNames = (pos.parallelAssignees || []).map(pa => (pa?.name || '').toLowerCase()).join(' ');
+
+      return searchWords.every(word =>
+        joid.includes(word) ||
+        posTitle.includes(word) ||
+        clientName.includes(word) ||
+        assigneeName.includes(word) ||
+        parallelNames.includes(word)
+      );
+    });
+  }, [allPositions, filters.search]);
+
+  const globalMatchesSummary = useMemo(() => {
+    const confident = globalMatches.filter(p => p.isEngaged).length;
+    const standard = globalMatches.filter(p => !p.isEngaged).length;
+    return { confident, standard, total: globalMatches.length };
+  }, [globalMatches]);
+
+  const handleSelectGlobalSearchResult = (pos) => {
+    setIsSearchDropdownOpen(false);
+    const isConfident = Boolean(pos.isEngaged);
+    if (isConfident === isEngagedMode) {
+      handleOpenDetails(pos, 'details');
+    } else {
+      navigate(isConfident ? `/confident-positions?search=${encodeURIComponent(pos.jobOrderId)}` : `/positions?search=${encodeURIComponent(pos.jobOrderId)}`);
+    }
+  };
 
   // ---- CRUD handlers ----
 
@@ -1724,17 +1851,8 @@ function Positions({ isEngagedMode = false }) {
     const ids = Array.from(selectedPositionIds);
     const targetEngagement = !isEngagedMode;
     try {
-      const res = await bulkUpdateEngagement(ids, targetEngagement);
+      await bulkUpdateEngagement(ids, targetEngagement);
       queryClient.invalidateQueries({ queryKey: ['positions'] });
-      queryClient.invalidateQueries({ queryKey: ['clients'] });
-      const clientNames = res.data?.clients?.length ? res.data.clients.join(', ') : 'Selected client(s)';
-      const posCount = res.data?.modifiedPositionsCount ?? ids.length;
-      setFeedbackToast({
-        type: 'success',
-        message: isEngagedMode
-          ? `Successfully moved ${clientNames} and all ${posCount} positions back to Positions.`
-          : `Successfully marked ${clientNames} as Engaged. All ${posCount} positions are now in Engaged Clients.`
-      });
       setIsSelectMode(false);
       setSelectedPositionIds(new Set());
       setShowBulkConfirmModal(false);
@@ -1748,30 +1866,28 @@ function Positions({ isEngagedMode = false }) {
     }
   };
 
+  const handleQuickToggleConfidence = async (pos) => {
+    const targetEngagement = !pos.isEngaged;
+    try {
+      await bulkUpdateEngagement([pos._id], targetEngagement);
+      queryClient.invalidateQueries({ queryKey: ['positions'] });
+    } catch (err) {
+      setFeedbackToast({
+        type: 'error',
+        message: err.response?.data?.error || err.message || 'Failed to update confidence status'
+      });
+    }
+  };
+
   // ---- Options ----
   const clientOptions = useMemo(() => {
-    if (isEngagedMode) {
-      const engagedClientIds = new Set(
-        clients.filter(c => c.isEngaged).map(c => c._id.toString())
-      );
-      positions.forEach(p => {
-        if (p.client?._id) engagedClientIds.add(p.client._id.toString());
-      });
-      return clients
-        .filter(c => engagedClientIds.has(c._id.toString()))
-        .map(c => ({ value: c._id, label: c.clientName }));
-    } else {
-      const engagedClientIds = new Set(
-        clients.filter(c => c.isEngaged).map(c => c._id.toString())
-      );
-      positions.forEach(p => {
-        if (p.client?.isEngaged) engagedClientIds.add(p.client._id.toString());
-      });
-      return clients
-        .filter(c => !engagedClientIds.has(c._id.toString()))
-        .map(c => ({ value: c._id, label: c.clientName }));
-    }
-  }, [clients, positions, isEngagedMode]);
+    const activeClientIds = new Set(
+      positions.map(p => (p.client?._id || p.client)?.toString()).filter(Boolean)
+    );
+    return clients
+      .filter(c => activeClientIds.has(c._id.toString()))
+      .map(c => ({ value: c._id, label: c.clientName }));
+  }, [clients, positions]);
 
   const assigneeOptions = [
     { value: 'unassigned', label: 'Unassigned' },
@@ -1809,7 +1925,7 @@ function Positions({ isEngagedMode = false }) {
     <div ref={rootRef} className="positions">
       <div className="positions-header">
         <div>
-          <h1>{isEngagedMode ? 'Engaged Positions' : 'Positions'}</h1>
+          <h1>{isEngagedMode ? 'Confident Positions' : 'Positions'}</h1>
         </div>
         <div className="header-actions">
           <button
@@ -1881,7 +1997,7 @@ function Positions({ isEngagedMode = false }) {
               disabled={selectedPositionIds.size === 0 || isBulkUpdating}
               onClick={handleInitiateBulkMove}
             >
-              {isEngagedMode ? 'Move Back to Positions' : 'Move to Engaged Clients'}
+              {isEngagedMode ? 'Move Back to Positions' : 'Move to Confident Positions'}
             </button>
 
             <button
@@ -1897,14 +2013,137 @@ function Positions({ isEngagedMode = false }) {
       )}
 
       <div className="filters-bar">
-        <input
-          type="text"
-          name="search"
-          placeholder="Search by JO ID, Client, Designation or Assignee..."
-          value={filters.search}
-          onChange={(e) => handleFilterChange('search', e.target.value)}
-          className="filter-search"
-        />
+        <div className="filter-search-container" ref={searchContainerRef}>
+          <div className="filter-search-input-wrap">
+            <input
+              type="text"
+              name="positions_filter_search"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
+              data-lpignore="true"
+              placeholder="Search by JO ID, Client, Designation or Assignee..."
+              value={filters.search}
+              onChange={(e) => {
+                handleFilterChange('search', e.target.value);
+                setIsSearchDropdownOpen(true);
+              }}
+              onFocus={() => {
+                if (filters.search && filters.search.trim().length > 0) {
+                  setIsSearchDropdownOpen(true);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setIsSearchDropdownOpen(false);
+                }
+              }}
+              className="filter-search"
+            />
+            {filters.search && (
+              <button
+                type="button"
+                className="filter-search-clear-btn"
+                onClick={() => {
+                  handleFilterChange('search', '');
+                  setIsSearchDropdownOpen(false);
+                }}
+                title="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Global Quick-Search Dropdown (Approach C) */}
+          {isSearchDropdownOpen && filters.search && filters.search.trim().length > 0 && (
+            <div className="global-search-dropdown" onClick={(e) => e.stopPropagation()}>
+              <div className="global-search-header">
+                <span className="global-search-title">Global Positions Search</span>
+                <div className="global-search-stats">
+                  <span className="search-stat search-stat--standard">
+                    Standard: <strong>{globalMatchesSummary.standard}</strong>
+                  </span>
+                  <span className="search-stat search-stat--confident">
+                    <Star size={12} className="fill-amber-400 text-amber-500" />
+                    Confident: <strong>{globalMatchesSummary.confident}</strong>
+                  </span>
+                </div>
+              </div>
+
+              <div className="global-search-results">
+                {globalMatches.length === 0 ? (
+                  <div className="global-search-empty">
+                    No positions found matching "{filters.search}" in Standard or Confident.
+                  </div>
+                ) : (
+                  globalMatches.slice(0, 15).map(p => {
+                    const isConfident = Boolean(p.isEngaged);
+                    const isInCurrentTab = isConfident === isEngagedMode;
+                    const statusColor = STATUS_COLORS[p.status] || { bg: '#f3f4f6', text: '#374151' };
+                    return (
+                      <div
+                        key={p._id}
+                        className={`global-search-item ${isInCurrentTab ? 'item-current-tab' : 'item-other-tab'}`}
+                        onClick={() => handleSelectGlobalSearchResult(p)}
+                      >
+                        <div className="global-search-item-left">
+                          <span className={`search-pos-badge ${isConfident ? 'search-pos-badge--confident' : 'search-pos-badge--standard'}`}>
+                            {isConfident ? (
+                              <>
+                                <Star size={11} className="fill-amber-400 text-amber-500" />
+                                Confident
+                              </>
+                            ) : (
+                              'Standard'
+                            )}
+                          </span>
+                          <span className="global-search-joid">{p.jobOrderId}</span>
+                          <span className="global-search-pos-name" title={p.position}>{p.position}</span>
+                          <span className="global-search-client">· {p.client?.clientName || '—'}</span>
+                        </div>
+
+                        <div className="global-search-item-right">
+                          {p.assignee?.name && (
+                            <span className="global-search-assignee">{p.assignee.name}</span>
+                          )}
+                          <span
+                            className="global-search-status"
+                            style={{
+                              background: statusColor.bg,
+                              color: statusColor.text
+                            }}
+                          >
+                            {p.status}
+                          </span>
+                          <span className="global-search-action-hint">
+                            {isInCurrentTab ? 'Open details' : (isConfident ? 'Go to Confident →' : 'Go to Positions →')}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                {globalMatches.length > 15 && (
+                  <div className="global-search-more-hint">
+                    Showing first 15 of {globalMatches.length} total matches across both tabs.
+                  </div>
+                )}
+              </div>
+
+              <div className="global-search-footer">
+                <button
+                  type="button"
+                  className="global-search-filter-current-btn"
+                  onClick={() => setIsSearchDropdownOpen(false)}
+                >
+                  Filter current view only (Esc)
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
         <div className="filters-group">
           <HeaderFilter options={clientOptions} value={filters.client} onChange={(v) => handleFilterChange('client', v)} allLabel="All" label="Client" showLabel searchable />
           <HeaderFilter options={filterStatusOptions} value={filters.status} onChange={(v) => handleFilterChange('status', v)} allLabel="All" label="Status" showLabel />
@@ -2174,10 +2413,26 @@ function Positions({ isEngagedMode = false }) {
 
                         {colVisibility.jobOrderId !== false && (
                           <td className="td-sticky-1" style={{ left: `${selectLeft}px` }}>
-                            <Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link>
-                            {(pos.isReactivated || pos.status === 'Reactivated') && (
-                              <span className="reactivated-tag" title="Reactivated Requirement">↻</span>
-                            )}
+                            <div className="jo-cell-content">
+                              <button
+                                type="button"
+                                className={`quick-confidence-star-btn ${pos.isEngaged ? 'active' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleQuickToggleConfidence(pos);
+                                }}
+                                title={pos.isEngaged ? "Confident Position (Click to remove)" : "Click to mark as Confident Position"}
+                              >
+                                <Star
+                                  size={14}
+                                  className={`quick-confidence-star-icon ${pos.isEngaged ? 'star-filled' : 'star-outline'}`}
+                                />
+                              </button>
+                              <Link to={`/positions/${pos._id}`} className="jo-link">{pos.jobOrderId}</Link>
+                              {(pos.isReactivated || pos.status === 'Reactivated') && (
+                                <span className="reactivated-tag" title="Reactivated Requirement">↻</span>
+                              )}
+                            </div>
                           </td>
                         )}
 
@@ -2510,6 +2765,7 @@ function Positions({ isEngagedMode = false }) {
                 isSelectMode={isSelectMode}
                 selectedPositionIds={selectedPositionIds}
                 onToggleSelect={handleToggleSelect}
+                onToggleConfidence={handleQuickToggleConfidence}
               />
               {PLEVEL_OPTIONS.map(pl => (
                 <PositionGroup
@@ -2521,6 +2777,7 @@ function Positions({ isEngagedMode = false }) {
                   isSelectMode={isSelectMode}
                   selectedPositionIds={selectedPositionIds}
                   onToggleSelect={handleToggleSelect}
+                  onToggleConfidence={handleQuickToggleConfidence}
                 />
               ))}
             </>
@@ -2532,19 +2789,45 @@ function Positions({ isEngagedMode = false }) {
         <div className="modal-overlay" onClick={() => !isBulkUpdating && setShowBulkConfirmModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 12px', fontSize: '18px', fontWeight: '700', color: '#0f3d24' }}>
-              {isEngagedMode ? 'Move Client Back to Positions' : 'Move Client to Engaged Clients'}
+              {isEngagedMode ? 'Move Back to Positions' : 'Move to Confident Positions'}
             </h2>
-            <p style={{ margin: '0 0 20px', fontSize: '14px', color: '#4b5563', lineHeight: '1.5' }}>
+            <p style={{ margin: '0 0 16px', fontSize: '14px', color: '#4b5563', lineHeight: '1.5' }}>
               {isEngagedMode ? (
                 <>
-                  Do you want to move the entire client{selectedUniqueClients.length > 1 ? 's' : ''}{selectedUniqueClients.length > 0 ? <> (<strong>{selectedUniqueClients.map(c => c.name).join(', ')}</strong>)</> : ''} back to the normal Positions page? This will remove all positions belonging to {selectedUniqueClients.length > 1 ? 'these clients' : 'this client'} from Engaged Clients.
+                  Are you sure you want to move <strong>{selectedPositionIds.size}</strong> selected position{selectedPositionIds.size > 1 ? 's' : ''} back to normal Positions?
                 </>
               ) : (
                 <>
-                  Do you want to move the entire client{selectedUniqueClients.length > 1 ? 's' : ''}{selectedUniqueClients.length > 0 ? <> (<strong>{selectedUniqueClients.map(c => c.name).join(', ')}</strong>)</> : ''} to Engaged Clients? This will classify {selectedUniqueClients.length > 1 ? 'these clients' : 'this client'} as Engaged and automatically display all belonging positions in Engaged Clients.
+                  Are you sure you want to move <strong>{selectedPositionIds.size}</strong> selected position{selectedPositionIds.size > 1 ? 's' : ''} to <strong>Confident Positions</strong>?
                 </>
               )}
             </p>
+            {selectedPositionsList.length > 0 && (
+              <div style={{
+                maxHeight: '140px',
+                overflowY: 'auto',
+                background: '#f9fafb',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid #e5e7eb',
+                marginBottom: '16px',
+                fontSize: '13px',
+                color: '#374151'
+              }}>
+                <ul style={{ margin: 0, paddingLeft: '18px' }}>
+                  {selectedPositionsList.slice(0, 8).map(p => (
+                    <li key={p._id} style={{ margin: '4px 0' }}>
+                      <strong>{p.jobOrderId}</strong>: {p.position} {p.client?.clientName ? `(${p.client.clientName})` : ''}
+                    </li>
+                  ))}
+                  {selectedPositionsList.length > 8 && (
+                    <li style={{ color: '#6b7280', fontStyle: 'italic' }}>
+                      ...and {selectedPositionsList.length - 8} more
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
                 type="button"
@@ -2568,7 +2851,7 @@ function Positions({ isEngagedMode = false }) {
               >
                 {isBulkUpdating
                   ? 'Moving...'
-                  : (isEngagedMode ? 'Move Entire Client Back' : 'Move to Engaged Clients')}
+                  : (isEngagedMode ? 'Move Back to Positions' : 'Move to Confident Positions')}
               </button>
             </div>
           </div>

@@ -64,7 +64,7 @@ export default function CandidatePipeline({
   onRequestWithdrawal
 }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [qualityFilter, setQualityFilter] = useState('ALL');
   const [setFilter, setSetFilter] = useState('ALL');
   const [historyCandidateId, setHistoryCandidateId] = useState(null);
@@ -142,23 +142,32 @@ export default function CandidatePipeline({
         }
       }
 
-      // 2. Consolidated Status filter
-      if (statusFilter !== 'ALL') {
-        const isWithdrawn = Boolean(candidate.isWithdrawn);
+      // 2. Two-Stage Status filter (Section 4)
+      if (statusFilter !== 'all' && statusFilter !== 'ALL') {
         const clientStatus = candidate.clientShortlistStatus || 'Pending';
+        const effectiveOutcome =
+          clientStatus === 'Shortlisted'
+            ? candidate.interviewOutcome ||
+              (candidate.isWithdrawn ? 'Withdrawn' : candidate.isPlaced ? 'Selected' : 'In Progress')
+            : '';
 
-        if (statusFilter === 'WITHDRAWN') {
-          if (!isWithdrawn) return false;
-        } else if (statusFilter === 'CLIENT_SHORTLISTED') {
-          if (isWithdrawn || clientStatus !== 'Shortlisted') return false;
-        } else if (statusFilter === 'CLIENT_REJECTED') {
-          if (isWithdrawn || clientStatus !== 'Rejected') return false;
-        } else if (statusFilter === 'PENDING') {
-          if (isWithdrawn || clientStatus !== 'Pending') return false;
-        } else if (statusFilter === 'INTERNALLY_SHORTLISTED') {
-          if (isWithdrawn || clientStatus === 'Rejected' || candidate.internalShortlistStatus === 'Rejected') {
+        if (statusFilter === 'pending' || statusFilter === 'PENDING') {
+          if (clientStatus !== 'Pending') return false;
+        } else if (statusFilter === 'shortlisted' || statusFilter === 'CLIENT_SHORTLISTED') {
+          if (clientStatus !== 'Shortlisted') return false;
+        } else if (statusFilter === 'interviewRejected') {
+          if (clientStatus !== 'Shortlisted' || !String(effectiveOutcome).startsWith('Rejected')) {
             return false;
           }
+        } else if (statusFilter === 'withdrawn' || statusFilter === 'WITHDRAWN') {
+          if (
+            !(clientStatus === 'Shortlisted' && effectiveOutcome === 'Withdrawn') &&
+            !candidate.isWithdrawn
+          ) {
+            return false;
+          }
+        } else if (statusFilter === 'cvRejected' || statusFilter === 'CLIENT_REJECTED') {
+          if (clientStatus !== 'Rejected') return false;
         }
       }
 
@@ -193,13 +202,13 @@ export default function CandidatePipeline({
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
-    statusFilter !== 'ALL' ||
+    (statusFilter !== 'all' && statusFilter !== 'ALL') ||
     qualityFilter !== 'ALL' ||
     setFilter !== 'ALL';
 
   const handleResetFilters = () => {
     setSearchQuery('');
-    setStatusFilter('ALL');
+    setStatusFilter('all');
     setQualityFilter('ALL');
     setSetFilter('ALL');
   };
@@ -374,12 +383,12 @@ export default function CandidatePipeline({
           aria-label="Status filter"
           className="cv-demo3-filter-select"
         >
-          <option value="ALL">All statuses</option>
-          <option value="INTERNALLY_SHORTLISTED">Internally shortlisted</option>
-          <option value="CLIENT_SHORTLISTED">Client shortlisted</option>
-          <option value="CLIENT_REJECTED">Client rejected</option>
-          <option value="WITHDRAWN">Withdrawn</option>
-          <option value="PENDING">Pending</option>
+          <option value="all">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="shortlisted">Client Shortlisted (All)</option>
+          <option value="interviewRejected">Rejected in Interview</option>
+          <option value="withdrawn">Withdrawn</option>
+          <option value="cvRejected">CV Rejected</option>
         </select>
 
         <select
@@ -409,14 +418,13 @@ export default function CandidatePipeline({
         </select>
       </div>
 
-      {/* Compact Candidate List */}
+      {/* Compact Candidate List (4 Columns: Candidate / CV, Quality, Client CV decision, Interview / final outcome) */}
       <div className="cv-demo3-list-box">
         <div className="cv-demo3-list-head">
           <b>Candidate / CV</b>
-          <b>Internal status</b>
           <b>Quality</b>
-          <b>Client decision</b>
-          <b className="cv-demo3-head-actions">Actions</b>
+          <b>Client CV decision</b>
+          <b>Interview / final outcome</b>
         </div>
 
         {shortlistedSubmissions.length === 0 ? (
@@ -444,6 +452,7 @@ export default function CandidatePipeline({
               <CandidateCard
                 key={candidate._id}
                 candidate={candidate}
+                position={position}
                 selectedAttempt={selectedAttempt}
                 tas={tas}
                 positionSets={safePositionSets}

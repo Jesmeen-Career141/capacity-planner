@@ -16,7 +16,7 @@ import {
   LogOut,
   ListChecks,
   CalendarDays,
-  Handshake,
+  ShieldCheck,
 } from "lucide-react";
 
 const navItems = [
@@ -27,7 +27,7 @@ const navItems = [
   { to: "/submission-sets", label: "Submission Sets", icon: Layers },
   { to: "/ta-board", label: "TA Board", icon: ClipboardList },
   { to: "/positions", label: "Positions", icon: Briefcase },
-  { to: "/engaged-clients", label: "Engaged Clients", icon: Handshake },
+  { to: "/confident-positions", label: "Confident Positions", icon: ShieldCheck },
   { to: "/strategies", label: "Strategies", icon: ListChecks },
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/tas", label: "TAs", icon: UserCheck },

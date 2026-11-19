@@ -6,6 +6,7 @@ const PositionAttempt = require('../models/PositionAttempt');
 const Client = require('../models/Client');
 const TA = require('../models/TA');
 const { getNextSequence } = require('../models/ActivityCounter');
+const { syncPositionCvCounts, mapInterviewToOutcome } = require('../utils/cvSync');
 
 const ROUND_SEQUENCE_MAP = {
   'First Round': 1,
@@ -13,6 +14,86 @@ const ROUND_SEQUENCE_MAP = {
   'Third Round': 3,
   'Final Round': 4
 };
+
+/**
+ * Synchronizes an Interview record's scheduling, status, or decision back to the
+ * corresponding CandidateSubmission document in CV Tracking.
+ * - Protects Stage 1 Client CV Decision (`clientShortlistStatus = 'Shortlisted'`)
+ * - Maps interview round + decision/status to `interviewOutcome`
+ * - Never overwrites manually entered `candidateNote`
+ */
+async function syncInterviewToCandidateSubmission(interview, candidateSubDoc = null, isSchedulingOnly = false) {
+  try {
+    if (!interview) return null;
+    let candidateSub = candidateSubDoc;
+    if (!candidateSub && interview.candidateSubmission) {
+      candidateSub = await CandidateSubmission.findById(interview.candidateSubmission);
+    }
+    if (!candidateSub && interview.position && interview.candidateName) {
+      const escaped = String(interview.candidateName).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (escaped) {
+        candidateSub = await CandidateSubmission.findOne({
+          position: interview.position,
+          unverifiedLabel: { $regex: new RegExp(`^${escaped}`, 'i') }
+        });
+      }
+    }
+    if (!candidateSub) return null;
+
+    let changed = false;
+
+    // If Pending (or not yet Shortlisted), automatically promote to Shortlisted when an interview is scheduled/updated
+    if (candidateSub.clientShortlistStatus === 'Pending' || !candidateSub.sentToClient) {
+      candidateSub.sentToClient = true;
+      if (!candidateSub.sentToClientDate) {
+        candidateSub.sentToClientDate = new Date();
+      }
+      candidateSub.clientShortlistStatus = 'Shortlisted';
+      if (!candidateSub.clientShortlistDate) {
+        candidateSub.clientShortlistDate = new Date();
+      }
+      changed = true;
+    }
+
+    if (isSchedulingOnly) {
+      if (!candidateSub.interviewOutcome) {
+        candidateSub.interviewOutcome = 'In Progress';
+        candidateSub.interviewOutcomeDate = new Date();
+        changed = true;
+      }
+    } else {
+      const mappedOutcome = mapInterviewToOutcome(interview);
+      if (mappedOutcome && candidateSub.interviewOutcome !== mappedOutcome) {
+        candidateSub.interviewOutcome = mappedOutcome;
+        candidateSub.interviewOutcomeDate = interview.decisionDate || new Date();
+        if (mappedOutcome === 'Withdrawn') {
+          candidateSub.isWithdrawn = true;
+          if (!candidateSub.withdrawalDate) candidateSub.withdrawalDate = new Date();
+          if (!candidateSub.withdrawalReason) candidateSub.withdrawalReason = 'Candidate withdrew';
+        } else {
+          candidateSub.isWithdrawn = false;
+        }
+        if (mappedOutcome === 'Selected') {
+          candidateSub.isPlaced = true;
+          if (!candidateSub.placementDate) candidateSub.placementDate = new Date();
+        }
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      await candidateSub.save();
+      if (candidateSub.position) {
+        await syncPositionCvCounts(candidateSub.position);
+      }
+    }
+
+    return candidateSub;
+  } catch (err) {
+    console.warn('[interviewController] Non-fatal sync warning:', err.message);
+    return null;
+  }
+}
 
 /**
  * 1. Get Interviews with Server-Side Filtering, Sorting & Pagination
@@ -50,11 +131,29 @@ exports.getInterviews = async (req, res) => {
     }
 
     // Specific entity filters
-    if (client && mongoose.Types.ObjectId.isValid(client)) query.client = client;
-    if (position && mongoose.Types.ObjectId.isValid(position)) query.position = position;
+    if (client) {
+      if (mongoose.Types.ObjectId.isValid(client)) {
+        query.client = client;
+      } else {
+        query.clientName = { $regex: client.trim(), $options: 'i' };
+      }
+    }
+    if (position) {
+      if (mongoose.Types.ObjectId.isValid(position)) {
+        query.position = position;
+      } else {
+        query.positionName = { $regex: position.trim(), $options: 'i' };
+      }
+    }
     if (req.query.attempt && mongoose.Types.ObjectId.isValid(req.query.attempt)) query.attempt = req.query.attempt;
-    if (ta && mongoose.Types.ObjectId.isValid(ta)) {
-      query.$or = [{ sourcingTA: ta }, { interviewCoordinator: ta }];
+    if (ta) {
+      if (mongoose.Types.ObjectId.isValid(ta)) {
+        query.$or = [{ sourcingTA: ta }, { interviewCoordinator: ta }];
+      } else {
+        query.$or = [
+          { taName: { $regex: ta.trim(), $options: 'i' } }
+        ];
+      }
     }
     if (round && ROUND_VALUES.includes(round)) query.round = round;
     if (status && STATUS_VALUES.includes(status)) query.status = status;
@@ -75,6 +174,9 @@ exports.getInterviews = async (req, res) => {
       const searchRegex = { $regex: s, $options: 'i' };
       const searchConditions = [
         { candidateName: searchRegex },
+        { contactNumber: searchRegex },
+        { email: searchRegex },
+        { taName: searchRegex },
         { jobOrderId: searchRegex },
         { clientName: searchRegex },
         { positionName: searchRegex },
@@ -90,7 +192,7 @@ exports.getInterviews = async (req, res) => {
     }
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
+    const limitNum = Math.max(1, Math.min(500, parseInt(limit, 10) || 20));
     const skip = (pageNum - 1) * limitNum;
 
     const sortDir = sortOrder === 'asc' ? 1 : -1;
@@ -247,6 +349,9 @@ exports.createInterview = async (req, res) => {
       interviewId,
       candidateSubmission: candidateSub?._id || null,
       candidateName: resolvedCandidateName,
+      contactNumber: req.body.contactNumber ? String(req.body.contactNumber).trim() : (candidateSub?.contactNumber || ''),
+      email: req.body.email ? String(req.body.email).trim() : (candidateSub?.email || ''),
+      taName: req.body.taName ? String(req.body.taName).trim() : '',
       position: pos._id,
       jobOrderId: pos.jobOrderId,
       client: pos.client?._id || candidateSub?.position,
@@ -284,6 +389,9 @@ exports.createInterview = async (req, res) => {
 
     await newInterview.save();
 
+    // Synchronize scheduling with CV Tracking (Pending -> Shortlisted + In Progress)
+    await syncInterviewToCandidateSubmission(newInterview, candidateSub, true);
+
     res.status(201).json({
       message: 'Interview successfully scheduled',
       interview: newInterview
@@ -307,6 +415,9 @@ exports.updateInterview = async (req, res) => {
       interviewerDesignation,
       schedulingNotes,
       interviewCoordinatorId,
+      contactNumber,
+      email,
+      taName,
       updatedBy = 'Coordinator'
     } = req.body;
 
@@ -323,6 +434,9 @@ exports.updateInterview = async (req, res) => {
     if (interviewerDesignation !== undefined) interview.interviewerDesignation = interviewerDesignation.trim();
     if (schedulingNotes !== undefined) interview.schedulingNotes = schedulingNotes.trim();
     if (interviewCoordinatorId !== undefined) interview.interviewCoordinator = interviewCoordinatorId || null;
+    if (contactNumber !== undefined) interview.contactNumber = String(contactNumber).trim();
+    if (email !== undefined) interview.email = String(email).trim();
+    if (taName !== undefined) interview.taName = String(taName).trim();
 
     interview.auditTrail.push({
       action: 'Details Updated',
@@ -479,6 +593,9 @@ exports.updateFeedbackAndDecision = async (req, res) => {
 
     await interview.save();
 
+    // Synchronize interview decision with CV Tracking interviewOutcome
+    await syncInterviewToCandidateSubmission(interview, null, false);
+
     res.json({
       message: 'Interview feedback and decision updated successfully',
       interview
@@ -519,6 +636,11 @@ exports.updateStatus = async (req, res) => {
     });
 
     await interview.save();
+
+    // Synchronize interview status (e.g. Withdrew) with CV Tracking interviewOutcome
+    if (status === 'Withdrew') {
+      await syncInterviewToCandidateSubmission(interview, null, false);
+    }
 
     res.json({
       message: 'Interview status updated successfully',
@@ -671,13 +793,46 @@ exports.getPositionInterviewTracking = async (req, res) => {
  */
 exports.getInterviewDashboardSummary = async (req, res) => {
   try {
-    const { client, position, ta, dateFrom, dateTo } = req.query;
+    const { client, position, ta, dateFrom, dateTo, search } = req.query;
 
     const filter = {};
-    if (client && mongoose.Types.ObjectId.isValid(client)) filter.client = client;
-    if (position && mongoose.Types.ObjectId.isValid(position)) filter.position = position;
-    if (ta && mongoose.Types.ObjectId.isValid(ta)) {
-      filter.$or = [{ sourcingTA: ta }, { interviewCoordinator: ta }];
+    if (client) {
+      if (mongoose.Types.ObjectId.isValid(client)) {
+        filter.client = client;
+      } else {
+        filter.clientName = { $regex: client.trim(), $options: 'i' };
+      }
+    }
+    if (position) {
+      if (mongoose.Types.ObjectId.isValid(position)) {
+        filter.position = position;
+      } else {
+        filter.positionName = { $regex: position.trim(), $options: 'i' };
+      }
+    }
+    if (ta) {
+      if (mongoose.Types.ObjectId.isValid(ta)) {
+        filter.$or = [{ sourcingTA: ta }, { interviewCoordinator: ta }];
+      } else {
+        filter.taName = { $regex: ta.trim(), $options: 'i' };
+      }
+    }
+    if (search && search.trim()) {
+      const s = search.trim();
+      const sRegex = { $regex: s, $options: 'i' };
+      const sConditions = [
+        { clientName: sRegex },
+        { positionName: sRegex },
+        { candidateName: sRegex },
+        { jobOrderId: sRegex },
+        { taName: sRegex }
+      ];
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, { $or: sConditions }];
+        delete filter.$or;
+      } else {
+        filter.$or = sConditions;
+      }
     }
     if (dateFrom || dateTo) {
       filter.interviewDate = {};

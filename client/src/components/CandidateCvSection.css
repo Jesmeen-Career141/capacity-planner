@@ -606,11 +606,11 @@
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) 150px 120px 140px 95px;
+  grid-template-columns: minmax(0, 38fr) minmax(115px, 14fr) minmax(150px, 23fr) minmax(195px, 25fr);
   gap: 10px;
   align-items: center;
   font-size: 12px;
-  color: #202a24;
+  color: #26372e;
 }
 
 .cv-demo3-head-actions {
@@ -624,7 +624,7 @@
 
 .cv-demo3-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) 150px 120px 140px 95px;
+  grid-template-columns: minmax(0, 38fr) minmax(115px, 14fr) minmax(150px, 23fr) minmax(195px, 25fr);
   gap: 10px;
   align-items: center;
   padding: 10px 14px;
@@ -649,14 +649,26 @@
   flex-direction: column;
 }
 
-.cv-demo3-candidate-name {
-  font-size: 12px;
+.cv-demo3-candidate-name,
+.cv-demo3-candidate-name-btn {
+  font-size: 12.5px;
   font-weight: 700;
-  color: #202a24;
-  display: block;
+  color: #27372e;
+  display: inline-block;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cv-demo3-candidate-name-btn:hover {
+  color: var(--cv-g);
+  text-decoration: underline;
 }
 
 .cv-demo3-candidate-meta {
@@ -828,17 +840,183 @@
 }
 
 .cv-demo3-select--shortlisted {
-  background: #e4f4e9;
-  border-color: #86efac;
-  color: #14704a;
-  font-weight: 600;
+  background: #f4fbf6;
+  border-color: #9bd5b3;
+  color: #17633e;
+  font-weight: 650;
 }
 
 .cv-demo3-select--rejected {
-  background: #fef2f2;
-  border-color: #fecaca;
-  color: #b91c1c;
+  background: #fff7f6;
+  border-color: #f1b2ad;
+  color: #b42318;
   font-weight: 600;
+}
+
+.cv-demo3-select--withdrawn {
+  background: #fff3d3;
+  border-color: #f3d27c;
+  color: #9a4b00;
+  font-weight: 650;
+}
+
+.cv-demo3-select--progress {
+  background: #eaf2ff;
+  border-color: #b9d0fb;
+  color: #164da6;
+  font-weight: 600;
+}
+
+.cv-demo3-select--selected {
+  background: #e4f4e8;
+  border-color: #79bd8c;
+  color: #14532d;
+  font-weight: 700;
+}
+
+.cv-v3-second-wrap {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.cv-v3-second-wrap select {
+  min-width: 155px;
+  flex: 1;
+}
+
+.cv-v3-empty {
+  color: #98a39d;
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* Optional Candidate Note Hover Icon & Tooltip (V3 Prototype) */
+.reason-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.reason-btn {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  border: 1px solid #d5b66c;
+  background: #fff8e6;
+  color: #956000;
+  font-weight: 800;
+  font-size: 12px;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.reason-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 40;
+  left: 50%;
+  bottom: calc(100% + 9px);
+  transform: translateX(-50%);
+  width: 205px;
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #26352d;
+  color: #ffffff;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.2);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-word;
+  pointer-events: none;
+}
+
+.reason-tooltip:after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #26352d;
+}
+
+.reason-tooltip strong {
+  display: block;
+  margin-bottom: 3px;
+  color: #f5d88e;
+  font-size: 11px;
+}
+
+.reason-wrap:hover .reason-tooltip,
+.reason-wrap:focus-within .reason-tooltip {
+  display: block;
+}
+
+/* Inline Note Trigger & Editor */
+.cv-demo3-note-trigger-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #17633e;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cv-demo3-note-trigger-link:hover {
+  text-decoration: underline;
+}
+
+.cv-demo3-note-editor {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  flex-wrap: wrap;
+}
+
+.cv-demo3-note-input {
+  flex: 1;
+  min-width: 180px;
+  max-width: 300px;
+  border: 1px solid #cbd9d0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  color: #24332c;
+  background: #ffffff;
+  outline: none;
+}
+
+.cv-demo3-note-input:focus {
+  border-color: #18794e;
+}
+
+.cv-demo3-note-save-btn {
+  border: 1px solid #18794e;
+  background: #18794e;
+  color: #ffffff;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cv-demo3-note-clear-btn {
+  border: 1px solid #f1b2ad;
+  background: #fff7f6;
+  color: #b42318;
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .cv-demo3-cell-actions {
